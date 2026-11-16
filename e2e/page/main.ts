@@ -179,9 +179,9 @@ async function runs(): Promise<void> {
     refused(error)
   }
 
-  // A spec that needs a second tab handed the same run asks for a long
-  // interval between chunks, so the first tab has committed nothing when the
-  // second starts and the platform hands it the same run.
+  // The interval between chunks, which the second-tab spec sets: long, so
+  // the first tab has committed nothing when the second presses Play, or
+  // short, so it has.
   const chunkSeconds = query.get("chunkSeconds")
   let played: PlayedRun | null = null
   let settled: string | null = null

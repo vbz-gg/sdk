@@ -38,68 +38,145 @@ export function byteLengthOf(body: unknown): number {
   return new TextEncoder().encode(JSON.stringify(body)).byteLength
 }
 
+/** A checkpoint, as a chunk carries it. */
+type Checkpoint = RunChunk["checkpoints"][number]
+
+/** What a chunk holds at one tick, which is never cut apart. */
+interface TickGroup {
+  readonly tick: number
+  readonly inputs: unknown[]
+  readonly checkpoints: Checkpoint[]
+  /** Each entry measured once, with a comma counted for it. */
+  bytes: number
+}
+
 /**
- * One chunk's body, cut into as few bodies as fit under `limitBytes`, each
- * with its own `throughTick`.
+ * One chunk's body, as the chunks that go on the wire: numbered from `seq`,
+ * each under `limitBytes` measured with the number it carries, and as few as
+ * fit.
  *
- * A cut falls between two ticks, never inside one, so no two bodies hold
- * inputs of the same tick and each reaches only as far as its last input:
- * the next starts after it, as the platform requires. The checkpoints and the
- * original `throughTick` go with the last body. A tick whose inputs alone are
- * over the limit is sent as one body anyway, and the platform refuses it, as
- * it would refuse such a tick from anyone.
+ * A cut falls between two ticks, never inside one, so no two pieces hold
+ * anything of the same tick, and each piece carries the inputs and the
+ * checkpoints of its own ticks: the next starts after it, as the platform
+ * requires, and a checkpoint is never carried by a piece after one that
+ * already reached its tick. Every piece before the last reaches the last
+ * tick it holds; the last reaches the chunk's own `throughTick` and also
+ * carries anything past it, such as the checkpoint of the tick the game last
+ * reported. Whatever is at or past the chunk's reach goes with the last piece
+ * whatever its size, and so does a tick over the limit on its own: the
+ * platform refuses it, as it would refuse such a tick from anyone.
  *
- * Each input is measured once and a body's size is added up from them, with
- * a comma counted for every input, so a body is never larger than measured.
+ * A body that fits whole is measured with the number it carries. Once it is
+ * cut, each piece is measured with the widest number and tick a piece can
+ * carry, so none is larger than measured.
  */
-export function splitChunk(body: ChunkBody, limitBytes: number): ChunkBody[] {
-  // With a sequence number in, since that is what is measured on the wire.
-  if (byteLengthOf({ seq: 0, ...body }) <= limitBytes) return [body]
+export function splitChunk(
+  body: ChunkBody,
+  limitBytes: number,
+  seq: number,
+): RunChunk[] {
+  const whole: RunChunk = { seq, ...body }
+  if (byteLengthOf(whole) <= limitBytes) return [whole]
 
   const counters =
     body.counters === undefined ? {} : { counters: body.counters }
-  // A body with no inputs, at the widest a sequence number and a tick get.
-  const early = (inputs: readonly unknown[], throughTick: number) => ({
-    throughTick,
+  const widest = Number.MAX_SAFE_INTEGER
+  const groups = groupsOf(body)
+
+  // The last piece first: whatever is at or past the chunk's reach, then as
+  // many ticks before it as still fit beside the chunk's own fields.
+  let first = groups.length
+  let tailBytes = byteLengthOf({
+    seq: widest,
+    ...body,
+    inputs: [],
     checkpoints: [],
-    inputs,
+  })
+  for (
+    let group = groups[first - 1];
+    group !== undefined;
+    group = groups[first - 1]
+  ) {
+    const reached = group.tick >= body.throughTick
+    if (!reached && tailBytes + group.bytes > limitBytes) break
+    tailBytes += group.bytes
+    first -= 1
+  }
+
+  // Then the ticks before it, in as few pieces as hold them.
+  const earlyBase = byteLengthOf({
+    seq: widest,
+    throughTick: widest,
+    checkpoints: [],
+    inputs: [],
     ...counters,
   })
-  const widest = Number.MAX_SAFE_INTEGER
-  const earlyBase = byteLengthOf({ seq: widest, ...early([], widest) })
-  const tailBase = byteLengthOf({ seq: widest, ...body, inputs: [] })
-
   const pieces: ChunkBody[] = []
-  let inputs: unknown[] = []
+  let held: TickGroup[] = []
   let bytes = 0
-  let tick = -1
-  for (let at = 0; at < body.inputs.length; ) {
-    // One tick's inputs, which are never cut apart.
-    const groupTick = tickOf(body.inputs[at])
-    const group: unknown[] = []
-    let groupBytes = 0
-    while (at < body.inputs.length && tickOf(body.inputs[at]) === groupTick) {
-      group.push(body.inputs[at])
-      groupBytes += byteLengthOf(body.inputs[at]) + 1
-      at += 1
-    }
-    if (inputs.length > 0 && earlyBase + bytes + groupBytes > limitBytes) {
-      pieces.push(early(inputs, tick))
-      inputs = []
-      bytes = 0
-    }
-    inputs.push(...group)
-    bytes += groupBytes
-    tick = groupTick
+  const cut = () => {
+    const last = held.at(-1)
+    if (last === undefined) return
+    pieces.push({
+      throughTick: last.tick,
+      checkpoints: held.flatMap((group) => group.checkpoints),
+      inputs: held.flatMap((group) => group.inputs),
+      ...counters,
+    })
+    held = []
+    bytes = 0
   }
-  // The last inputs go with the checkpoints and the chunk's own reach, unless
-  // together they no longer fit.
-  if (inputs.length > 0 && tailBase + bytes > limitBytes) {
-    pieces.push(early(inputs, tick))
-    inputs = []
+  for (const group of groups.slice(0, first)) {
+    if (earlyBase + bytes + group.bytes > limitBytes) cut()
+    held.push(group)
+    bytes += group.bytes
   }
-  pieces.push({ ...body, inputs })
-  return pieces
+  cut()
+
+  const tail = groups.slice(first)
+  pieces.push({
+    ...body,
+    checkpoints: tail.flatMap((group) => group.checkpoints),
+    inputs: tail.flatMap((group) => group.inputs),
+  })
+  return pieces.map((piece, at) => ({ seq: seq + at, ...piece }))
+}
+
+/**
+ * The body's inputs and checkpoints by tick, in tick order. An input and a
+ * checkpoint of one tick are one group: two pieces holding them would be a
+ * second piece reaching back to a tick the first committed.
+ */
+function groupsOf(body: ChunkBody): TickGroup[] {
+  const groups: TickGroup[] = []
+  const at = (tick: number): TickGroup => {
+    const last = groups.at(-1)
+    if (last !== undefined && last.tick === tick) return last
+    const group: TickGroup = { tick, inputs: [], checkpoints: [], bytes: 0 }
+    groups.push(group)
+    return group
+  }
+  let input = 0
+  let checkpoint = 0
+  while (input < body.inputs.length || checkpoint < body.checkpoints.length) {
+    const nextInput = body.inputs[input]
+    const nextCheckpoint = body.checkpoints[checkpoint]
+    if (
+      nextCheckpoint === undefined ||
+      (input < body.inputs.length && tickOf(nextInput) <= nextCheckpoint.tick)
+    ) {
+      const group = at(tickOf(nextInput))
+      group.inputs.push(nextInput)
+      group.bytes += byteLengthOf(nextInput) + 1
+      input += 1
+    } else {
+      const group = at(nextCheckpoint.tick)
+      group.checkpoints.push(nextCheckpoint)
+      group.bytes += byteLengthOf(nextCheckpoint) + 1
+      checkpoint += 1
+    }
+  }
+  return groups
 }
 
 /** An input's tick, as the engine stamped it. */

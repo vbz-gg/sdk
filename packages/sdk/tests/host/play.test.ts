@@ -111,10 +111,19 @@ class FakeGame implements LoadedGame {
   }
 }
 
-function client(answers: { start?: StartedRun | Error; chunk?: Error } = {}) {
+const PAGE_KEY: `vbz_pk_${string}` = "vbz_pk_lane_runner"
+
+function client(
+  answers: {
+    start?: StartedRun | Error
+    chunk?: Error
+    pageKey?: `vbz_pk_${string}`
+  } = {},
+) {
   const chunks: RunChunk[] = []
   return {
     chunks,
+    pageKey: answers.pageKey ?? PAGE_KEY,
     startRun: async (request?: { practice?: boolean }) => {
       calls.push(`start ${JSON.stringify(request ?? {})}`)
       const answer = answers.start ?? RUN
@@ -180,7 +189,7 @@ describe("the click", () => {
    * iOS grants tilt only to a request made in the tap's own turn, before
    * anything is awaited; asked after, it refuses without asking.
    */
-  test("asks for tilt first, then starts the run, before anything is awaited", () => {
+  test("asks for tilt first, then for the lock, before anything is awaited", async () => {
     const game = new FakeGame(PRESENT, "mh-new", true)
     const played = playRun(stage, {
       client: client(),
@@ -188,19 +197,58 @@ describe("the click", () => {
       mode: "ranked",
       locks: locks(),
     })
-    expect(calls).toEqual([`motion ${PRESENT}`, "start {}"])
+    expect(calls).toEqual([
+      `motion ${PRESENT}`,
+      `lock ${runLockName(PAGE_KEY, "ranked")}`,
+    ])
     expect(played.motion).not.toBeNull()
     expect(played.run.current.phase).toBe(RUN_PHASE.LOADING)
+    await settle()
+    expect(calls.slice(2, 4)).toEqual(["start {}", `mount ${PRESENT}`])
   })
 
-  test("a game that reads no tilt asks for nothing", () => {
+  /**
+   * The engine's request answers a refusal rather than failing, but a page
+   * module built from other code can fail it. The run stops there, before a
+   * run is asked for, and the lock is let go for the next tap.
+   */
+  test("a tilt request that fails stops the run before it starts", async () => {
+    const game = new FakeGame(PRESENT, "mh-new", true)
+    game.requestMotion = () => {
+      calls.push("motion")
+      return Promise.reject(new Error("the sensor broke"))
+    }
+    const held = locks()
+    const states: RunState[] = []
+    playRun(stage, {
+      client: client(),
+      game,
+      mode: "ranked",
+      locks: held,
+      onState: (state) => states.push(state),
+    })
+    await settle()
+    expect(states.at(-1)).toMatchObject({
+      phase: RUN_PHASE.FAILED,
+      errorCode: "E_UNEXPECTED",
+      detail: "Error: the sensor broke",
+    })
+    expect(calls.some((call) => call.startsWith("start"))).toBe(false)
+    expect(held.held.size).toBe(0)
+  })
+
+  test("a game that reads no tilt asks for nothing", async () => {
     const played = playRun(stage, {
       client: client(),
       game: new FakeGame(PRESENT, "mh-new"),
       mode: "practice",
       locks: locks(),
     })
-    expect(calls).toEqual(['start {"practice":true}'])
+    await settle()
+    expect(calls.slice(0, 2)).toEqual([
+      `lock ${runLockName(PAGE_KEY, "practice")}`,
+      'start {"practice":true}',
+    ])
     expect(played.motion).toBeNull()
   })
 })
@@ -220,8 +268,8 @@ describe("which module plays the run", () => {
     })
     await settle()
     expect(calls).toEqual([
+      `lock ${runLockName(PAGE_KEY, "ranked")}`,
       "start {}",
-      `lock ${runLockName("s-1")}`,
       `mount ${PRESENT}`,
     ])
     expect(game.mounted).toMatchObject({
@@ -253,18 +301,48 @@ describe("which module plays the run", () => {
     })
     await settle()
     expect(calls).toEqual([
+      `lock ${runLockName(PAGE_KEY, "ranked")}`,
       "start {}",
       `load ${OLDER} mh-old`,
-      `lock ${runLockName("s-1")}`,
       `mount ${OLDER}`,
     ])
     expect(given.mounted).toBeNull()
     expect(played.game).toBe(older)
   })
 
+  /**
+   * `loadGame` hands back the address as the URL parser writes it, and the
+   * platform may write the same one another way. The manifest hash is what
+   * names the module, so the same version is never imported twice.
+   */
+  test("a run on the loaded module's version plays it, however its address is written", async () => {
+    const game = new FakeGame(PRESENT, "mh-new")
+    const written = {
+      ...RUN,
+      game: {
+        ...RUN.game,
+        presentUrl: "https://BUNDLES.example:443/g/g-1/present/new.js",
+      },
+    }
+    const played = playRun(stage, {
+      client: client({ start: written }),
+      game,
+      mode: "ranked",
+      locks: locks(),
+      load: loader([]),
+    })
+    await settle()
+    expect(calls.some((call) => call.startsWith("load"))).toBe(false)
+    expect(calls.at(-1)).toBe(`mount ${PRESENT}`)
+    expect(played.game).toBe(game)
+  })
+
   test("a run module that does not load fails the run, and nothing is posted", async () => {
     const states: RunState[] = []
-    const resumed = { ...RUN, game: { ...RUN.game, presentUrl: OLDER } }
+    const resumed = {
+      ...RUN,
+      game: { ...RUN.game, presentUrl: OLDER, manifestHash: "mh-old" },
+    }
     playRun(stage, {
       client: client({ start: resumed }),
       game: new FakeGame(PRESENT, "mh-new"),
@@ -283,7 +361,10 @@ describe("which module plays the run", () => {
 
   test("with no loader given, the run's module is loaded with loadGame", async () => {
     const states: RunState[] = []
-    const resumed = { ...RUN, game: { ...RUN.game, presentUrl: OLDER } }
+    const resumed = {
+      ...RUN,
+      game: { ...RUN.game, presentUrl: OLDER, manifestHash: "mh-old" },
+    }
     playRun(stage, {
       client: client({ start: resumed }),
       game: new FakeGame(PRESENT, "mh-new"),
@@ -325,7 +406,13 @@ describe("which module plays the run", () => {
       errorCode: "E_MOTION_NEEDS_TAP",
     })
     expect(first.game).toBe(tilting)
-    expect(calls).toEqual(["start {}", `load ${OLDER} mh-old`])
+    // The lock is let go with the failure, so the next tap can take it.
+    expect(calls).toEqual([
+      `lock ${runLockName(PAGE_KEY, "ranked")}`,
+      "start {}",
+      `load ${OLDER} mh-old`,
+      `unlock ${runLockName(PAGE_KEY, "ranked")}`,
+    ])
 
     calls = []
     const second = playRun(stage, {
@@ -338,8 +425,8 @@ describe("which module plays the run", () => {
     await settle()
     expect(calls).toEqual([
       `motion ${OLDER}`,
+      `lock ${runLockName(PAGE_KEY, "ranked")}`,
       "start {}",
-      `lock ${runLockName("s-1")}`,
       `mount ${OLDER}`,
     ])
     expect(second.run.started?.sessionId).toBe("s-1")
@@ -403,21 +490,76 @@ describe("the page around the run", () => {
   })
 
   /**
-   * Two tabs handed one run would post chunks that conflict, which the
-   * platform counts as a strike against the player.
+   * A second tab's start would be handed the first tab's run while it has
+   * committed nothing, and two tabs posting chunks for one run conflict.
+   * Once it has committed a chunk, the start closes it and answers a new
+   * one, ending the first tab's run under its player. So the second tab asks
+   * for nothing at all.
    */
-  test("a run another tab is playing is refused, and never mounted", async () => {
-    const states: RunState[] = []
+  test("a second tab on the game and mode a first tab is playing starts nothing", async () => {
+    const browser = locks()
     playRun(stage, {
       client: client(),
       game: new FakeGame(PRESENT, "mh-new"),
       mode: "ranked",
-      locks: locks([runLockName("s-1")]),
+      locks: browser,
+    })
+    await settle()
+    expect(calls.at(-1)).toBe(`mount ${PRESENT}`)
+
+    const states: RunState[] = []
+    // What the platform would answer it once the first run has committed.
+    const fresh = { ...RUN, sessionId: "s-2" }
+    playRun(stage, {
+      client: client({ start: fresh }),
+      game: new FakeGame(PRESENT, "mh-new"),
+      mode: "ranked",
+      locks: browser,
       onState: (state) => states.push(state),
     })
     await settle()
-    expect(states.at(-1)?.errorCode).toBe("E_RUN_OPEN_ELSEWHERE")
-    expect(calls.some((call) => call.startsWith("mount"))).toBe(false)
+    expect(states.at(-1)).toMatchObject({
+      phase: RUN_PHASE.FAILED,
+      errorCode: "E_RUN_OPEN_ELSEWHERE",
+    })
+    expect(calls.filter((call) => call.startsWith("start"))).toEqual([
+      "start {}",
+    ])
+    expect(calls.filter((call) => call.startsWith("mount"))).toHaveLength(1)
+  })
+
+  test("a run of another mode, or of another game, is not held back", async () => {
+    const browser = locks()
+    const others: ReadonlyArray<{
+      readonly mode: "ranked" | "practice"
+      readonly pageKey: `vbz_pk_${string}`
+    }> = [
+      { mode: "practice", pageKey: PAGE_KEY },
+      { mode: "ranked", pageKey: "vbz_pk_other" },
+    ]
+    playRun(stage, {
+      client: client(),
+      game: new FakeGame(PRESENT, "mh-new"),
+      mode: "ranked",
+      locks: browser,
+    })
+    for (const other of others) {
+      playRun(stage, {
+        client: client({ pageKey: other.pageKey }),
+        game: new FakeGame(PRESENT, "mh-new"),
+        mode: other.mode,
+        locks: browser,
+      })
+    }
+    await settle()
+    expect(calls.filter((call) => call.startsWith("mount"))).toHaveLength(3)
+    expect([...browser.held].sort()).toEqual(
+      [
+        runLockName(PAGE_KEY, "ranked"),
+        runLockName(PAGE_KEY, "practice"),
+        runLockName("vbz_pk_other", "ranked"),
+      ].sort(),
+    )
   })
 
   test("a browser with no Web Locks starts no run, asks for nothing, and says why", async () => {
@@ -436,20 +578,36 @@ describe("the page around the run", () => {
     expect(calls.some((call) => call.startsWith("mount"))).toBe(false)
   })
 
-  test("the lock is let go once the run stops playing", async () => {
+  /**
+   * A run is open on the platform until its recording is taken, and a start
+   * from another tab before then would close it.
+   */
+  test("the lock is held until the platform has the run, then let go", async () => {
     const held = locks()
+    const name = runLockName(PAGE_KEY, "ranked")
+    const platform = client()
+    const heldWhileSubmitting: boolean[] = []
     const played = playRun(stage, {
-      client: client(),
+      client: {
+        ...platform,
+        submit: () => {
+          heldWhileSubmitting.push(held.held.has(name))
+          return platform.submit()
+        },
+      },
       game: new FakeGame(PRESENT, "mh-new"),
       mode: "ranked",
       locks: held,
     })
     await settle()
-    expect(held.held.has(runLockName("s-1"))).toBe(true)
+    expect(held.held.has(name)).toBe(true)
     played.end()
     await settle()
-    expect(held.held.has(runLockName("s-1"))).toBe(false)
-    expect(calls).toContain("submit")
+    expect(heldWhileSubmitting).toEqual([true])
+    expect(held.held.size).toBe(0)
+    expect(calls.indexOf(`unlock ${name}`)).toBeGreaterThan(
+      calls.indexOf("submit"),
+    )
   })
 
   test("by default the browser's own Web Locks are read, and a browser without them is refused", async () => {
@@ -494,6 +652,35 @@ describe("the page around the run", () => {
       locks: held,
     })
     played.end()
+    await settle()
+    // Left before the lock was held: no run was asked for.
+    expect(calls.some((call) => call.startsWith("start"))).toBe(false)
+    expect(calls.some((call) => call.startsWith("mount"))).toBe(false)
+    expect(held.held.size).toBe(0)
+  })
+
+  test("leaving while the start is answered stops it, and lets the lock go", async () => {
+    const held = locks()
+    const platform = client()
+    let answer: (run: StartedRun) => void = () => {}
+    const played = playRun(stage, {
+      client: {
+        ...platform,
+        startRun: () => {
+          calls.push("start")
+          return new Promise<StartedRun>((resolve) => {
+            answer = resolve
+          })
+        },
+      },
+      game: new FakeGame(PRESENT, "mh-new"),
+      mode: "ranked",
+      locks: held,
+    })
+    await settle()
+    expect(calls.at(-1)).toBe("start")
+    played.end()
+    answer(RUN)
     await settle()
     expect(calls.some((call) => call.startsWith("mount"))).toBe(false)
     expect(held.held.size).toBe(0)
@@ -591,7 +778,9 @@ describe("a real page module through a real run", () => {
     // pass every other check here.
     expect(inputs).toHaveLength(40)
     expect(platform.chunks.at(-1)?.throughTick).toBe(200)
-    expect(calls.slice(-2)).toEqual(["submit", "result"])
+    expect(
+      calls.filter((call) => !call.startsWith("unlock")).slice(-2),
+    ).toEqual(["submit", "result"])
     expect(states.at(-1)?.phase).toBe(RUN_PHASE.DONE)
   })
 

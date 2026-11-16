@@ -292,6 +292,7 @@ function rig(answers: { games: PageGame[]; signedIn?: boolean }) {
   }> = []
   const loads: string[] = []
   const client = {
+    pageKey: "vbz_pk_1" as const,
     game: async () => {
       reads += 1
       const next = games.length > 1 ? games.shift() : games[0]
@@ -580,6 +581,7 @@ describe("the page", () => {
     startSite({
       document,
       client: {
+        pageKey: "vbz_pk_1",
         game: async () => {
           throw new Error("the platform did not answer")
         },

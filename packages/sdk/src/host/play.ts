@@ -6,16 +6,21 @@
  * the click, from `GET /v1/game`, so the click itself awaits nothing before
  * it has asked for what only a tap can ask for. The platform says which
  * version each run plays, and the page never chooses: a resumed run plays the
- * version it started on, and that module is loaded here when it is not the
- * one the page had.
+ * version it started on, and that module is loaded here when its manifest
+ * hash is not the one the page had.
  */
 
 import type { MotionAccess } from "@clockwork2/engine/host"
-import type { RunMode, StartedRun } from "../api/index.js"
+import type { PageKey, RunMode } from "../api/index.js"
 import type { MountHandlers } from "../game/contract.js"
 import type { PlatformClient } from "../platform/client.js"
 import { PlatformClientError } from "../platform/errors.js"
-import { RUN_PHASE, Run, type RunState } from "../platform/run.js"
+import {
+  RUN_PHASE,
+  Run,
+  type RunPhase,
+  type RunState,
+} from "../platform/run.js"
 import { type GameAddress, type LoadedGame, loadGame } from "./load.js"
 
 /** What `playRun` needs of the browser's Web Locks, for a test to stand in for. */
@@ -30,7 +35,7 @@ export interface RunLocks {
 export interface PlayOptions {
   readonly client: Pick<
     PlatformClient,
-    "startRun" | "sendChunk" | "submit" | "awaitResult"
+    "pageKey" | "startRun" | "sendChunk" | "submit" | "awaitResult"
   >
   /**
    * The module `loadGame` loaded before the click: the version `GET /v1/game`
@@ -70,22 +75,38 @@ export interface PlayedRun {
   destroy(): void
 }
 
-/** The lock a page holds while it plays a run, so a second tab cannot. */
-export function runLockName(sessionId: string): string {
-  return `vbz-run:${sessionId}`
+/**
+ * The lock a page holds from the click until the platform has the run: one
+ * per game and mode in a browser, as the platform keeps one open run per
+ * player, game and mode. The page key names the game, and the player kept
+ * for a page is kept under it too.
+ */
+export function runLockName(pageKey: PageKey, mode: RunMode): string {
+  return `vbz-run:${pageKey}:${mode}`
 }
+
+/**
+ * The phases the lock is held through. A run is open on the platform until
+ * the recording is taken, and a start from another tab before then would
+ * close it under its player.
+ */
+const LOCKED_PHASES: ReadonlySet<RunPhase> = new Set([
+  RUN_PHASE.PLAYING,
+  RUN_PHASE.SUBMITTING,
+])
 
 /**
  * Starts a run in the click and plays it in `element`.
  *
  * Call it from the Play button's click handler. When the game reads tilt it
  * asks for it first, before anything is awaited, because iOS grants it only
- * there. Every failure arrives as the run's state, with the code that says
- * why: a start the platform refused, a run module that did not load, or
- * `E_MOTION_NEEDS_TAP` when the run turned out to be on a version that reads
- * tilt the click did not ask for. Then call `playRun` again with
- * `played.game` from the next tap: the same run resumes, and is not counted
- * twice.
+ * there; then it asks for the game's lock, and starts the run once it holds
+ * it. Every failure arrives as the run's state, with the code that says why:
+ * another tab playing the game in this mode, a start the platform refused, a
+ * run module that did not load, or `E_MOTION_NEEDS_TAP` when the run turned
+ * out to be on a version that reads tilt the click did not ask for. Then call
+ * `playRun` again with `played.game` from the next tap: the same run resumes,
+ * and is not counted twice.
  */
 export function playRun(element: HTMLElement, options: PlayOptions): PlayedRun {
   let game = options.game
@@ -96,12 +117,15 @@ export function playRun(element: HTMLElement, options: PlayOptions): PlayedRun {
   // First, in the click's own turn, before anything is awaited.
   const motion =
     locks !== null && game.needsMotion ? game.requestMotion() : null
-  const starting =
+  // Read once the lock is held; a failure meanwhile is kept for then.
+  motion?.catch(() => {})
+  // Then the lock, and nothing is started until this tab holds it: a second
+  // tab's start would close a run the first has committed to and answer a
+  // new one, or hand it the same run to post conflicting chunks for.
+  const holding =
     locks === null
       ? Promise.reject(new PlatformClientError("E_BROWSER_UNSUPPORTED"))
-      : options.client.startRun(
-          options.mode === "practice" ? { practice: true } : {},
-        )
+      : holdLock(locks, runLockName(options.client.pageKey, options.mode))
 
   let release: (() => void) | null = null
   const unlock = () => {
@@ -111,7 +135,7 @@ export function playRun(element: HTMLElement, options: PlayOptions): PlayedRun {
   const run = new Run({
     client: options.client,
     onState: (state) => {
-      if (state.phase !== RUN_PHASE.PLAYING) unlock()
+      if (!LOCKED_PHASES.has(state.phase)) unlock()
       options.onState?.(state)
     },
     ...(options.onNotice === undefined ? {} : { onNotice: options.onNotice }),
@@ -122,13 +146,23 @@ export function playRun(element: HTMLElement, options: PlayOptions): PlayedRun {
   let stopped = false
 
   async function begin(): Promise<void> {
-    // Both at once, so a start refused while the player answers the prompt
-    // is held rather than reported as nobody's.
-    const [, started]: [unknown, StartedRun] = await Promise.all([
-      motion,
-      starting,
-    ])
-    if (started.game.presentUrl !== game.presentUrl) {
+    const held = await holding
+    if (held === null) throw new PlatformClientError("E_RUN_OPEN_ELSEWHERE")
+    release = held
+    // The player left while the lock was asked for: nothing is started.
+    if (stopped) {
+      unlock()
+      return
+    }
+    // The player's answer comes first, so a request that failed spends no
+    // run. A refusal is an answer: the game plays on its other devices.
+    await motion
+    const started = await options.client.startRun(
+      options.mode === "practice" ? { practice: true } : {},
+    )
+    // The manifest hash names the module; the address of one version can be
+    // written more than one way, and the same module is never loaded twice.
+    if (started.game.manifestHash !== game.manifestHash) {
       game = await (options.load ?? loadGame)({
         presentUrl: started.game.presentUrl,
         manifestHash: started.game.manifestHash,
@@ -137,12 +171,6 @@ export function playRun(element: HTMLElement, options: PlayOptions): PlayedRun {
         throw new PlatformClientError("E_MOTION_NEEDS_TAP")
       }
     }
-    const held = await holdLock(
-      locks as RunLocks,
-      runLockName(started.sessionId),
-    )
-    if (held === null) throw new PlatformClientError("E_RUN_OPEN_ELSEWHERE")
-    release = held
     if (stopped) {
       unlock()
       return

@@ -196,11 +196,12 @@ with:
    field).
 5. Its manifest hash is the version's (`E_WRONG_GAME`).
 6. Its own `check()` finds nothing (the problem's own code).
-7. No built-in a simulation calls has been replaced on the page
-   (`E_PAGE_ALTERS_BUILTINS`, naming it). This reads the engine's allowed
-   `Math` functions and the `Array`, `Map`, `Set`, `Object`, `JSON`,
-   `Number` and `String` methods through `Function.prototype.toString`. It
-   catches a library's mistake, not somebody determined to hide one.
+7. No built-in a simulation calls has been replaced on the page, removed, or
+   set to something that is not a function (`E_PAGE_ALTERS_BUILTINS`, naming
+   it). This reads the engine's allowed `Math` functions and the `Array`,
+   `Map`, `Set`, `Object`, `JSON`, `Number` and `String` methods through
+   `Function.prototype.toString`. It catches a library's mistake, not
+   somebody determined to hide one.
 
 Load before the click, from what `GET /v1/game` names, so a failure spends no
 run. A failed import is kept by the browser for the life of the page:
@@ -210,24 +211,32 @@ is a reload, and `E_GAME_UNLOADABLE` says so.
 
 **`playRun(element, { client, game, mode, onState, onNotice, title })`**
 runs inside the Play button's click. When the game reads tilt it asks for it
-first, before anything is awaited, then starts the run. The platform says
+first, then for the run's lock, both before anything is awaited, and starts
+the run once the lock is held and the player has answered. The platform says
 which version each run plays, and the page never chooses: a resumed run plays
-the version it started on, and when that is not the module the page loaded,
-`playRun` loads the run's own. When that one reads tilt the click did not ask
-for, the run stops with `E_MOTION_NEEDS_TAP`, having sent nothing, and the
-next tap's `playRun` with `played.game` resumes the same run without counting
-another. It moves focus to `element`, labelled with `title`, so a key reaches
-the game rather than the button a player just pressed, and `played.end()`
-submits the player leaving as an abandoned run.
+the version it started on, and when its manifest hash is not the loaded
+module's, `playRun` loads the run's own. It compares the hash rather than the
+address, because one module's address can be written more than one way. When
+the run's own module reads tilt the click did not ask for, the run stops with
+`E_MOTION_NEEDS_TAP`, having sent nothing, and the next tap's `playRun` with
+`played.game` resumes the same run without counting another. It moves focus
+to `element`, labelled with `title`, so a key reaches the game rather than
+the button a player just pressed, and `played.end()` submits the player
+leaving as an abandoned run.
 
-While a run plays, its page holds a Web Lock named after it, `vbz-run:` and
-the session id. A refresh resumes a run that has committed nothing, so a
-second tab pressing Play is handed the same run, and two tabs playing one
-run would post chunks under the same numbers with different bodies, which the
-platform counts against the player as tampering. The second tab finds the
-lock held and stops with `E_RUN_OPEN_ELSEWHERE`, having sent nothing for the
-run. A browser with no Web Locks starts nothing and stops with
-`E_BROWSER_UNSUPPORTED`: Safari before 15.4, or a page that is not https.
+The platform keeps one open run per player, game and mode, and a second tab
+of the same browser is the same player. Started while the first tab's run has
+committed nothing, it would be handed that run, and two tabs playing one run
+post chunks under the same numbers with different bodies, which the platform
+counts against the player as tampering. Started once the run has committed a
+chunk, it closes that run and answers a new one, which ends the first tab's
+run under its player. So `playRun` takes a Web Lock in the click, before it
+asks for a run, named for the game and the mode: `vbz-run:`, the page key and
+the mode. It holds the lock until the platform has the run, after the submit.
+A second tab finding it held stops with `E_RUN_OPEN_ELSEWHERE` having asked
+the platform for nothing; a practice run beside a ranked one, or another
+game, is not held back. A browser with no Web Locks starts nothing and stops
+with `E_BROWSER_UNSUPPORTED`: Safari before 15.4, or a page that is not https.
 
 **`watchRun(element, { client, runId })`** reads a settled run, loads its own
 version's page module and replays its own inputs, to `replayTicks`, where the
@@ -283,17 +292,25 @@ wrong. Its phases are `loading` (the start and the module's import),
 of play, counted in ticks so no timer decides it, it slices what the module
 has recorded into a chunk that ends at the last complete tick: one short of
 the last tick the game reported while the run plays, because the engine takes
-a tick's inputs before running it, and the end tick once the run has ended.
-A chunk over the run's `limits.chunkBytes` is cut between ticks, and before
-the run's chunks would reach `limits.runBytes` it ends the run as if the
-player left. Chunks go one at a time; one that got no answer, or a 5xx, goes
-again unchanged before the next, and after a refusal nothing more is sent.
-The last chunk reaches the platform before the recording, a submit that got
-no answer goes again (the same recording answers the same), and then it asks
-for the result until the replay has run. `done` carries what the replay
+a tick's inputs before running it, and the end tick once the run has ended. A
+chunk over the run's `limits.chunkBytes` is cut between ticks, measured with
+the sequence number it carries, and each piece carries the checkpoints of its
+own ticks: a checkpoint in a piece after one that already reached its tick is
+refused. Every piece is held to `limits.runBytes` before it is sent, and while
+the run plays one chunk's room is kept for the last commit, which goes just
+before the recording. A piece that would eat into that room ends the run as if
+the player left, and the last commit and the recording follow. A piece that
+would not fit at all is never sent: the run ends where its chunks reach,
+nothing is submitted, and the platform settles it from what it committed, as
+it settles any abandoned run. So does a recording larger than
+`limits.runBytes`. Chunks go one at a time; one that got no answer, or a 5xx,
+goes again unchanged before the next, and after a refusal nothing more is
+sent. The last chunk reaches the platform before the recording, a submit that
+got no answer goes again (the same recording answers the same), and then it
+asks for the result until the replay has run. `done` carries what the replay
 computed, never what the page showed. A failed state carries the code, the
-detail, and for the platform's own refusal its `refusalDetail`, which is
-where `E_PLAYER_BARRED` says when the bar ends.
+detail, and for the platform's own refusal its `refusalDetail`, which is where
+`E_PLAYER_BARRED` says when the bar ends.
 
 The client's own failures are `PlatformClientError`, with codes from
 `CLIENT_ERROR`; the platform's are `PlatformRefusal`, with a
