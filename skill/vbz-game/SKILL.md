@@ -144,6 +144,23 @@ about determinism:
 
 `references/ingest.md` has the whole path from an upload to a listing.
 
+## Versions
+
+A `version` is `MAJOR.MINOR.PATCH`, and vbz reads it as a promise about the
+rules. A **patch** changes how the game looks or fixes a bug and keeps what a
+score means; a **minor** changes the rules; a **major** is a different game.
+All patches of one `MAJOR.MINOR` are one release line, which the platform
+treats as one game: the day's ranked runs play the newest playable patch of
+the day's line, so a patch reaches players the moment it passes its checks,
+and a minor waits for the next day.
+
+Before bumping, compare the new manifest with the line's first release. If
+`id`, `session`, `inputs`, `counters`, `rankBy`, `tiePolicy`, `params` or
+`capabilities` differ, it is a minor: the platform refuses that patch with
+`E_PATCH_CHANGES_RULES`. If only the rules code changed, decide whether the
+same play could now score differently. If it could, it is a minor too: the
+platform cannot see that difference, and the board mixes a line's patches.
+
 ## Never
 
 - **Build an input event.** The host builds them. This is why a custom control
@@ -157,6 +174,8 @@ about determinism:
   device pixel ratio, not once.
 - **Change what the simulation does without bumping `version`.** Every score
   already recorded becomes unverifiable and nothing announces it.
+- **Ship a rules change as a patch.** A patch is the same game, and its scores
+  share a board with the line's earlier patches.
 - **Change `id` after publishing.** It is the board.
 - **Upload control art.** There are two artifacts. A game that wants its
   controls to look like its own draws them itself.

@@ -67,6 +67,16 @@ export type PublicRefusalCode =
   /** A member writing to a studio an operator disabled. */
   | "E_STUDIO_DISABLED"
   | "E_VERSION_EXISTS"
+  /**
+   * A version that does not move forward: a new release line below a version
+   * the game already has, or a patch below one already in its line.
+   */
+  | "E_VERSION_NOT_NEWER"
+  /**
+   * A patch whose manifest changes a field its release line fixes, such as
+   * `inputs`, `counters` or `rankBy`. New rules are a new minor or major.
+   */
+  | "E_PATCH_CHANGES_RULES"
   /** The studio's uploads over the last 24 hours, all its games together. */
   | "E_QUOTA_EXCEEDED"
   | "E_MANIFEST_INVALID"

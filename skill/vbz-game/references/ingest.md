@@ -7,6 +7,19 @@ first storage write, so a refused submission leaves nothing behind.
 `dist/`, then reads the version back until the checks below decide, and
 prints the code and the first failed check of a rejection.
 
+## 0. The version
+
+The upload's `version` has to move forward: a new release line (a new
+`MAJOR.MINOR`) greater than every version the game has, or a patch greater
+than every version in its line (`E_VERSION_NOT_NEWER`). The same version twice
+is `E_VERSION_EXISTS`.
+
+A patch is then held to its line's first release: `id`, `session`, `inputs`,
+`counters`, `rankBy`, `tiePolicy`, `params` and `capabilities` must be
+unchanged (`E_PATCH_CHANGES_RULES`). A patch still runs every check below,
+because its rules code is new bytes. `docs/sdk.md` under "Versions and release
+lines" explains what a line means for the day's runs.
+
 ## 1. The manifest
 
 `assertManifest` on the shape, and then two things it does not cover:

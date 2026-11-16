@@ -382,6 +382,53 @@ What the harness does not do is replay, settle or rank. That is the
 platform's half, and a harness pretending to do it would be teaching an author
 about a server that does not exist.
 
+## Versions and release lines
+
+A game's `version` is a semantic version, `MAJOR.MINOR.PATCH`, and the parts
+mean what they say about the rules:
+
+- **A patch** changes how the game looks, or fixes a bug, and keeps what a
+  score means. It is still the same game.
+- **A minor** changes the rules: a new input, a new counter, a different way
+  of ranking, a change to how long a run lasts.
+- **A major** is a game players would call different.
+
+Every version sharing one `MAJOR.MINOR` is one **release line**, and the
+platform treats a line as one game. The day's seed pins a line, not a single
+version. A ranked run plays the newest playable patch of the day's line at
+the moment it starts, so a patch that passes its checks at noon is what the
+afternoon's ranked runs play. A new minor or major waits for the next day's
+seed, so nobody's ranked day changes rules halfway through. A practice run
+plays the newest playable version of any line.
+
+A patch is held to its line. Its manifest must keep the fields that decide how
+a run is played and ranked exactly as the line's first release declared them:
+`id`, `session`, `inputs`, `counters`, `rankBy`, `tiePolicy`, `params` and
+`capabilities`. A patch that changes one is refused at upload with
+`E_PATCH_CHANGES_RULES`, and the fix is to publish it as a minor. A patch may
+change the rules code, the drawing code, `name`, `genres`, `assets`,
+`budgets`, `display` and `kernel`.
+
+The platform can compare manifests. It cannot tell whether a bug fix in the
+rules code changed what a score means, because both versions replay their own
+runs perfectly. That part is the studio's promise: a fix that makes a level
+easier, or a score larger for the same play, is a new minor, because the
+board mixes the patches of one line.
+
+Versions only move forward. A new line must be greater than every version the
+game has, and a patch greater than every version in its line, or the upload is
+refused with `E_VERSION_NOT_NEWER`. A patch to an older line is allowed: 1.2.5
+may follow 1.3.0, which is how a studio fixes the line today's ranked runs are
+on after it has already published the next minor. The same version twice is
+`E_VERSION_EXISTS`.
+
+Each run is pinned to the exact version it started on. Its replay runs that
+version's rules code, and watching it later draws it with that version's
+drawing code, so a later patch never changes a run already played. When an
+operator takes a patch down, or the platform suspends one, its line plays the
+newest patch it has left; a line with none left has no ranked runs until the
+next day's seed.
+
 ## Publishing a version
 
 `vbz publish ./my-game --game <id>` uploads the three files `vbz build`
