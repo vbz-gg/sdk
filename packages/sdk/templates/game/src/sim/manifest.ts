@@ -18,12 +18,12 @@ export const MANIFEST: Manifest = {
    * which players, the board and the day's seed treat as one game.
    *
    * - A patch, 1.0.0 to 1.0.1, changes how the game looks or fixes a bug,
-   *   and keeps what a score means. It may not change what its line fixes:
-   *   schemaVersion, id, session, inputs (each one's min and max), counters
-   *   (each one's name, direction and monotonic), rankBy, tiePolicy, params
-   *   (all but each one's label and description), and of the capabilities
-   *   deterministic, physics and multiplayer. The platform refuses a patch
-   *   that changes one with E_PATCH_CHANGES_RULES.
+   *   and keeps what a score means. It may not change what its line fixes,
+   *   or the platform refuses it with E_PATCH_CHANGES_RULES: schemaVersion,
+   *   id, session, inputs (each one's min and max), counters (each one's
+   *   name, direction and monotonic), rankBy, tiePolicy, params (all but
+   *   each one's label and description), and of the capabilities
+   *   deterministic, physics and multiplayer.
    * - A minor, 1.0.0 to 1.1.0, changes the rules: any of those, or a fix
    *   that changes what a score means for the same play.
    * - A major, 1.0.0 to 2.0.0, is a game players would call a different one.

@@ -2,7 +2,7 @@
   "name": "@vbz-gg/sdk",
   "version": "0.5.1",
   "type": "module",
-  "description": "Build a game that runs on vbz.gg: its page module and rules code, a studio page's client, and a harness that loads your game the way a studio's page does",
+  "description": "Build a game that runs on vbz.gg: its rules code and the page module a studio's page loads, the checks, a page's client and host for the platform, and a harness that runs it all on your laptop",
   "license": "MIT",
   "author": "Ramesh Nair",
   "repository": {

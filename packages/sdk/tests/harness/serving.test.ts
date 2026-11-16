@@ -315,6 +315,25 @@ describe("the policy and the origins", () => {
     )
   })
 
+  /**
+   * The docs recommend this policy to every studio, and the browser suite
+   * measured it in three engines. A copy in the docs that drifted from the
+   * function would be recommending something nothing measured.
+   */
+  test("the policy docs/sdk.md recommends is the one the harness serves", async () => {
+    const docs = await Bun.file(
+      join(import.meta.dir, "..", "..", "..", "..", "docs", "sdk.md"),
+    ).text()
+    const block = /```\n(default-src[\s\S]*?)\n```/.exec(docs)?.[1]
+    expect(block?.split("\n").join(" ")).toBe(
+      pageCsp({
+        bundlesOrigin: "https://files.vbz.gg",
+        gameId: "<game id>",
+        connect: ["https://api.vbz.gg"],
+      }),
+    )
+  })
+
   test("an origin names its scheme, its host and the port it got", () => {
     expect(originOf(LOOPBACK, 4310)).toBe("http://127.0.0.1:4310")
     const tls = { cert: "c", key: "k" }

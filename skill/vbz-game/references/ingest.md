@@ -1,7 +1,8 @@
 # From an upload to a listing
 
-What the platform does with a submission, in order. Everything before the
-first storage write, so a refused submission leaves nothing behind.
+What the platform does with a submission, in order. Sections 0 to 2 run
+before the first storage write, so a submission they refuse leaves nothing
+behind and costs no quota: an upload is its own dry run.
 
 `vbz publish <dir> --game <id>` is how a submission arrives. It sends
 `dist/`, then reads the version back until the checks below decide, and
@@ -12,16 +13,21 @@ prints the code and the first failed check of a rejection.
 The upload's `version` has to be plain `MAJOR.MINOR.PATCH`: no prerelease or
 build suffix, no leading zero, and no part above 2147483647
 (`E_VERSION_INVALID`). `vbz build` refuses the same versions, with the same
-function. It has to move forward: a new release line (a new
-`MAJOR.MINOR`) greater than every version the game has, or a patch greater
-than every version in its line (`E_VERSION_NOT_NEWER`). The same version twice
-is `E_VERSION_EXISTS`.
+function. It has to move forward, counting every version of the game that was
+not rejected: a new release line (a new `MAJOR.MINOR`) greater than all of
+them, or a patch greater than all of them in its line (`E_VERSION_NOT_NEWER`,
+whose detail names the highest of each). So 1.2.5 may follow 1.3.0. The same
+version twice, a rejected one included, is `E_VERSION_EXISTS`.
 
-A patch is then held to its line's first release: `id`, `session`, `inputs`,
-`counters`, `rankBy`, `tiePolicy`, `params` and `capabilities` must be
-unchanged (`E_PATCH_CHANGES_RULES`). A patch still runs every check below,
-because its rules code is new bytes. `docs/sdk.md` under "Versions and release
-lines" explains what a line means for the day's runs.
+A patch is then held to its line's contract, which its earliest version that
+was not rejected set: `schemaVersion`, `id`, `session`, `inputs` (each one's
+`min` and `max`), `counters` (each one's `name`, `direction` and
+`monotonic`), `rankBy`, `tiePolicy`, `params` (all but `label` and
+`description`), and of the capabilities `deterministic`, `physics` and
+`multiplayer` must be unchanged (`E_PATCH_CHANGES_RULES`, whose detail names
+the fields and the minor to publish instead). A patch still runs every check
+below, because its rules code is new bytes. `docs/sdk.md` under "Versions and
+release lines" explains what a line means for the day's runs.
 
 ## 1. The manifest
 
@@ -70,20 +76,38 @@ here, where the engines disagree. Measured in clockwork2: 32.6% of inputs
 differ for `Math.hypot` between JavaScriptCore and V8, 10.3% for `Math.exp`,
 9.0% for `Math.pow`, 3.2% for `Math.cos`.
 
-## 5. A human
+## 5. The page module
 
-An invited submitter's first version of a game reaches a review queue rather
-than the catalogue. The automated checks carry the weight; the human gate is a
-glance at what the game does - it renders, it plays, it is what its listing
-claims - and never at its code.
+The page module is loaded in a headless browser and played for a short run
+with the bot's inputs, so one that will not load, will not mount or fails as
+it plays is refused before any player meets it.
+
+## 6. Published
+
+Nobody reviews in between: a version that passes every check is published.
+Its two modules are copied to `https://files.vbz.gg/g/<game id>/`, and
+`vbz publish` prints which runs it serves. A patch of the day's release line
+reaches the next ranked start, because a ranked run plays the line's highest
+published patch. A new minor or major waits for the next day's seed. Practice
+plays the newest playable version of any line.
+
+A studio never takes a version down. It supersedes one by publishing a newer
+version, so a broken patch is fixed by the next patch, which today's ranked
+runs reach once it passes. Only a vbz operator takes a version down. When
+that is the patch today's ranked runs play, nothing falls back to an older
+one: a ranked start answers `E_RANKED_PAUSED` and `GET /v1/game` says the day
+is paused until a newer patch in the line passes or the next day's seed.
+Practice carries on.
 
 ## What is not checked, and cannot be
 
 A game with a backdoor keyed on a magic input satisfies every check here: the
 replay agrees with the client because both run the same code, and both are
 wrong together. No amount of determinism fixes that and no reading of a
-minified bundle finds it. What answers it is the invite, the per-version
-mismatch rate, and watching a new game's score distribution against its peers.
+minified bundle finds it. What answers it is that a studio is invited, the
+alert the platform mails a studio's admins and the operators when many
+players' runs fail the replay on one version, and watching a new game's score
+distribution against its peers.
 
 A verified score means the server recomputed it from your own inputs. It does
 not mean the game is fair, and the platform should never be read as saying

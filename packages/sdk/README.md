@@ -5,10 +5,11 @@ that checks and ranks the scores of a game studio's games.
 
 A game on vbz.gg is a [Clockwork 2](https://github.com/vbz-gg/clockwork2)
 simulation: fixed-step ticks, seeded randomness, and an input log that a server
-replays to check the score. This package is what sits between that, the vbz.gg
-platform and your studio's page: the on-screen controls, the two artifacts an
-upload carries, and a harness that frames your game locally the way it runs in
-production.
+replays to check the score. Your studio serves the game from a page of its
+own. This package is what sits between the engine, the vbz.gg platform and
+that page: it builds your game into the two modules an upload carries, checks
+it, gives your page a client for the platform and a host that loads and plays
+the game, and runs all of it on your laptop first.
 
 Versions up to 0.2.0 were published as `@vbz-gg/game-base`, with the command
 `game-base`. The command is now `vbz`.
@@ -23,22 +24,32 @@ That copy builds and plays before a line of it is changed, so anything that
 breaks afterwards is something you just did. Its id comes from the directory
 name and is immutable once published.
 
-`@clockwork2/engine` is a peer dependency, so your game installs one copy of
-the engine rather than two.
+`@clockwork2/engine` is a peer dependency: your game installs one copy of the
+engine, and both of its modules are built against it.
 
-## The four commands
+## The five commands
 
 ```bash
 vbz new     <dir>   copy a game that already conforms, and rename it
-vbz build   <dir>   write dist/sim.js, dist/frame.js and dist/manifest.json
-vbz dev     <dir>   serve the game on two origins, the way production does
+vbz build   <dir>   write dist/sim.js, dist/present.js and dist/manifest.json
+vbz check   <dir>   run the engine's checks and hold src/capture.ts to the manifest
+vbz dev     <dir>   load the game the way a studio's page does, on two origins
 vbz publish <dir> --game <id>   upload dist/ and wait for the verdict
 ```
 
-`dev` is your game's page on your laptop: the game in a sandboxed frame
-on one origin, the page that frames it on another, and the pad your manifest
-asked for drawn over it. A scheme picker switches layouts without editing the
-manifest, and ending a run publishes its recording.
+`build` refuses a version that is not plain `MAJOR.MINOR.PATCH`. `check`
+also prints the version, its release line and the line's contract hash, so
+you can tell before an upload whether a patch keeps what its line fixes.
+
+`dev` is your game's page on your laptop. The game's two modules are served
+on one port at the paths and with the headers `files.vbz.gg` uses, and a page
+on another port loads the page module from there and plays it, under the
+Content-Security-Policy a studio's page should send. When a run ends, the
+page shows whether the run replays to what it showed, how many inputs it
+recorded against the budget the platform allows, and its size in bytes.
+`--address` and `--https` with `--cert` and `--key` serve it to a phone on
+your network, and `--site` serves your game's own page from `site/` against
+a stand-in for the platform.
 
 `publish` is for your build system. It uploads `dist/` to the game you name,
 with one of your studio's secret keys from `VBZ_STUDIO_KEY`, then waits for
@@ -58,48 +69,59 @@ version an operator took down exits 1 too. The platform is
 Don't add a script called `publish` to your `package.json`: npm runs a script
 with that name on its own, as part of `npm publish`.
 
-## On-screen controls
+## Your game's two modules
 
-A phone has no keyboard, so a game says in its manifest how it expects to be
-steered there. There are two ways, and the difference is who draws the buttons.
-
-**The page hosting your game draws them**, with this package's renderer. Name a
-scheme and put your own actions in its slots:
+`src/sim/index.ts` becomes the **rules code**, which decides the score and
+imports nothing: the platform replays it on a server with no canvas at all.
+`src/present.ts` becomes the **page module**, which a studio's page loads. It
+bundles your renderer, your input mapping and the engine's host that plays
+them, and imports the rules code by the one name `cw2:sim`:
 
 ```ts
-inputs: {
-  map: {
-    left: [{ code: "ArrowLeft", device: "key" }],
-    right: [{ code: "ArrowRight", device: "key" }],
-  },
-  controls: {
-    mode: "scheme",
-    scheme: "dpad",
-    bind: { left: "left", right: "right" },
-  },
+import createGame, { MANIFEST } from "cw2:sim"
+import { definePageModule } from "@vbz-gg/sdk/game"
+import { capture } from "./capture"
+import { createPresentation } from "./present/canvas"
+
+export default definePageModule({ createGame, manifest: MANIFEST, createPresentation, capture })
+```
+
+The page never builds a host of its own. It loads the module and calls its
+`mount`, so the engine that plays a run on a studio's page is the one your
+game was built and checked with.
+
+## Controls
+
+Your game draws its own. Its renderer paints the buttons, the engine's device
+helpers record where each finger is and whether it is down, and your `tick`
+decides what a finger landed on, against the same rectangles the renderer
+drew. The template keeps them in one file, `src/sim/field.ts`, which both
+read. Never decide in the renderer and hand the answer over: it would replay
+perfectly and still settle the result where nothing checks it.
+
+The manifest declares each input by name and the whole numbers it carries,
+and `src/capture.ts` says which keys, fingers, controller buttons, sticks and
+tilt drive each one:
+
+```ts
+export const capture: CaptureMapping = {
+  keys: { ArrowLeft: "left", ArrowRight: "right" },
+  pointers: [{ down: "touch0", x: "touch0X", y: "touch0Y" }],
+  gamepads: { any: { buttons: { 14: "left", 15: "right" } } },
 }
 ```
 
-Four schemes: `tap` is one button covering the viewport, and `dpad`, `dpad+1`
-and `dpad+2` are a direction pad with nought, one or two action buttons beside
-it. Bind the slots you use and leave the rest of the layout empty - the example
-above draws two buttons in a d-pad's left and right positions.
+Keep the ranges coarse and record changes rather than a stream: every value a
+finger crosses is an input to send, store and replay, and the platform holds
+a run to a budget of 16 inputs per tick, counted over the whole run. The
+template records a finger in steps of 30 field units, which is enough to tell
+its two buttons apart. Its presentation fills the element it is mounted in,
+because a finger is measured across that element.
 
-The renderer owns every pixel of those buttons, which is what lets it promise
-they are thumb-sized, clear of the notch and the home indicator, and the same
-in every game that uses them. The platform refuses an upload that names a
-scheme this package cannot draw.
-
-**You draw them.** Declare `controls: { mode: "custom" }`, paint the controls
-in your own renderer, and read pointer input. The host draws nothing and
-promises nothing. Two rules follow from the engine's own: a game may not build
-an input event, so the hit test goes in `tick()` rather than in the renderer,
-and it works in simulation units because the host has already quantised the
-pointer against a viewport that differs from one device to the next.
-
-Leaving `controls` out says your game wants a keyboard. A page hosting it can
-read that from the manifest and tell a phone player so, rather than framing a
-canvas they cannot steer.
+A mapping that reads a controller or locks the mouse needs your page to pass
+`onNotice`, so a player can be told when the browser blocks it. A mapping
+that reads tilt makes your page ask for it in the Play button's click, which
+`playRun` does for you.
 
 ## Typing your calls to the platform
 
@@ -115,75 +137,72 @@ type Board = PlatformRoutes["GET /v1/board"]["response"]
 A refusal arrives as `{ error, message }`, where `error` is one of
 `PublicRefusalCode`. Switch on the code, never on the status.
 
-## Talking to the platform from your page
+## Putting the game on your page
 
 `@vbz-gg/sdk/platform` is your page's client for vbz.gg: it signs a player
 in, starts a run, sends the run as it goes, submits it, and reads the board.
-`@vbz-gg/sdk/host` puts the game on your page: the sandboxed frame, the
-controls its manifest asks for, a sign-in button and a board table.
+`@vbz-gg/sdk/host` loads the game's page module, plays a run through it,
+replays a settled run for watching, and adds a sign-in button and a board
+table.
 
 ```ts
-import { mountBoard, mountSignIn, playRun } from "@vbz-gg/sdk/host"
+import { loadGame, mountBoard, mountSignIn, playRun } from "@vbz-gg/sdk/host"
 import { createPlatformClient } from "@vbz-gg/sdk/platform"
 
 const platform = createPlatformClient({
-  apiOrigin: API_ORIGIN, // from vbz.gg
-  signInOrigin: SIGN_IN_ORIGIN, // from vbz.gg
+  apiOrigin: "https://api.vbz.gg",
+  signInOrigin: "https://signin.vbz.gg",
   pageKey: PAGE_KEY, // vbz_pk_..., from the dashboard
 })
 
-// Opens the sign-in window in the click itself, the only place a browser
-// opens one.
 mountSignIn(signInSlot, { client: platform })
 const board = mountBoard(boardSlot, { client: platform, period: "week" })
 await board.refresh()
 
-playButton.onclick = async () => {
-  const run = await platform.startRun()
+// Before the click, so a game that will not load spends no run.
+const page = await platform.game()
+const version = page.today?.version ?? null // null while ranked play is paused
+const game = version === null ? null : await loadGame(version)
+
+playButton.onclick = () => {
+  if (game === null) return
   playRun(stage, {
     client: platform,
-    run,
+    game,
+    mode: "ranked",
+    title: page.game.title,
     onState: (state) => render(state), // ends at "done", with the replay's result
+    onNotice: (notice) => tell(notice.detail),
   })
 }
 ```
 
-`stage` needs a positioning context of its own: the frame fills it and the
-controls sit on top. A press on a control goes through the run, so one before
-the run starts or after it ends reaches nothing. The widgets take their
-colours from `--gb-widget-*` custom properties, as the pad takes its from
-`--gb-control-*`. `mountHost` is the frame and controls alone, for a page that
-drives `Run` from `@vbz-gg/sdk/platform` itself.
+`playRun` runs inside the click: a game that reads tilt has to be asked
+before anything is awaited. It moves focus to `stage` so keys reach the game,
+and holds the run to one tab of the browser. The platform says which version
+each run plays, and a resumed run plays its own, which `playRun` loads when
+it is not the one you did.
+
+Your page's Content-Security-Policy has to let the game in and keep every
+other game out. Name your game's own path on the platform's file origin and
+the API:
+
+```
+script-src 'self' https://files.vbz.gg/g/<game id>/; connect-src 'self' https://api.vbz.gg
+```
+
+Any bundler that leaves `loadGame`'s import of a URL to the browser works:
+Vite, webpack and esbuild are tested. A page with no bundler can serve the
+package's `dist/` itself. `docs/sdk.md` in the repository has the whole
+recommended policy and what each of these needs.
 
 The player's token is kept in `localStorage` and renewed at every run start.
 A failure is a `PlatformRefusal`, carrying the platform's code, or a
-`PlatformClientError`, carrying the client's, such as `E_POPUP_BLOCKED`.
-Switch on `code`. The platform's page guide has every route, and the
-`page.md` reference in the skill has every client code.
-
-## Using the renderer yourself
-
-If you are building a host rather than a game:
-
-```ts
-import { mountControls } from "@vbz-gg/sdk/controls"
-
-const pad = mountControls(playView, {
-  scheme: "dpad+1",
-  bind: { left: "left", right: "right", a: "jump" },
-  onPress: (action, value) => frame.virtualInput(action, value),
-})
-```
-
-It takes an element and gives back `update` and `destroy`. Plain DOM, so it
-works in React and outside it. It sets its own layout, hit target and
-safe-area clearance and takes its appearance from CSS custom properties
-(`--gb-control-bg`, `--gb-control-size`, `--gb-control-radius` and the rest),
-so a host restyles it without importing a stylesheet.
-
-`destroy` and `update` both send a release for anything still held. A held
-control that never comes up is not a visual bug: it runs the player into a
-wall for the rest of the session.
+`PlatformClientError`, carrying the client's, such as `E_POPUP_BLOCKED` or
+`E_GAME_UNLOADABLE`. Switch on `code`. The platform's page guide has every
+route, and the `page.md` reference in the skill has every client code. The
+template's `site/` is a whole page built this way, which `vbz dev --site`
+runs on your laptop.
 
 ## License
 
