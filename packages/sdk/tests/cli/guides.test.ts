@@ -27,6 +27,7 @@ import {
   guideIn,
   guideLines,
   guidesBesideKit,
+  installGuides,
   KIT_GUIDE,
   OWN_ROOT,
   packageRoot,
@@ -65,6 +66,19 @@ async function install(
     await writeFile(file, text)
   }
   return root
+}
+
+/** Makes `dir` a game's root: a package.json that names the kit. */
+async function asGame(
+  dir: string,
+  dependencies: Record<string, string> = { "@vbz-gg/sdk": "^9.1.0" },
+): Promise<string> {
+  await mkdir(dir, { recursive: true })
+  await writeFile(
+    join(dir, "package.json"),
+    JSON.stringify({ name: "game", devDependencies: dependencies }),
+  )
+  return dir
 }
 
 /** The files under a game's copy of a guide, sorted. */
@@ -182,13 +196,23 @@ describe("a guide in an installed package", () => {
     })
   })
 
-  test("a package.json with no version still names the package", async () => {
+  test("is refused, naming the file, when its package.json has no version", async () => {
+    // The version is what a game's guides are said to come from, so a
+    // package that cannot say which release it is has no guide to trust.
     await scratch(async (dir) => {
       const root = join(dir, "engine")
       await mkdir(join(root, "skill", ENGINE_GUIDE.name), { recursive: true })
       await writeFile(join(root, "package.json"), "{}")
       await writeFile(join(root, "skill", ENGINE_GUIDE.name, "SKILL.md"), "")
-      expect((await guideIn(ENGINE_GUIDE, root)).version).toBe("unknown")
+      let thrown: unknown = null
+      try {
+        await guideIn(ENGINE_GUIDE, root)
+      } catch (error) {
+        thrown = error
+      }
+      expect(String(thrown)).toContain(
+        `${join(root, "package.json")} has no version`,
+      )
     })
   })
 })
@@ -209,12 +233,15 @@ describe("vbz guides", () => {
    */
   test("copies both guides from the packages the game installed", async () => {
     await scratch(async (game) => {
+      await asGame(game)
       await install(game, KIT_GUIDE, "9.1.0", KIT_FILES)
       await install(game, ENGINE_GUIDE, "9.2.0", ENGINE_FILES)
       const guides = await refreshGuides(game)
+      // Printed with forward slashes on every platform: it is a path a
+      // reader types or matches, not one this process opens.
       expect(guideLines(guides)).toEqual([
-        `${join(SKILLS_DIR, "vbz-game")}  from @vbz-gg/sdk 9.1.0`,
-        `${join(SKILLS_DIR, "clockwork2")}  from @clockwork2/engine 9.2.0`,
+        ".claude/skills/vbz-game  from @vbz-gg/sdk 9.1.0",
+        ".claude/skills/clockwork2  from @clockwork2/engine 9.2.0",
       ])
       expect(await copied(game, "vbz-game")).toEqual([
         "SKILL.md",
@@ -238,6 +265,7 @@ describe("vbz guides", () => {
    */
   test("removes a file the installed guide no longer has", async () => {
     await scratch(async (game) => {
+      await asGame(game)
       await install(game, KIT_GUIDE, "9.1.0", KIT_FILES)
       await install(game, ENGINE_GUIDE, "9.2.0", ENGINE_FILES)
       const stale = join(game, SKILLS_DIR, "clockwork2", "references")
@@ -284,6 +312,7 @@ describe("vbz guides", () => {
     "%s: refused, and nothing is written",
     async (_, kit, engine, refusal) => {
       await scratch(async (game) => {
+        await asGame(game)
         if (kit !== null) await install(game, KIT_GUIDE, "9.1.0", KIT_FILES)
         if (engine !== null) {
           await install(
@@ -311,6 +340,129 @@ describe("vbz guides", () => {
       })
     },
   )
+  /**
+   * `dir` is where the guides are written, so a directory that is not a
+   * game's root, or not there at all, is refused before anything is found or
+   * made. Without the check, a mistyped path inside a game found the game's
+   * packages from the directory above and made the mistyped directory to
+   * hold the guides.
+   */
+  test.each([
+    [
+      "is not there",
+      null,
+      /\/missing is not a game's root: it has no package\.json/,
+    ],
+    [
+      "has no package.json",
+      "none",
+      /\/missing is not a game's root: it has no package\.json/,
+    ],
+    [
+      "has a package.json that does not name the kit",
+      { "@clockwork2/engine": "0.8.0" },
+      /\/missing is not a game's root: its package\.json names no @vbz-gg\/sdk in dependencies or devDependencies/,
+    ],
+  ] as const)(
+    "a directory that %s is refused, and not made",
+    async (_, root, refusal) => {
+      await scratch(async (parent) => {
+        // The packages are installed above it, where node's lookup from the
+        // directory would find them.
+        await install(parent, KIT_GUIDE, "9.1.0", KIT_FILES)
+        await install(parent, ENGINE_GUIDE, "9.2.0", ENGINE_FILES)
+        const dir = join(parent, "missing")
+        if (root === "none") await mkdir(dir)
+        else if (root !== null) await asGame(dir, root)
+
+        let thrown: unknown = null
+        try {
+          await refreshGuides(dir)
+        } catch (error) {
+          thrown = error
+        }
+        expect(String(thrown)).toMatch(refusal)
+        const left = await readdir(dir).catch(() => null)
+        expect(left === null ? null : left.sort()).toEqual(
+          root === null ? null : root === "none" ? [] : ["package.json"],
+        )
+      })
+    },
+  )
+
+  test("a package.json it cannot read is that error, not a missing root", async () => {
+    await scratch(async (game) => {
+      await mkdir(join(game, "package.json"), { recursive: true })
+      let thrown: unknown = null
+      try {
+        await refreshGuides(game)
+      } catch (error) {
+        thrown = error
+      }
+      expect((thrown as { code?: unknown } | null)?.code).toBe("EISDIR")
+    })
+  })
+
+  test("a dependency in dependencies names the kit as well as one in devDependencies", async () => {
+    await scratch(async (game) => {
+      await mkdir(game, { recursive: true })
+      await writeFile(
+        join(game, "package.json"),
+        JSON.stringify({ dependencies: { "@vbz-gg/sdk": "^9.1.0" } }),
+      )
+      await install(game, KIT_GUIDE, "9.1.0", KIT_FILES)
+      await install(game, ENGINE_GUIDE, "9.2.0", ENGINE_FILES)
+      expect((await refreshGuides(game)).length).toBe(2)
+    })
+  })
+
+  /**
+   * Both guides are copied before either replaces what the game has. A copy
+   * that fails part-way, through a full disk or a file it cannot read, would
+   * otherwise leave the kit's guide from one release beside the engine's
+   * from another, and an agent follows both.
+   */
+  test("a copy that fails leaves the guides the game had, and nothing else", async () => {
+    await scratch(async (game) => {
+      await asGame(game)
+      await install(game, KIT_GUIDE, "9.1.0", KIT_FILES)
+      await install(game, ENGINE_GUIDE, "9.2.0", ENGINE_FILES)
+      await refreshGuides(game)
+      const before = {
+        kit: await copied(game, "vbz-game"),
+        engine: await copied(game, "clockwork2"),
+      }
+      const newer = await guideIn(
+        KIT_GUIDE,
+        await install(join(game, "newer"), KIT_GUIDE, "9.3.0", {
+          "SKILL.md": "newer\n",
+        }),
+      )
+      const broken = {
+        ...newer,
+        name: ENGINE_GUIDE.name,
+        source: join(game, "no-such-guide"),
+      }
+
+      let thrown: unknown = null
+      try {
+        await installGuides(game, [newer, broken])
+      } catch (error) {
+        thrown = error
+      }
+      expect(thrown).not.toBeNull()
+      expect(await copied(game, "vbz-game")).toEqual(before.kit)
+      expect(
+        await readFile(join(game, SKILLS_DIR, "vbz-game", "SKILL.md"), "utf8"),
+      ).toContain("the game's own kit")
+      expect(await copied(game, "clockwork2")).toEqual(before.engine)
+      // No temporary folder left beside them.
+      expect((await readdir(join(game, SKILLS_DIR))).sort()).toEqual([
+        "clockwork2",
+        "vbz-game",
+      ])
+    })
+  })
 })
 
 describe("the command", () => {
@@ -318,19 +470,21 @@ describe("the command", () => {
 
   test("prints each guide it wrote, and the version it came from", async () => {
     await scratch(async (game) => {
+      await asGame(game)
       await install(game, KIT_GUIDE, "9.1.0", { "SKILL.md": "kit\n" })
       await install(game, ENGINE_GUIDE, "9.2.0", { "SKILL.md": "engine\n" })
       const result = await $`bun ${CLI} guides ${game}`.quiet().nothrow()
       expect(result.exitCode).toBe(0)
       expect(result.stdout.toString()).toBe(
-        `${join(SKILLS_DIR, "vbz-game")}  from @vbz-gg/sdk 9.1.0\n` +
-          `${join(SKILLS_DIR, "clockwork2")}  from @clockwork2/engine 9.2.0\n`,
+        ".claude/skills/vbz-game  from @vbz-gg/sdk 9.1.0\n" +
+          ".claude/skills/clockwork2  from @clockwork2/engine 9.2.0\n",
       )
     })
   })
 
   test("exits 1 with one line naming what is missing", async () => {
     await scratch(async (game) => {
+      await asGame(game)
       await install(game, KIT_GUIDE, "9.1.0", { "SKILL.md": "kit\n" })
       const result = await $`bun ${CLI} guides ${game}`.quiet().nothrow()
       expect(result.exitCode).toBe(1)

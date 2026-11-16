@@ -19,11 +19,16 @@
  * is a game whose agent follows rules nobody checked against it.
  */
 
-import { cp, mkdir, readFile, rm, stat } from "node:fs/promises"
+import { randomUUID } from "node:crypto"
+import { cp, mkdir, readFile, rename, rm, stat } from "node:fs/promises"
 import { basename, dirname, join, resolve } from "node:path"
 
-/** Where a game keeps the guides, relative to its root. */
-export const SKILLS_DIR = join(".claude", "skills")
+/**
+ * Where a game keeps the guides, relative to its root. Written with forward
+ * slashes, which is how it is printed on every platform; `join` turns it into
+ * the platform's own separators where a file is opened.
+ */
+export const SKILLS_DIR = ".claude/skills"
 
 /** Where a package keeps the guide it ships, relative to its root. */
 export const SHIPPED_GUIDES_DIR = "skill"
@@ -89,11 +94,16 @@ export async function packageRoot(
  * release from before the guide shipped, or a package somebody trimmed.
  */
 export async function guideIn(spec: GuideSpec, root: string): Promise<Guide> {
-  const manifest = JSON.parse(
-    await readFile(join(root, "package.json"), "utf8"),
-  ) as { version?: unknown }
-  const version =
-    typeof manifest.version === "string" ? manifest.version : "unknown"
+  const file = join(root, "package.json")
+  const manifest = JSON.parse(await readFile(file, "utf8")) as {
+    version?: unknown
+  }
+  const { version } = manifest
+  if (typeof version !== "string" || version === "") {
+    throw new Error(
+      `${file} has no version, so nothing says which release of ${spec.package} its guide comes from.`,
+    )
+  }
   const source = join(root, SHIPPED_GUIDES_DIR, spec.name)
   if (!(await isFile(join(source, "SKILL.md")))) {
     throw new Error(
@@ -158,28 +168,78 @@ export async function guidesInstalledIn(
  * whole, so a file a newer guide dropped does not linger beside the ones it
  * kept. Anything else in `.claude/skills` is left alone. Answers the folders
  * it wrote.
+ *
+ * Every guide is copied into a temporary folder beside its target first, and
+ * only once all the copies exist do they replace what the game had. What can
+ * fail part-way - a file that cannot be read, a full disk - fails before
+ * anything the game had is touched, and the temporary folders go with it, so
+ * a game never holds one guide from one release beside one from another.
+ * The replacing is a rename within one folder.
  */
 export async function installGuides(
   dir: string,
   guides: readonly Guide[],
 ): Promise<readonly string[]> {
-  const written: string[] = []
-  for (const guide of guides) {
-    const target = join(dir, SKILLS_DIR, guide.name)
-    await rm(target, { recursive: true, force: true })
-    await mkdir(dirname(target), { recursive: true })
-    await cp(guide.source, target, { recursive: true })
-    written.push(target)
+  const skills = join(dir, SKILLS_DIR)
+  await mkdir(skills, { recursive: true })
+  const staged = guides.map((guide) => ({
+    target: join(skills, guide.name),
+    fresh: join(skills, `.${guide.name}.${randomUUID()}`),
+    source: guide.source,
+  }))
+  try {
+    for (const { source, fresh } of staged) {
+      await cp(source, fresh, { recursive: true })
+    }
+    for (const { target, fresh } of staged) {
+      await rm(target, { recursive: true, force: true })
+      await rename(fresh, target)
+    }
+  } finally {
+    for (const { fresh } of staged) {
+      await rm(fresh, { recursive: true, force: true })
+    }
   }
-  return written
+  return staged.map(({ target }) => target)
+}
+
+/**
+ * Refuses `dir` unless it is a game's root: a directory holding a
+ * `package.json` that names this package as a dependency. That is where a
+ * game made with `vbz new` keeps its guides, and where its packages are
+ * found from. A mistyped path is refused rather than made, since node would
+ * still find the game's packages from inside it.
+ */
+export async function assertGameRoot(dir: string): Promise<void> {
+  const file = join(dir, "package.json")
+  const text = await readFile(file, "utf8").catch((error: unknown) => {
+    if ((error as { code?: unknown }).code === "ENOENT") return null
+    throw error
+  })
+  const notRoot = `${resolve(dir)} is not a game's root`
+  if (text === null) throw new Error(`${notRoot}: it has no package.json.`)
+  const manifest = JSON.parse(text) as {
+    dependencies?: Record<string, unknown>
+    devDependencies?: Record<string, unknown>
+  }
+  const names = [
+    ...Object.keys(manifest.dependencies ?? {}),
+    ...Object.keys(manifest.devDependencies ?? {}),
+  ]
+  if (!names.includes(KIT_GUIDE.package)) {
+    throw new Error(
+      `${notRoot}: its package.json names no ${KIT_GUIDE.package} in dependencies or devDependencies.`,
+    )
+  }
 }
 
 /**
  * `vbz guides`: replaces a game's guides with the ones its installed packages
- * ship. Both are found before anything is written, so a missing one leaves
- * the game as it was.
+ * ship. The game's root is checked and both guides are found before anything
+ * is written, so a missing one leaves the game as it was.
  */
 export async function refreshGuides(dir: string): Promise<readonly Guide[]> {
+  await assertGameRoot(dir)
   const guides = await guidesInstalledIn(dir)
   await installGuides(dir, guides)
   return guides
@@ -189,6 +249,6 @@ export async function refreshGuides(dir: string): Promise<readonly Guide[]> {
 export function guideLines(guides: readonly Guide[]): string[] {
   return guides.map(
     (guide) =>
-      `${join(SKILLS_DIR, guide.name)}  from ${guide.package} ${guide.version}`,
+      `${SKILLS_DIR}/${guide.name}  from ${guide.package} ${guide.version}`,
   )
 }

@@ -470,11 +470,20 @@ working on this repository as if it were working on a game.
 `vbz guides ./my-game` replaces both guides with the ones the game's own
 packages ship, each found from the game's directory rather than from the
 copy of the kit running the command, so a game that upgraded either package
-gets the guides of the versions it now has. Each folder is replaced whole, so
-a file a newer guide dropped goes too, and anything else in
-`.claude/skills/` is left alone. A package or a guide that is missing is an
-error naming it, and nothing is written. It does not touch `AGENTS.md`, which
-is the author's to edit.
+gets the guides of the versions it now has. The directory has to be a game's
+root, one whose `package.json` names `@vbz-gg/sdk` in its dependencies or
+devDependencies; anything else is refused and never made, since node would
+still find a game's packages from a mistyped folder inside it. Each folder is
+replaced whole, so a file a newer guide dropped goes too, and anything else
+in `.claude/skills/` is left alone. A package or a guide that is missing is
+an error naming it, and nothing is written. It does not touch `AGENTS.md`,
+which is the author's to edit.
+
+Both commands copy the guides into temporary folders beside their targets,
+and replace what the game had only once every copy exists. A copy that fails
+part-way, on a file it cannot read or a full disk, leaves the game's guides
+as they were and the temporary folders gone, so a game never holds the kit's
+guide from one release beside the engine's from another.
 
 ## Checking a game
 

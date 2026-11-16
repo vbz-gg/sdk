@@ -243,7 +243,11 @@ game's `.claude/skills/vbz-game/`, with the engine's guide from the engine
 installed beside the package at `.claude/skills/clockwork2/`, and `vbz guides`
 copies both again from the packages a game has installed. Neither falls back:
 a package or a guide that is missing is an error naming it, and nothing is
-written. The game's `AGENTS.md` and `CLAUDE.md` live in the template as
+written, and `vbz guides` refuses a directory that is not a game's root,
+one whose `package.json` names `@vbz-gg/sdk`, rather than making it. Both
+copy the guides into temporary folders first and replace the game's only
+once both copies exist, so a game never holds guides from two releases.
+The game's `AGENTS.md` and `CLAUDE.md` live in the template as
 `agents.md` and `claude.md`, renamed on the way in as `gitignore` is, so they
 never steer an agent working here. `check:publishable` compares
 the packed guide with git's copy, file for file, byte for byte and execute
