@@ -268,7 +268,10 @@ ticks is `E_NOTHING_TO_WATCH`.
 
 Two widgets sit beside them. `mountSignIn` is a button that signs a player in
 and out, calling `signIn()` in the click's own turn and showing a failure
-beside itself in the client's own sentence. `mountBoard` is a table of a
+beside itself in the client's own sentence. It redraws itself only after its
+own clicks: when the client drops a player whose token stopped working, call
+its `update()`, from `onSignedOut` or after any failed run, as the template's
+page does. `mountBoard` is a table of a
 board: rank, name and each counter the game ranks by, in the manifest's
 order, with the reader's own row marked `aria-current` and shown after the
 page when it is not on it. Both are plain DOM and take every colour from a

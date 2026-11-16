@@ -308,6 +308,7 @@ function rig(answers: {
     own: LoadedGame | null
   }> = []
   const loads: string[] = []
+  let signedIn = answers.signedIn !== false
   const client = {
     pageKey: "vbz_pk_1" as const,
     game: async () => {
@@ -316,8 +317,7 @@ function rig(answers: {
       if (next === undefined) throw new Error("no game scripted")
       return next
     },
-    player: () =>
-      answers.signedIn === false ? null : { id: "p-1", displayName: "Ann" },
+    player: () => (signedIn ? { id: "p-1", displayName: "Ann" } : null),
     signIn: async () => ({ id: "p-1", displayName: "Ann" }),
     signOut: () => {},
     board: async () => {
@@ -373,6 +373,10 @@ function rig(answers: {
   const message = () => document.getElementById("message")?.textContent ?? ""
   return {
     site,
+    /** The client forgetting the player, as it does when a token stops working. */
+    forgetPlayer: () => {
+      signedIn = false
+    },
     plays,
     loads,
     click,
@@ -431,6 +435,24 @@ describe("the page", () => {
     page.click("play")
     expect(page.plays).toEqual([])
     expect(page.message()).toBe(SIGN_IN_FIRST)
+  })
+
+  test("a run refused for a sign-in that stopped working shows the player signed out", async () => {
+    const page = rig({ games: [pageGame()] })
+    await settled()
+    const signInButton = () =>
+      document.querySelector("#signin button")?.textContent ?? ""
+    expect(signInButton()).toBe("Sign out")
+    page.click("play")
+    page.forgetPlayer()
+    page.plays[0]?.options.onState?.(
+      state({ errorCode: "E_SIGN_IN_REQUIRED", detail: "sign in first" }),
+    )
+    expect(page.message()).toBe(SIGN_IN_FIRST)
+    expect(signInButton()).toBe("Sign in")
+    expect(
+      document.querySelector(".gb-signin-name")?.hasAttribute("hidden"),
+    ).toBe(true)
   })
 
   test("on a paused day it says so, and Play still asks, reading the game again", async () => {

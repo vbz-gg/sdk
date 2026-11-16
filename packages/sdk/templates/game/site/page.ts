@@ -13,6 +13,11 @@
  * patch passes its checks is a ranked run again. When the player is barred,
  * a start answers `E_PLAYER_BARRED`, and the page says when the bar ends.
  *
+ * A player's sign-in can stop working while the page is open: it expires,
+ * or the platform no longer honours it. A run that fails for that reason
+ * makes the client forget the player, and the page redraws its sign-in box
+ * and asks the player to sign in again.
+ *
  * A game that reads tilt starts no run without it. `playRun` fails the run
  * before asking the platform for one, and the page shows the client's own
  * sentence, which tells the player what happened and what to do.
@@ -120,7 +125,7 @@ export function startSite(options: SiteOptions): Site {
     client,
     period: "day",
   })
-  mountSignIn(element(document, "signin"), {
+  const signIn = mountSignIn(element(document, "signin"), {
     client,
     onChange: () => {
       say("")
@@ -209,6 +214,10 @@ export function startSite(options: SiteOptions): Site {
               : { formatTime: options.formatTime }),
           }),
         )
+        // A run the platform refused may have cost the player their
+        // sign-in, which the client then forgets: the sign-in box redraws
+        // from the client, so it never shows a player who has gone.
+        if (state.phase === RUN_PHASE.FAILED) signIn.update()
         if (state.errorCode === "E_MOTION_NEEDS_TAP") {
           again = { mode, game: current.game }
         }
