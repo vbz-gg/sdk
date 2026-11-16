@@ -118,8 +118,8 @@ describe("what a tarball would do to a consumer", () => {
   test("the template's files that a new game renames are held to shipping", () => {
     for (const file of [
       "templates/game/gitignore",
-      "templates/game/agents.md",
-      "templates/game/claude.md",
+      "templates/game/game-agents.md",
+      "templates/game/game-claude.md",
     ]) {
       expect(RUNTIME_FILES).toContain(file)
       const problems = problemsWith(

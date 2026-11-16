@@ -34,6 +34,7 @@ import { tmpdir } from "node:os"
 import { join, posix, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 import { $ } from "bun"
+import { RENAMED_IN_GAME } from "../packages/sdk/src/cli/new.js"
 
 export const PUBLIC_PACKAGES = ["sdk"] as const
 
@@ -257,8 +258,8 @@ export async function unimportableSubpaths(
  * beside the source and in an installed copy it has to resolve to the
  * compiled file, which only ships if `tsc` emitted it. And `vbz new` copies
  * the template out of the package, which only works if the template is in
- * the tarball, and renames `gitignore`, `agents.md` and `claude.md` on the
- * way, which only works if npm packed each under that name. The guide `vbz
+ * the tarball, and renames the files `RENAMED_IN_GAME` lists on the way,
+ * which only works if npm packed each under the name it is stored under. The guide `vbz
  * new` copies is held by the comparison with git's copy instead.
  *
  * Nothing that imports the package would notice either one missing. The
@@ -268,9 +269,9 @@ export const RUNTIME_FILES: readonly string[] = [
   "dist/harness/page/main.js",
   "dist/harness/replay-child.js",
   "templates/game/package.json",
-  "templates/game/gitignore",
-  "templates/game/agents.md",
-  "templates/game/claude.md",
+  // What `vbz new` renames on the way into a game, by the names it ships
+  // under, read from the table that renames them.
+  ...Object.keys(RENAMED_IN_GAME).map((stored) => `templates/game/${stored}`),
   "templates/game/src/sim/index.ts",
   "templates/game/src/present.ts",
   "templates/game/src/capture.ts",

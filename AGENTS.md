@@ -176,8 +176,9 @@ also asserts the files the package reads at runtime rather than imports are in
 the tarball - `RUNTIME_FILES` in the script - because the harness bundles its
 page script from a path built off `import.meta.dir`, and nothing importing the
 package would notice that file missing. `vbz new` reads the template the same
-way, and renames `gitignore`, `agents.md` and `claude.md` on the way into a
-game, so each of those is listed by the name it ships under.
+way, and renames the files `RENAMED_IN_GAME` lists on the way into a game,
+so `RUNTIME_FILES` lists each by the name it ships under, read from that
+table.
 
 **`loadGame`'s import of a game's code keeps both bundler comments**,
 `webpackIgnore: true` and `@vite-ignore`, on the call itself. The URL arrives
@@ -247,12 +248,17 @@ written, and `vbz guides` refuses a directory that is not a game's root,
 one whose `package.json` names `@vbz-gg/sdk`, rather than making it. Both
 copy the guides into temporary folders first and replace the game's only
 once both copies exist, so a game never holds guides from two releases.
+
 The game's `AGENTS.md` and `CLAUDE.md` live in the template as
-`agents.md` and `claude.md`, renamed on the way in as `gitignore` is, so they
-never steer an agent working here. `check:publishable` compares
-the packed guide with git's copy, file for file, byte for byte and execute
-bit, and fails on anything else under `skill/` in the tarball, because npm
-packs the disk and not the commit.
+`game-agents.md` and `game-claude.md`, renamed on the way in as `gitignore`
+is. A name that differed from `AGENTS.md` only by case would still steer an
+agent working here on macOS or Windows, whose default filesystems ignore
+case. A template missing one of them is a broken install, and `vbz new`
+names it and takes back what it wrote.
+
+`check:publishable` compares the packed guide with git's copy, file for file,
+byte for byte and execute bit, and fails on anything else under `skill/` in
+the tarball, because npm packs the disk and not the commit.
 
 `packages/sdk/skill/tests/skill.test.ts` measures the drift a machine can
 see: the size caps match the code, every artifact refusal named exists and

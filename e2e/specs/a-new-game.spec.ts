@@ -192,7 +192,8 @@ test("a game made from the packed kit installs, refreshes its guides, checks and
     expect(top).toEqual(
       expect.arrayContaining(["AGENTS.md", "CLAUDE.md", ".gitignore"]),
     )
-    expect(top).not.toContain("agents.md")
+    expect(top).not.toContain("game-agents.md")
+    expect(top).not.toContain("game-claude.md")
     expect(await readFile(join(game, "AGENTS.md"), "utf8")).toMatch(
       /^# Pocket Run\n/,
     )

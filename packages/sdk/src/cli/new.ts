@@ -21,6 +21,7 @@ import {
   readdir,
   readFile,
   rename,
+  rm,
   writeFile,
 } from "node:fs/promises"
 import { basename, join, relative, sep } from "node:path"
@@ -48,13 +49,18 @@ const OWN_MANIFEST = join(import.meta.dir, "..", "..", "package.json")
  *
  * `AGENTS.md` and `CLAUDE.md` steer an agent working in the directory that
  * holds them. Under those names in the template, they would steer an agent
- * working on this package as if it were working on a game, so the template
- * stores them under names no tool reads.
+ * working on this package as if it were working on a game, and so would a
+ * name that differs from them only by case, which macOS and Windows open for
+ * them on their default filesystems. So the template stores them under names
+ * no tool reads.
+ *
+ * Every one of these ships, which check:publishable holds, so a template
+ * without one is an install that is broken, and `vbz new` says so.
  */
 export const RENAMED_IN_GAME: Readonly<Record<string, string>> = {
   gitignore: ".gitignore",
-  "agents.md": "AGENTS.md",
-  "claude.md": "CLAUDE.md",
+  "game-agents.md": "AGENTS.md",
+  "game-claude.md": "CLAUDE.md",
 }
 
 /**
@@ -152,7 +158,9 @@ export interface NewGame {
  *
  * An existing directory with anything in it is refused rather than merged
  * into: a half-overwritten game is worse than no game, and the author is the
- * only one who knows what was in there.
+ * only one who knows what was in there. For the same reason a copy that
+ * fails part-way takes back what it wrote: a directory it made goes, and one
+ * that was there empty is left empty.
  */
 export async function createGame(options: NewGameOptions): Promise<NewGame> {
   const { dir } = options
@@ -169,18 +177,43 @@ export async function createGame(options: NewGameOptions): Promise<NewGame> {
   const guides = await (options.guides ?? guidesBesideKit)()
 
   await mkdir(dir, { recursive: true })
+  try {
+    await copyTemplate(dir, options.template ?? TEMPLATE_DIR, id, title)
+    await setVersions(dir, versions)
+    await installGuides(dir, guides)
+  } catch (error) {
+    if (existing === null) await rm(dir, { recursive: true, force: true })
+    else {
+      for (const entry of await readdir(dir)) {
+        await rm(join(dir, entry), { recursive: true, force: true })
+      }
+    }
+    throw error
+  }
+
+  return { id, title, dir, guides }
+}
+
+/** The template, copied into `dir`, with its stored names and its own name changed. */
+async function copyTemplate(
+  dir: string,
+  template: string,
+  id: string,
+  title: string,
+): Promise<void> {
   // A template with a build in it would copy somebody else's artifacts into a
   // new game and call them its own.
-  const template = options.template ?? TEMPLATE_DIR
   await cp(template, dir, {
     recursive: true,
     filter: (source) => isCopied(template, source),
   })
 
   for (const [stored, name] of Object.entries(RENAMED_IN_GAME)) {
-    await rename(join(dir, stored), join(dir, name)).catch(() => {
-      // A template without one is still a game; it just lacks that file.
-      // check:publishable holds the shipped template to carrying each.
+    await rename(join(dir, stored), join(dir, name)).catch((error: unknown) => {
+      if ((error as { code?: unknown }).code !== "ENOENT") throw error
+      throw new Error(
+        `the template at ${template} has no ${stored}, which a new game gets as ${name}: this copy of @vbz-gg/sdk is incomplete, so install it again.`,
+      )
     })
   }
 
@@ -195,9 +228,16 @@ export async function createGame(options: NewGameOptions): Promise<NewGame> {
     if (before === null) continue
     await writeFile(path, renamed(before, id, title))
   }
+}
 
-  // The dependency lines are versions rather than names, so they are set from
-  // this package rather than renamed.
+/**
+ * The dependency lines are versions rather than names, so they are set from
+ * this package rather than renamed.
+ */
+async function setVersions(
+  dir: string,
+  versions: { readonly sdk: string; readonly engine: string },
+): Promise<void> {
   const manifestPath = join(dir, "package.json")
   const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as {
     devDependencies?: Record<string, string>
@@ -208,8 +248,4 @@ export async function createGame(options: NewGameOptions): Promise<NewGame> {
     "@vbz-gg/sdk": versions.sdk,
   }
   await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
-
-  await installGuides(dir, guides)
-
-  return { id, title, dir, guides }
 }

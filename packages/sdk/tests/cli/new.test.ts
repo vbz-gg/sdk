@@ -44,6 +44,16 @@ import {
 
 const VERSIONS = { sdk: "^9.9.9", engine: ">=9.0.0 <10.0.0" }
 
+/**
+ * Writes the files a template stores under one name and a game gets under
+ * another, so a stand-in template is one `vbz new` can make a game from.
+ */
+async function withRenamedFiles(template: string): Promise<void> {
+  for (const stored of Object.keys(RENAMED_IN_GAME)) {
+    await writeFile(join(template, stored), `${stored}\n`)
+  }
+}
+
 async function into(
   name: string,
   run: (dir: string) => Promise<void>,
@@ -131,6 +141,7 @@ describe("what a copy is", () => {
       await mkdir(join(source, "dist"), { recursive: true })
       await writeFile(join(source, "dist", "sim.js"), "// somebody else's\n")
       await writeFile(join(source, "package.json"), '{"name":"lane-runner"}\n')
+      await withRenamedFiles(source)
       await into("copied", async (dir) => {
         await createGame({ dir, template: source, versions: VERSIONS })
         expect(
@@ -168,6 +179,7 @@ describe("what a copy is", () => {
         join(source, "src", "sim", "manifest.ts"),
         'id: "lane-runner"\n',
       )
+      await withRenamedFiles(source)
 
       await into("installed-copy", async (dir) => {
         await createGame({ dir, template: source, versions: VERSIONS })
@@ -204,30 +216,38 @@ describe("what a copy is", () => {
   /**
    * Under their own names in the template, `AGENTS.md` and `CLAUDE.md` would
    * steer an agent working on this package as if it were working on a game.
-   * The template keeps them under names no tool reads, and a new game gets
-   * them under the names an agent's tools do.
+   * So would any name that differs from them only by case: macOS and Windows
+   * open `agents.md` for `AGENTS.md` on their default filesystems. The
+   * template keeps them under names that differ by more than case, and a new
+   * game gets them under the names an agent's tools read.
    */
   test("the agent's files arrive under the names an agent reads", async () => {
     expect(RENAMED_IN_GAME).toEqual({
       gitignore: ".gitignore",
-      "agents.md": "AGENTS.md",
-      "claude.md": "CLAUDE.md",
+      "game-agents.md": "AGENTS.md",
+      "game-claude.md": "CLAUDE.md",
     })
     for (const stored of Object.keys(RENAMED_IN_GAME)) {
       expect((await stat(join(TEMPLATE_DIR, stored))).isFile()).toBe(true)
     }
-    // Nothing in the template under the names a tool would read there.
-    const inTemplate = await readdir(TEMPLATE_DIR)
-    expect(inTemplate).not.toContain("AGENTS.md")
-    expect(inTemplate).not.toContain("CLAUDE.md")
+    // Nothing anywhere in the template under a name a tool reads, in any
+    // case, since an agent working in a subfolder reads its file too.
+    const read = new Set(["agents.md", "claude.md"])
+    const inTemplate = await readdir(TEMPLATE_DIR, { recursive: true })
+    expect(
+      inTemplate.filter((path) =>
+        read.has((path.split(/[\\/]/).at(-1) ?? "").toLowerCase()),
+      ),
+    ).toEqual([])
 
     await into("tiki-kong", async (dir) => {
       await createGame({ dir, versions: VERSIONS })
       const files = await readdir(dir)
       expect(files).toContain("AGENTS.md")
       expect(files).toContain("CLAUDE.md")
-      expect(files).not.toContain("agents.md")
-      expect(files).not.toContain("claude.md")
+      for (const stored of Object.keys(RENAMED_IN_GAME)) {
+        expect(files).not.toContain(stored)
+      }
       expect(await readFile(join(dir, "CLAUDE.md"), "utf8")).toBe(
         "@AGENTS.md\n",
       )
@@ -240,6 +260,106 @@ describe("what a copy is", () => {
       }
       expect(agents).toContain("vbz guides")
     })
+  }, 30_000)
+
+  /**
+   * The game's `AGENTS.md` is what an agent that loads no skills reads first,
+   * so the one rule it states has to be the engine's whole rule. Leaving out
+   * the data packs, or the three engines, states a weaker rule than the one
+   * the replay holds a game to.
+   */
+  test("the game's AGENTS.md states the engine's one rule in full", async () => {
+    const text = (
+      await readFile(join(TEMPLATE_DIR, "game-agents.md"), "utf8")
+    ).replace(/\s+/g, " ")
+    expect(text).toContain(
+      "must be a pure function of its seed, its config, its input log and the data packs its manifest pins, and must produce the same bits on V8, JavaScriptCore and SpiderMonkey.",
+    )
+  })
+
+  /**
+   * check:publishable holds the shipped template to carrying each file it
+   * renames, so one missing is an install somebody trimmed or a copy that
+   * failed. It is named, and no game is left behind half-made.
+   */
+  test("a template missing a file it renames is a broken install, named", async () => {
+    const source = await mkdtemp(join(tmpdir(), "sdk-template-"))
+    try {
+      await writeFile(join(source, "package.json"), '{"name":"lane-runner"}\n')
+      await withRenamedFiles(source)
+      await rm(join(source, "game-agents.md"))
+      await into("broken", async (dir) => {
+        let thrown: unknown = null
+        try {
+          await createGame({ dir, template: source, versions: VERSIONS })
+        } catch (error) {
+          thrown = error
+        }
+        expect(String(thrown)).toContain(
+          `the template at ${source} has no game-agents.md, which a new game gets as AGENTS.md`,
+        )
+        expect(await readdir(dir).catch(() => null)).toBeNull()
+      })
+    } finally {
+      await rm(source, { recursive: true, force: true })
+    }
+  }, 30_000)
+
+  /** A rename that fails for any other reason fails `vbz new` with it. */
+  test("a rename that fails for another reason is not swallowed", async () => {
+    const source = await mkdtemp(join(tmpdir(), "sdk-template-"))
+    try {
+      await writeFile(join(source, "package.json"), '{"name":"lane-runner"}\n')
+      await withRenamedFiles(source)
+      // A folder where the ignore file is going: a file cannot be renamed
+      // over it.
+      await mkdir(join(source, ".gitignore"))
+      await writeFile(join(source, ".gitignore", "keep"), "\n")
+      await into("clash", async (dir) => {
+        let thrown: unknown = null
+        try {
+          await createGame({ dir, template: source, versions: VERSIONS })
+        } catch (error) {
+          thrown = error
+        }
+        expect((thrown as { code?: unknown } | null)?.code).toBe("EISDIR")
+        expect(await readdir(dir).catch(() => null)).toBeNull()
+      })
+    } finally {
+      await rm(source, { recursive: true, force: true })
+    }
+  }, 30_000)
+
+  /**
+   * A guide whose copy fails part-way leaves no game: a game without the
+   * guides `AGENTS.md` points at is one an agent works on blind. A directory
+   * that was there, empty, is left there and empty.
+   */
+  test("a guide that cannot be copied leaves no half-made game", async () => {
+    const broken = async () => [
+      ...(await guidesBesideKit()).slice(0, 1),
+      {
+        name: ENGINE_GUIDE.name,
+        package: ENGINE_GUIDE.package,
+        version: "0.8.0",
+        source: join(tmpdir(), "sdk-no-such-guide"),
+      },
+    ]
+    for (const madeFirst of [false, true]) {
+      await into("half", async (dir) => {
+        if (madeFirst) await mkdir(dir)
+        let thrown: unknown = null
+        try {
+          await createGame({ dir, versions: VERSIONS, guides: broken })
+        } catch (error) {
+          thrown = error
+        }
+        expect((thrown as { code?: unknown } | null)?.code).toBe("ENOENT")
+        expect(await readdir(dir).catch(() => null)).toEqual(
+          madeFirst ? [] : null,
+        )
+      })
+    }
   }, 30_000)
 
   /**

@@ -461,11 +461,16 @@ shipped its guide, stops `vbz new` with a message naming what is missing,
 before it has written anything.
 
 It also writes an `AGENTS.md`, for an agent that reads that file rather than
-loading skills, with the commands, the one rule, and where the two guides
-are, and a `CLAUDE.md` that is `@AGENTS.md`. The template keeps them as
-`agents.md` and `claude.md` and they are renamed on the way into a game, as
-`gitignore` is, because under their own names they would steer an agent
-working on this repository as if it were working on a game.
+loading skills, with the commands, the engine's one rule in full, and where
+the two guides are, and a `CLAUDE.md` that is `@AGENTS.md`. The template
+keeps them as `game-agents.md` and `game-claude.md` and they are renamed on
+the way into a game, as `gitignore` is, because under their own names they
+would steer an agent working on this repository as if it were working on a
+game. A name that differed only by case would too: macOS and Windows open
+`agents.md` for `AGENTS.md` on their default filesystems. A template missing
+one of the three is an install that is broken, and `vbz new` says which file
+and takes back what it wrote, as it does for anything that fails part-way:
+a directory it made goes, and one that was there empty is left empty.
 
 `vbz guides ./my-game` replaces both guides with the ones the game's own
 packages ship, each found from the game's directory rather than from the
