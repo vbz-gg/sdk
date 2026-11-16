@@ -189,6 +189,20 @@ it, and npm 12 logs the rewrite as the command being removed while keeping
 it. The check holds each entry to the published form, and to a file the
 tarball carries.
 
+## Where a game's code runs
+
+**Every command that evaluates a game's code does it through
+`runGameProcess`**, in a process of its own with an empty environment, and
+names anything the child provably needs: the bundler gets `NODE_ENV`, nothing
+else gets anything. That covers the bundler, which runs a game's macros, the
+manifest read out of the rules code, `vbz check`'s conformance and mapping,
+and `vbz dev`'s replay. Never import a game's built output or its source into
+a command's own process, and never pass `process.env` to a child: the
+commands run beside a studio's secret key and cloud credentials.
+`vbz publish` evaluates nothing of a game, and a test holds it to that. Each
+command has a test that plants a variable and holds the game's code to never
+seeing it.
+
 ## The publish command
 
 **`vbz publish` reads the studio's secret key from `VBZ_STUDIO_KEY` only.**

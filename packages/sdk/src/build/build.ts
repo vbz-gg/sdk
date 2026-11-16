@@ -17,6 +17,7 @@ import {
   MAX_SIM_BYTES,
   SIM_SPECIFIER,
 } from "./contract.js"
+import { runGameProcess } from "./game-process.js"
 
 export interface GameSource {
   /** Absolute path to the game directory. */
@@ -58,6 +59,10 @@ export interface GameArtifacts {
  * that to its TypeScript sources, so resolving through it would bundle
  * different bytes from the published `dist`.
  *
+ * The bundler runs the macros the game's source imports, which is the game's
+ * own code, so it runs through `runGameProcess` with nothing of the
+ * environment but `NODE_ENV`, which it builds for.
+ *
  * The contract runs against the output here as well as at publish, so a build
  * that quietly inlined the simulation fails where the person who caused it is
  * standing rather than in somebody's upload.
@@ -92,7 +97,6 @@ export async function bundle(
   external: readonly string[],
 ): Promise<Uint8Array> {
   const command = [
-    "bun",
     "build",
     `./${entry}`,
     "--target=browser",
@@ -101,24 +105,18 @@ export async function bundle(
     ...external.flatMap((name) => ["--external", name]),
   ]
 
-  const child = Bun.spawn(command, {
+  const child = await runGameProcess(command, {
     cwd: root,
-    stdout: "pipe",
-    stderr: "pipe",
-    env: { ...process.env, NODE_ENV: "production" },
+    env: { NODE_ENV: "production" },
   })
 
-  const [out, err, code] = await Promise.all([
-    new Response(child.stdout).arrayBuffer(),
-    new Response(child.stderr).text(),
-    child.exited,
-  ])
-
-  if (code !== 0) {
-    throw new Error(`build failed for ${entry} in ${root}:\n${err.trim()}`)
+  if (child.code !== 0) {
+    throw new Error(
+      `build failed for ${entry} in ${root}:\n${child.stderr.trim()}`,
+    )
   }
-  if (out.byteLength === 0) {
+  if (child.stdout.byteLength === 0) {
     throw new Error(`build of ${entry} in ${root} produced nothing`)
   }
-  return new Uint8Array(out)
+  return child.stdout
 }

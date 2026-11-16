@@ -145,6 +145,7 @@ export async function unimportableSubpaths(
 export const RUNTIME_FILES: readonly string[] = [
   "dist/harness/page/main.js",
   "dist/harness/replay-child.js",
+  "dist/cli/check-child.js",
   "templates/game/package.json",
   "templates/game/gitignore",
   "templates/game/src/sim/index.ts",

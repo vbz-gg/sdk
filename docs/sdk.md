@@ -451,6 +451,29 @@ its release line and the line's contract hash, `contractSha256`, so a patch
 can be compared with the line it joins before it is uploaded. It exits 0
 only when everything passes.
 
+## Where a game's code runs
+
+A game's code is the studio's, and so is everything it imports, which nobody
+in the kit has read. The commands run where an author or a build system keeps
+a studio's secret key and cloud credentials in the environment, so every
+command that evaluates a game's code does it in a process of its own, started
+with an empty environment, and never in its own process:
+
+- `vbz build`, and every command that builds, runs the bundler with nothing
+  but `NODE_ENV`, because the bundler runs the macros a game's source
+  imports, and reads the manifest by importing the rules code with nothing at
+  all.
+- `vbz check` runs the engine's conformance checks over the rules code and
+  imports `src/capture.ts` in one such process, which writes what it found to
+  a file, because the game's own code may print.
+- `vbz dev` replays each run against the rules code in one.
+- `vbz publish` evaluates nothing of a game: it uploads the three files as
+  bytes, so the key it holds is never beside the game's code.
+
+One function starts them all, `runGameProcess` in `build/game-process.ts`,
+and a test per command plants a variable in its environment and holds the
+game's code to never seeing it.
+
 ## The harness
 
 `vbz dev ./my-game` builds the two real artifacts and serves them on one port

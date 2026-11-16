@@ -91,6 +91,47 @@ describe("the version, read as a release", () => {
   })
 })
 
+/** A value a game's code would have only by reading the command's environment. */
+const PLANTED = "vbz_sk_not_for_a_game"
+
+describe("the game's own code", () => {
+  /**
+   * A build evaluates a game's code twice: the bundler runs the macros its
+   * source imports, and the manifest is read by importing the rules code.
+   * `vbz build` runs where a studio keeps its secret key and its cloud
+   * credentials, so each happens in a process given none of that: the
+   * bundler only `NODE_ENV`, which it builds for, and the import nothing.
+   */
+  test("runs with none of the command's environment", async () => {
+    await mkdir(join(root, "src", "sim"), { recursive: true })
+    await writeFile(
+      join(root, "src", "sim", "macro.ts"),
+      "export function bundledWith(): string { return JSON.stringify(process.env) }\n",
+    )
+    await writeFile(
+      join(root, "src", "sim", "index.ts"),
+      `import { bundledWith } from "./macro.ts" with { type: "macro" }\n` +
+        "const env = (globalThis as { process?: { env?: object } }).process?.env\n" +
+        `export const MANIFEST = { id: "leak", version: "1.0.0", bundledWith: bundledWith(), importedWith: JSON.stringify(env) }\n`,
+    )
+    await writeFile(
+      join(root, "src", "present.ts"),
+      `import { MANIFEST } from "cw2:sim"\nexport default { name: MANIFEST.id }\n`,
+    )
+    process.env.VBZ_STUDIO_KEY = PLANTED
+    try {
+      const built = await buildGame({ root, ...SOURCE })
+      expect(built.manifest).toMatchObject({
+        bundledWith: JSON.stringify({ NODE_ENV: "production" }),
+        importedWith: "{}",
+      })
+      expect(new TextDecoder().decode(built.sim)).not.toContain(PLANTED)
+    } finally {
+      delete process.env.VBZ_STUDIO_KEY
+    }
+  })
+})
+
 describe("building", () => {
   test("a game builds to its two modules, its manifest and its line", async () => {
     await writeGame({ id: "probe", version: "2.5.1" })

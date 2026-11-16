@@ -97,8 +97,9 @@ It neither replays nor ranks. A score it shows has not been checked.
 - **Settlement and ranking.** The harness replays a run and says whether it
   matches; deciding what it scores on a board is the platform's.
 - **The cross-engine sweep.** `vbz check` runs the engine's conformance
-  checks under bun. The platform also runs the game in three engines at
-  ingest, which needs three browsers installed.
+  checks under bun, in a process of its own with an empty environment. The
+  platform also runs the game in three engines at ingest, which needs three
+  browsers installed.
 
 Use a device emulation at phone width, or a phone through `--https`. Your
 game draws its own controls, so check that a thumb on one does not cover

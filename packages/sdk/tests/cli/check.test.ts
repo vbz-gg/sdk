@@ -5,11 +5,27 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
-import { cp, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
+import {
+  cp,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { contractSha256 } from "../../src/build/line"
-import { captureProblems, checkGame, checkLines } from "../../src/cli/check"
+import { buildGame } from "../../src/cli/build"
+import {
+  captureProblems,
+  checkChildEntry,
+  checkGame,
+  checkHere,
+  checkInChild,
+  checkLines,
+} from "../../src/cli/check"
 import { TEMPLATE_DIR } from "../../src/cli/new"
 import { MANIFEST } from "../../templates/game/src/sim/manifest"
 
@@ -77,6 +93,80 @@ describe("checking the template", () => {
   }, 120_000)
 })
 
+/** A value a game's code would have only by reading the command's environment. */
+const PLANTED = "vbz_sk_not_for_a_game"
+
+/** Appended to a module of the game: it refuses to load beside any environment. */
+const REFUSES_AN_ENVIRONMENT = `
+const seen = (globalThis as { process?: { env?: object } }).process?.env
+if (seen !== undefined && Object.keys(seen).length > 0) {
+  throw new Error(\`the game's code saw \${JSON.stringify(seen)}\`)
+}
+`
+
+describe("the game's own code", () => {
+  /**
+   * \`vbz check\` runs the game's rules code through the engine's checks and
+   * imports its input mapping. It runs where a studio keeps its secret key
+   * and its cloud credentials, so every one of those runs in a process given
+   * none of that environment.
+   */
+  test("runs with none of the command's environment", async () => {
+    await copyTemplate()
+    for (const file of ["src/sim/index.ts", "src/capture.ts"]) {
+      const path = join(root, file)
+      await writeFile(
+        path,
+        (await readFile(path, "utf8")) + REFUSES_AN_ENVIRONMENT,
+      )
+    }
+    process.env.VBZ_STUDIO_KEY = PLANTED
+    try {
+      const checked = await checkGame({ root, ...SOURCE })
+      expect(JSON.stringify(checked)).not.toContain(PLANTED)
+      expect(checked.capture).toEqual([])
+      expect(checked.conformance.ok).toBe(true)
+      expect(checked.conformance.outcomes.length).toBeGreaterThan(8)
+      expect(checked.ok).toBe(true)
+    } finally {
+      delete process.env.VBZ_STUDIO_KEY
+    }
+  }, 120_000)
+})
+
+describe("the checks' own process", () => {
+  /** What the child runs, here, over a subject laid out as the child gets it. */
+  test("runs the engine's checks and the mapping's over the build", async () => {
+    const source = { root: TEMPLATE_DIR, ...SOURCE }
+    const built = await buildGame(source)
+    const subject = join(root, "subject")
+    await mkdir(subject)
+    await writeFile(join(subject, "index.js"), built.sim)
+    const found = await checkHere({
+      subject,
+      source,
+      manifest: MANIFEST,
+      answer: join(root, "answer.json"),
+    })
+    expect(found.conformance.ok).toBe(true)
+    expect(found.conformance.outcomes.length).toBeGreaterThan(8)
+    expect(found.capture).toEqual([])
+  }, 120_000)
+
+  test("a child that writes no answer fails the command, with what it said", async () => {
+    const entry = join(root, "silent.ts")
+    await writeFile(entry, `process.stderr.write("nothing to say")\n`)
+    const sim = new TextEncoder().encode("export const MANIFEST = {}\n")
+    await expect(
+      checkInChild({ root, ...SOURCE }, sim, MANIFEST, entry),
+    ).rejects.toThrow(/the checks did not answer: nothing to say/)
+  })
+
+  test("the child's entry is found as source here", () => {
+    expect(checkChildEntry()).toMatch(/check-child\.ts$/)
+  })
+})
+
 describe("reading the mapping", () => {
   async function problems(text: string | null): Promise<string[]> {
     if (text !== null) await writeFile(join(root, "capture.ts"), text)
@@ -105,6 +195,13 @@ describe("reading the mapping", () => {
   test("a mapping the engine cannot read is reported, not thrown", async () => {
     const [problem] = await problems(`export const capture = { pointers: 7 }\n`)
     expect(problem).toMatch(/^capture\.ts/)
+  })
+
+  test("a mapping naming an input the manifest does not declare names its file", async () => {
+    const [problem] = await problems(
+      `export const capture = { keys: { Space: "jump" } }\n`,
+    )
+    expect(problem).toMatch(/^capture\.ts: .*jump/)
   })
 
   test("a mapping of declared inputs has nothing wrong with it", async () => {
