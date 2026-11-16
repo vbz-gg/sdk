@@ -127,18 +127,20 @@ export async function unimportableSubpaths(
 /**
  * Files the package reads at runtime rather than imports.
  *
- * Two kinds. The harness bundles its own page script when it starts, from a
- * path built off `import.meta.dir`: in this repository that resolves to the
- * TypeScript beside the source and in an installed copy it has to resolve to
- * the compiled file, which only ships if `tsc` emitted it. And `vbz
- * new` copies the template out of the package, which only works if the
- * template is in the tarball.
+ * Two kinds. The harness bundles its own page script when it starts, and
+ * runs its replay in a child process, each from a path built off
+ * `import.meta.dir`: in this repository that resolves to the TypeScript
+ * beside the source and in an installed copy it has to resolve to the
+ * compiled file, which only ships if `tsc` emitted it. And `vbz new` copies
+ * the template out of the package, which only works if the template is in
+ * the tarball.
  *
  * Nothing that imports the package would notice either one missing. The
  * failure arrives when somebody runs a command.
  */
 export const RUNTIME_FILES: readonly string[] = [
   "dist/harness/page/main.js",
+  "dist/harness/replay-child.js",
   "templates/game/package.json",
   "templates/game/gitignore",
   "templates/game/src/sim/index.ts",

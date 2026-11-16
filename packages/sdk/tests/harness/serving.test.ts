@@ -20,7 +20,13 @@ import {
   harnessPageEntry,
   startHarness,
 } from "../../src/harness"
-import { startHostServer } from "../../src/harness/servers"
+import { gamePath, pageCsp } from "../../src/harness/csp"
+import {
+  LOOPBACK,
+  originOf,
+  serveOptions,
+  startHostServer,
+} from "../../src/harness/servers"
 
 describe("the host origin", () => {
   let server: { origin: string; stop(): Promise<void> }
@@ -30,6 +36,11 @@ describe("the host origin", () => {
       port: 0,
       page: "<!doctype html><title>page</title>",
       script: "export const script = 1",
+      style: "body { margin: 0 }",
+      csp: "default-src 'none'",
+      routes: {
+        "/answer": (request) => new Response(`asked with ${request.method}`),
+      },
     })
   })
 
@@ -54,8 +65,28 @@ describe("the host origin", () => {
    * would load a game that is no longer served and show a blank stage with a
    * 404 nobody sees.
    */
+  test("the stylesheet is served as one from this same origin", async () => {
+    const response = await fetch(`${server.origin}/harness.css`)
+    expect(await response.text()).toBe("body { margin: 0 }")
+    expect(response.headers.get("content-type")).toContain("text/css")
+  })
+
+  test("the page alone carries the policy it is served under", async () => {
+    const page = await fetch(server.origin)
+    expect(page.headers.get("content-security-policy")).toBe(
+      "default-src 'none'",
+    )
+    const script = await fetch(`${server.origin}/harness.js`)
+    expect(script.headers.get("content-security-policy")).toBeNull()
+  })
+
+  test("a route of its own answers its own path", async () => {
+    const response = await fetch(`${server.origin}/answer`, { method: "POST" })
+    expect(await response.text()).toBe("asked with POST")
+  })
+
   test("nothing from the harness is cached", async () => {
-    for (const path of ["/", "/harness.js"]) {
+    for (const path of ["/", "/harness.js", "/harness.css"]) {
       const response = await fetch(`${server.origin}${path}`)
       expect(response.headers.get("cache-control")).toBe("no-store")
     }
@@ -145,6 +176,38 @@ describe("the harness, started whole", () => {
     expect(harness.presentUrl).toContain(`/g/${HARNESS_GAME_ID}/present/`)
   })
 
+  /**
+   * Scripts from the page's own origin and from this one game's path on the
+   * bundles origin, and nothing else: no inline script and no eval, which is
+   * the policy a studio's page is meant to run a game under.
+   */
+  test("the page is served under the policy a studio's page sends", async () => {
+    const response = await fetch(harness.hostOrigin)
+    const csp = response.headers.get("content-security-policy") ?? ""
+    expect(csp).toBe(harness.csp)
+    expect(csp).toContain(
+      `script-src 'self' ${harness.bundlesOrigin}/g/${HARNESS_GAME_ID}/`,
+    )
+    expect(csp).not.toContain("unsafe-eval")
+    expect(csp).not.toContain("unsafe-inline")
+    // So the page holds no inline style or script for that policy to refuse.
+    const html = await response.text()
+    expect(html).not.toContain("<style")
+    expect(html).toContain('<link rel="stylesheet" href="/harness.css" />')
+  })
+
+  test("the replay route takes a recording and refuses anything else", async () => {
+    const asked = await fetch(`${harness.hostOrigin}/replay`)
+    expect(asked.status).toBe(405)
+    const sent = await fetch(`${harness.hostOrigin}/replay`, {
+      method: "POST",
+      body: "not a recording",
+    })
+    expect(sent.status).toBe(200)
+    const report = (await sent.json()) as { replay: { kind: string } }
+    expect(report.replay.kind).toBe("failed")
+  })
+
   test("the page's script bundles and is served", async () => {
     const script = await (
       await fetch(`${harness.hostOrigin}/harness.js`)
@@ -224,5 +287,50 @@ describe("the page script the harness bundles at start", () => {
     expect(() => harnessPageEntry("/nowhere/that/exists")).toThrow(
       /harness page's entry is missing/,
     )
+  })
+})
+
+describe("the policy and the origins", () => {
+  test("the policy names one game's path, and the page's own connections", () => {
+    const csp = pageCsp({
+      bundlesOrigin: "https://bundles.example",
+      gameId: "g-1",
+      connect: ["https://api.example"],
+    })
+    expect(gamePath("https://bundles.example", "g-1")).toBe(
+      "https://bundles.example/g/g-1/",
+    )
+    expect(csp.split("; ")).toEqual([
+      "default-src 'none'",
+      "script-src 'self' https://bundles.example/g/g-1/",
+      "style-src 'self'",
+      "img-src 'self' data: blob:",
+      "connect-src 'self' https://api.example",
+      "base-uri 'none'",
+      "form-action 'none'",
+      "frame-ancestors 'none'",
+    ])
+    expect(pageCsp({ bundlesOrigin: "x", gameId: "y" })).toContain(
+      "connect-src 'self';",
+    )
+  })
+
+  test("an origin names its scheme, its host and the port it got", () => {
+    expect(originOf(LOOPBACK, 4310)).toBe("http://127.0.0.1:4310")
+    const tls = { cert: "c", key: "k" }
+    expect(originOf({ hostname: "laptop.local", tls }, 443)).toBe(
+      "https://laptop.local:443",
+    )
+    // An IPv6 address is bracketed, or the port would read as part of it.
+    expect(originOf({ hostname: "::1", tls: null }, 80)).toBe("http://[::1]:80")
+    expect(serveOptions(LOOPBACK, 0)).toEqual({
+      port: 0,
+      hostname: "127.0.0.1",
+    })
+    expect(serveOptions({ hostname: "::1", tls }, 1)).toEqual({
+      port: 1,
+      hostname: "::1",
+      tls,
+    })
   })
 })
