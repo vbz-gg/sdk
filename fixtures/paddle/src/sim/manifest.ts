@@ -1,11 +1,10 @@
 /**
- * A game that draws its own controls.
+ * A game steered by tilting the device.
  *
- * Everything a player touches is painted by this game's renderer and
- * hit-tested by its simulation: the manifest declares where a finger is and
- * whether it is down, in the playfield's own units, and `tick` decides what a
- * touch at that position means. The second finger is what one shared pointer
- * stream could never express.
+ * Tilt is recorded as one small number, how far the screen leans left or
+ * right, from -10 to 10, rather than three raw gravity axes: a game-sized
+ * value records less and replays the same. The arrow keys move the paddle
+ * too, so the fixture plays on a desktop with no sensor.
  */
 
 import type { Manifest } from "@clockwork2/engine/manifest"
@@ -23,16 +22,8 @@ export const MANIFEST: Manifest = {
     hasEnding: true,
   },
   inputs: {
-    // Where the first finger is, across the playfield. The simulation
-    // decides what that position means, because a renderer may not decide
-    // what was pressed.
-    aimX: { min: 0, max: 1000, label: "Drag" },
-    aimY: { min: 0, max: 1000, label: "Drag" },
-    touch: { min: 0, max: 1, label: "Touch" },
-    // A second finger, held while the first still drags.
-    boostX: { min: 0, max: 1000, label: "Boost" },
-    boost: { min: 0, max: 1, label: "Boost" },
-    // A keyboard too, so the fixture is playable on a desktop.
+    // Which way the screen leans, and how far: 0 is flat, 10 is fully over.
+    tilt: { min: -10, max: 10, label: "Tilt" },
     left: { min: 0, max: 1, label: "Left" },
     right: { min: 0, max: 1, label: "Right" },
   },
@@ -42,7 +33,10 @@ export const MANIFEST: Manifest = {
   ],
   rankBy: ["caught", "ticksSurvived"],
   tiePolicy: "shared",
-  display: { orientation: "any", minViewport: { width: 240, height: 320 } },
+  display: {
+    orientation: "portrait",
+    minViewport: { width: 240, height: 320 },
+  },
   capabilities: {
     deterministic: true,
     physics: "none",

@@ -1,20 +1,13 @@
 /**
- * Paddle - a game whose controls are its own.
+ * Paddle - a game steered by tilting the device.
  *
- * Drops fall, a paddle catches them, and the paddle is steered by dragging
- * anywhere on the playfield. Nothing about that is drawn by the host: the
- * renderer paints the paddle and a grab bar, and this file decides what a
- * touch at a given position means.
+ * Drops fall, a paddle catches them, and the paddle slides the way the
+ * screen leans, faster the further it leans. Three misses end the run.
  *
- * That division is forced rather than chosen. A game may not construct an
- * input event, so a renderer deciding which control was pressed and handing
- * the answer over is the hole that rule closes. The hit test therefore lives
- * in `tick`, and it works in **simulation units** - `PLAYFIELD` wide, not
- * however many CSS pixels the player's screen happens to be - because the
- * host quantises a pointer against the viewport before the log ever sees it.
- *
- * The consequence to respect: the renderer has to draw each control where
- * this file believes it is. They agree here because both read `GRAB_TOP`.
+ * Tilt arrives as a level: the device helpers record it when it changes,
+ * merged to one value a tick, so `tick` keeps the last value it was given and
+ * moves the paddle by it every tick until a new one arrives. A replay feeds
+ * the same values on the same ticks, so the paddle goes where it went.
  */
 
 import {
@@ -33,11 +26,12 @@ export const PLAYFIELD = 1000
 export const PADDLE_HALF = 90
 export const DROP_RADIUS = 22
 export const PADDLE_Y = 900
-/** Everything below this line is the grab bar the renderer draws. */
-export const GRAB_TOP = 780
 export const DROP_EVERY = 40
 export const FALL_PER_TICK = 6
-export const BOOST_WIDTH = 60
+/** How far a tick moves the paddle, per step of tilt. */
+export const TILT_SPEED = 2
+/** How far an arrow key moves it, once per press. */
+export const KEY_STEP = 40
 
 export interface Drop {
   readonly id: number
@@ -49,8 +43,8 @@ export interface View {
   readonly paddleX: number
   readonly paddleHalf: number
   readonly drops: readonly Drop[]
-  readonly grabTop: number
-  readonly boosting: boolean
+  /** The last tilt recorded, from -10 to 10. */
+  readonly tilt: number
   readonly caught: number
 }
 
@@ -71,9 +65,7 @@ export class Paddle implements GameModule<View, Config> {
   private caught = 0
   private missed = 0
   private over = false
-  /** Whether a finger is down inside the grab bar, and which one. */
-  private dragging = false
-  private boosting = false
+  private tilt = 0
   private pending: Effect[] = []
 
   init(seed: string, config: Config = DEFAULT_CONFIG): void {
@@ -86,8 +78,7 @@ export class Paddle implements GameModule<View, Config> {
     this.caught = 0
     this.missed = 0
     this.over = false
-    this.dragging = false
-    this.boosting = false
+    this.tilt = 0
     this.pending = []
   }
 
@@ -95,6 +86,7 @@ export class Paddle implements GameModule<View, Config> {
     if (this.over) return
 
     for (const input of inputs) this.apply(input)
+    this.paddleX = this.clamp(this.paddleX + this.tilt * TILT_SPEED)
 
     this.ticks += 1
     if (this.ticks % this.config.dropEvery === 0) {
@@ -105,7 +97,6 @@ export class Paddle implements GameModule<View, Config> {
       })
     }
 
-    const half = this.halfWidth()
     const kept: Drop[] = []
     for (const drop of this.drops) {
       drop.y += FALL_PER_TICK
@@ -113,7 +104,7 @@ export class Paddle implements GameModule<View, Config> {
         kept.push(drop)
         continue
       }
-      if (Math.abs(drop.x - this.paddleX) <= half + DROP_RADIUS) {
+      if (Math.abs(drop.x - this.paddleX) <= PADDLE_HALF + DROP_RADIUS) {
         this.caught += 1
         this.pending.push({ type: "catch" })
       } else {
@@ -126,66 +117,26 @@ export class Paddle implements GameModule<View, Config> {
     if (this.missed >= 3) this.over = true
   }
 
-  /**
-   * What a pointer at a position means.
-   *
-   * The hit test, and the reason it is here rather than in the renderer. A
-   * touch counts as a grab only below `GRAB_TOP`, so a tap on the falling
-   * drops does not yank the paddle across the screen - which is exactly the
-   * kind of decision that would be invisible to a replay if a renderer made
-   * it.
-   */
   private apply(input: InputEvent): void {
-    switch (input.code) {
-      case "touch":
-        // Value 1 is a finger landing; the y it landed at arrived in the
-        // same tick, because the host pushes the position before the press.
-        this.dragging = input.value === 1 && this.lastY >= GRAB_TOP
-        if (input.value === 0) this.dragging = false
-        break
-      case "aimX":
-        this.lastX = input.value
-        if (this.dragging) this.paddleX = this.clamp(input.value)
-        break
-      case "aimY":
-        this.lastY = input.value
-        break
-      case "boost":
-        this.boosting = input.value === 1
-        break
-      case "boostX":
-        break
-      case "left":
-        if (input.value === 1) this.paddleX = this.clamp(this.paddleX - 40)
-        break
-      case "right":
-        if (input.value === 1) this.paddleX = this.clamp(this.paddleX + 40)
-        break
-      default:
-        break
+    if (input.code === "tilt") this.tilt = input.value
+    if (input.code === "left" && input.value === 1) {
+      this.paddleX = this.clamp(this.paddleX - KEY_STEP)
+    }
+    if (input.code === "right" && input.value === 1) {
+      this.paddleX = this.clamp(this.paddleX + KEY_STEP)
     }
   }
 
-  private lastX = PLAYFIELD / 2
-  private lastY = 0
-
-  /** A second finger widens the paddle, which is what two fingers are for. */
-  private halfWidth(): number {
-    return this.boosting ? PADDLE_HALF + BOOST_WIDTH : PADDLE_HALF
-  }
-
   private clamp(x: number): number {
-    const half = this.halfWidth()
-    return Math.max(half, Math.min(PLAYFIELD - half, x))
+    return Math.max(PADDLE_HALF, Math.min(PLAYFIELD - PADDLE_HALF, x))
   }
 
   view(): View {
     return {
       paddleX: this.paddleX,
-      paddleHalf: this.halfWidth(),
+      paddleHalf: PADDLE_HALF,
       drops: this.drops,
-      grabTop: GRAB_TOP,
-      boosting: this.boosting,
+      tilt: this.tilt,
       caught: this.caught,
     }
   }
@@ -200,10 +151,7 @@ export class Paddle implements GameModule<View, Config> {
       caught: this.caught,
       missed: this.missed,
       over: this.over,
-      dragging: this.dragging,
-      boosting: this.boosting,
-      lastX: this.lastX,
-      lastY: this.lastY,
+      tilt: this.tilt,
       config: { ...this.config },
     } as unknown as Snapshot
   }
@@ -218,10 +166,7 @@ export class Paddle implements GameModule<View, Config> {
       caught: number
       missed: number
       over: boolean
-      dragging: boolean
-      boosting: boolean
-      lastX: number
-      lastY: number
+      tilt: number
       config: Config
     }
     this.rng = new Prng("restored")
@@ -233,10 +178,7 @@ export class Paddle implements GameModule<View, Config> {
     this.caught = s.caught
     this.missed = s.missed
     this.over = s.over
-    this.dragging = s.dragging
-    this.boosting = s.boosting
-    this.lastX = s.lastX
-    this.lastY = s.lastY
+    this.tilt = s.tilt
     this.config = { ...s.config }
     this.pending = []
   }

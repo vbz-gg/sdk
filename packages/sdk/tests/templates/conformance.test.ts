@@ -31,8 +31,14 @@ const SUBJECTS = [
   {
     name: "the template",
     dir: join(ROOT, "packages", "sdk", "templates", "game"),
+    needsMotion: false,
   },
-  { name: "the paddle fixture", dir: join(ROOT, "fixtures", "paddle") },
+  // The tilt subject: its mapping reads tilt, so a page asks for motion.
+  {
+    name: "the paddle fixture",
+    dir: join(ROOT, "fixtures", "paddle"),
+    needsMotion: true,
+  },
 ] as const
 
 function built(dir: string) {
@@ -113,6 +119,7 @@ describe("what this repository ships as an example", () => {
         const game = loaded.default
         expect(game.contract).toBe(1)
         expect(game.check()).toEqual([])
+        expect(game.needsMotion).toBe(subject.needsMotion)
         expect(game.manifestHash).toBe(hashCanonical(manifest as PlainValue))
       } finally {
         await rm(dir, { recursive: true, force: true })

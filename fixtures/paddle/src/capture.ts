@@ -1,18 +1,17 @@
 /**
- * Which fingers and keys drive Paddle's inputs.
+ * Which way the device leans, and which keys, drive Paddle's inputs.
  *
- * Slot 0 is the first finger down and slot 1 the second; a third is mapped
- * by nobody and records nothing. A position is measured across the element
- * the game fills, in each input's declared range, so it arrives in the
- * playfield's own units.
+ * Tilt is read through the engine's device helpers: the direction of gravity
+ * across the screen, turned with the screen, mapped onto the input's range,
+ * with full deflection at 30 degrees and a deadband so a hand holding still
+ * records nothing. A mapping that reads tilt is what makes the page module
+ * report `needsMotion`, so a page asks for motion in the Play button's click,
+ * the one place iOS lets it.
  */
 
 import type { CaptureMapping } from "@clockwork2/engine/host"
 
 export const capture: CaptureMapping = {
-  pointers: [
-    { down: "touch", x: "aimX", y: "aimY" },
-    { down: "boost", x: "boostX" },
-  ],
+  tilt: { x: "tilt", fullAt: 30 },
   keys: { ArrowLeft: "left", ArrowRight: "right" },
 }
