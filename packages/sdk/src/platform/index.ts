@@ -3,11 +3,17 @@
  *
  * Plain modules with no DOM at load time: a page's bundle may import this
  * while rendering on a server, and the browser is read only when a client is
- * made. The engine is imported for its types alone, so this subpath adds no
- * engine code to a bundle.
+ * made. The engine and the page module's contract are imported for their
+ * types alone, so this subpath adds no engine code to a bundle.
  */
 
-export { type ChunkReach, throughTickFor } from "./chunks.js"
+export {
+  byteLengthOf,
+  type ChunkBody,
+  type ChunkReach,
+  splitChunk,
+  throughTickFor,
+} from "./chunks.js"
 export {
   type BoardOptions,
   createPlatformClient,
@@ -42,10 +48,10 @@ export type {
   RequestOptions,
 } from "./request.js"
 export {
+  CHUNK_SECONDS,
+  type MountRun,
   RUN_PHASE,
   Run,
-  type RunFrame,
-  type RunFrameHandlers,
   type RunOptions,
   type RunPhase,
   type RunState,

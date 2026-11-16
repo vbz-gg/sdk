@@ -2,8 +2,8 @@
  * Two plain widgets a game's page needs and need not build: a sign-in
  * button, and a board table.
  *
- * Plain DOM, as the controls are, and styled the same way: layout set here,
- * every colour from a CSS custom property with a fallback, so a page restyles
+ * Plain DOM, styled so a page can restyle it: layout set here, and every
+ * colour from a CSS custom property with a fallback, so a page restyles
  * them by setting `--gb-widget-*` on any ancestor and needs no stylesheet from
  * this package. Anything a widget shows about a failure is the client's or
  * the platform's own sentence for its code.

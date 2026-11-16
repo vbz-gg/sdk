@@ -142,6 +142,7 @@ const row = (rank: number, name: string, score: number): BoardRow => ({
   counters: { score, ticks: 100 * rank },
   day: "2026-11-12",
   sessionId: `s-${name}`,
+  version: "1.2.0",
 })
 
 const BOARD: Board = {

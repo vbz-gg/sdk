@@ -5,11 +5,12 @@
  * `PublicRefusalCode`, the status it always comes with, a sentence a person
  * can read and a detail for a log. A `PlatformClientError` is this client
  * failing before or around a request: a popup the browser blocked, a request
- * that got no answer, a frame serving another game. Both carry a `code` a page
+ * that got no answer, a game's code that did not load. Both carry a `code` a page
  * switches on, and the two code sets never overlap.
  */
 
 import type { PublicRefusalCode } from "../api/index.js"
+import type { MOUNT_ERROR, PageModuleProblemCode } from "../game/contract.js"
 
 export class PlatformRefusal extends Error {
   readonly code: PublicRefusalCode
@@ -46,23 +47,33 @@ export const CLIENT_ERROR = {
   E_UNREACHABLE: "the platform did not answer",
   /** An answer that is not JSON, or a failure with no code in it. */
   E_ANSWER_UNREADABLE: "the platform's answer could not be read",
-  /** The frame reported another manifest than the one the run was issued for. */
+  /** The game's page module did not load: the network, the page's CSP, or an address that is not https. */
+  E_GAME_UNLOADABLE:
+    "the game's code did not load from its address; check the network and that the page's Content-Security-Policy allows the game's path, then reload the page to try again",
+  /** What the page module exports is not a page module; the detail names the field. */
+  E_GAME_MODULE_INVALID: "the game's page module is not one this page can play",
+  /** The page module speaks a contract version this page's SDK does not drive. */
+  E_GAME_CONTRACT_UNKNOWN:
+    "the game's page module was built for a newer @vbz-gg/sdk than this page's; update the page's @vbz-gg/sdk",
+  /** The game's input mapping names an input or a device its manifest does not allow. */
+  E_CAPTURE_INVALID:
+    "the game's input mapping does not match the inputs its manifest declares",
+  /** A script on the page replaced a built-in the rules code calls; the detail names it. */
+  E_PAGE_ALTERS_BUILTINS:
+    "a script on this page replaced a built-in the game's rules code calls, so the page would play a different game from the one the platform replays",
+  /** The page module, or the run's, is another version than the one expected. */
   E_WRONG_GAME:
-    "the frame serves another version of the game than the one this run plays",
+    "the game's page module is another version of the game than the one this run plays",
   /** The run's tick rate is not one the engine runs at. */
   E_TICK_RATE_UNSUPPORTED: "the run's tick rate is not 30, 60 or 120",
-  /** The frame's recording did not parse as JSON. */
-  E_RECORDING_UNREADABLE: "the frame's recording could not be read",
-  /** The frame posted an error of its own. */
-  E_FRAME_FAILED: "the game's frame reported an error",
-  /** The frame speaks another version of the engine's frame protocol. */
-  E_FRAME_PROTOCOL:
-    "the game's frame speaks another version of the frame protocol than this page's engine",
-  /** The manifest is not an object a host can read controls from. */
-  E_MANIFEST_UNREADABLE: "the game's manifest could not be read",
-  /** The manifest names a scheme, or a slot, this SDK does not draw. */
-  E_SCHEME_UNDRAWABLE:
-    "the game's manifest names on-screen controls this SDK does not draw",
+  /** The run's own module reads tilt, and the tap that started it did not ask. */
+  E_MOTION_NEEDS_TAP:
+    "this run's game reads tilt, which a browser grants only from a tap; tap Play again to carry on with the same run",
+  /** Another tab or window of this browser is playing the same run. */
+  E_RUN_OPEN_ELSEWHERE:
+    "this run is already being played in another tab or window",
+  /** The run's replay covers no ticks, so there is nothing to show. */
+  E_NOTHING_TO_WATCH: "the run has nothing to replay",
   /** The manifest declares a data pack the simulation reads. */
   E_SIM_PACKS:
     "the game's manifest declares a data pack its simulation reads, which the platform cannot store or replay yet",
@@ -78,6 +89,19 @@ export type ClientErrorCode = keyof typeof CLIENT_ERROR
  */
 type Shared = Extract<ClientErrorCode, PublicRefusalCode>
 export const NO_CODE_IS_BOTH: [Shared] extends [never] ? true : Shared = true
+
+/**
+ * Fails to compile when a page module can report a code of its own that this
+ * table does not explain, so every code a run fails with outside the engine's
+ * and the platform's own is one a page can look up here.
+ */
+type FromTheModule =
+  | PageModuleProblemCode
+  | (typeof MOUNT_ERROR)[keyof typeof MOUNT_ERROR]
+type Unexplained = Exclude<FromTheModule, ClientErrorCode>
+export const EVERY_MODULE_CODE_IS_EXPLAINED: [Unexplained] extends [never]
+  ? true
+  : Unexplained = true
 
 export class PlatformClientError extends Error {
   readonly code: ClientErrorCode

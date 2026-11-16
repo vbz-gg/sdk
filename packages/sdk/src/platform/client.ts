@@ -90,7 +90,7 @@ export interface PlatformClient {
   /** Asks until the run's result is final. */
   awaitResult(sessionId: string, options?: ResultOptions): Promise<RunResult>
   board(options?: BoardOptions): Promise<Board>
-  /** A settled run, with what a frame needs to play it back. */
+  /** A settled run, with what its page module needs to play it back. */
   watch(sessionId: string): Promise<WatchedRun>
 }
 
