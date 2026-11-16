@@ -43,6 +43,11 @@ const GAME_ID = "00000000-0000-4000-8000-000000000000"
 const PRESENT = `http://127.0.0.1:1/g/${GAME_ID}/present/${"a".repeat(64)}.js`
 const HASH = hashCanonical(MANIFEST as unknown as PlainValue)
 
+/** What the platform answers for a run a reader may not have, or that does not exist. */
+const NOT_THERE = ["E_NOT_FOUND", 404, "there is nothing there"]
+
+const MISSING_RUN = "00000000-0000-4000-8000-0000000000ff"
+
 let running: RunningStandIn | null = null
 
 afterEach(async () => {
@@ -642,11 +647,7 @@ describe("the refusals a page has to handle", () => {
     })
     expect(stranger.player()).toBeNull()
     const refused = await refusalOf(stranger.watch(started.sessionId))
-    expect(refused.code).toBe("E_NO_SESSION")
-    expect(refused.message).toBe(
-      (await refusalOf(stranger.watch("00000000-0000-4000-8000-0000000000ff")))
-        .message,
-    )
+    expect([refused.code, refused.status, refused.message]).toEqual(NOT_THERE)
 
     // Once the day has closed, its seed is no longer anybody's advantage.
     now = new Date("2026-11-17T00:00:01.000Z")
@@ -655,12 +656,28 @@ describe("the refusals a page has to handle", () => {
     )
   })
 
-  test("a run nobody submitted cannot be watched", async () => {
+  /**
+   * The platform answers every run a reader may not have the way it answers
+   * one that does not exist: `404`, `E_NOT_FOUND`, "there is nothing there",
+   * so a reader learns nothing from the difference. A page that switched on
+   * another code here would meet this one in production.
+   */
+  test("a run nobody submitted, or nobody started, cannot be watched", async () => {
     const made = standIn()
     await signIn(made)
     const run = await made.client.startRun()
-    expect((await refusalOf(made.client.watch(run.sessionId))).code).toBe(
-      "E_NO_SESSION",
-    )
+    for (const id of [run.sessionId, MISSING_RUN, "not-a-run"]) {
+      const refused = await refusalOf(made.client.watch(id))
+      expect([refused.code, refused.status, refused.message]).toEqual(NOT_THERE)
+    }
+  })
+
+  test("the result of a run that does not exist is refused as the platform refuses it", async () => {
+    const made = standIn()
+    await signIn(made)
+    for (const id of [MISSING_RUN, "not-a-run"]) {
+      const refused = await refusalOf(made.client.result(id))
+      expect([refused.code, refused.status, refused.message]).toEqual(NOT_THERE)
+    }
   })
 })

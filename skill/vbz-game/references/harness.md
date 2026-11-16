@@ -82,8 +82,9 @@ key, so the file in `site/` is not read. The stand-in:
 - settles a run at its submit with the counters the page sent, without a
   replay, and says so in the terminal;
 - reads a settled run back for watching, a run from a day still open to the
-  local player alone, and keeps the local player's last ranked run of the
-  day as the board.
+  local player alone, and answers a run the reader may not have, or one that
+  does not exist, with the platform's `E_NOT_FOUND`;
+- keeps the local player's last ranked run of the day as the board.
 
 It neither replays nor ranks. A score it shows has not been checked.
 

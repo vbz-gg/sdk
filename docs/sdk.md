@@ -499,7 +499,8 @@ The stand-in holds chunks and the submit to the manifest the way the
 platform does, and settles a run with the counters its page sent, without a
 replay, which the terminal says each time. It reads a run from a day still
 open back to its own player alone, as the platform does, because watching
-needs the day's seed. It ranks nothing.
+needs the day's seed, and answers anybody else with the platform's
+`E_NOT_FOUND`, the answer a run that does not exist gets. It ranks nothing.
 
 ## Versions and release lines
 
