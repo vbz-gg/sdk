@@ -71,6 +71,11 @@ one, as the engine's `CaptureMapping`. It touches no DOM, so it can be checked
 without loading anything that draws, and the engine's `checkCapture` refuses a
 mapping that names an input the manifest does not declare.
 
+A mapping that reads tilt makes tilt required. A page starts no run on a
+device or in a browser that cannot give it, a laptop included, and keys
+mapped beside it do not change that. Try such a game on a laptop with the
+browser's sensor emulation.
+
 A game draws its own controls. Its renderer paints them, and the game records
 where a finger is and whether it is down, and **hit-tests in `tick`**, in the
 units its manifest declares. Not in the renderer: a game may not construct an

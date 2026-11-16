@@ -175,6 +175,13 @@ and the player has to be told; without it the mount fails with the engine's
 `needsMotion`, and the page has to ask for motion inside the click that
 starts the run, before anything is awaited, because iOS grants it only there.
 
+A game that reads tilt is steered by it, so it starts no run without it. On
+a device or in a browser that cannot give tilt, a laptop included, Play says
+why and asks the platform for nothing, even when the mapping also reads keys.
+An author tries such a game on a laptop with the browser's sensor emulation:
+in Chrome, DevTools' Sensors panel (the Command Menu's Show Sensors) sets the
+device's orientation.
+
 ## Hosting a game on a page
 
 `/host` puts a game on a studio's page. The harness's page uses it too, so a
@@ -212,7 +219,7 @@ is a reload, and `E_GAME_UNLOADABLE` says so.
 **`playRun(element, { client, game, mode, onState, onNotice, title })`**
 runs inside the Play button's click. When the game reads tilt it asks for it
 first, then for the run's lock, both before anything is awaited, and starts
-the run once the lock is held and the player has answered. The platform says
+the run once the lock is held and tilt is granted. The platform says
 which version each run plays, and the page never chooses: a resumed run plays
 the version it started on, and when its manifest hash is not the loaded
 module's, `playRun` loads the run's own. It compares the hash rather than the
@@ -223,6 +230,20 @@ the run's own module reads tilt the click did not ask for, the run stops with
 to `element`, labelled with `title`, so a key reaches the game rather than
 the button a player just pressed, and `played.end()` submits the player
 leaving as an abandoned run.
+
+Any answer to the tilt request but a grant fails the run before the platform
+is asked for one, and lets the lock go, with the engine's own code for what
+happened: `E_MOTION_DENIED` when the player did not allow it,
+`E_MOTION_NO_SENSOR` when no reading arrived, as on a laptop,
+`E_MOTION_UNSUPPORTED` for a browser with no orientation events,
+`E_MOTION_INSECURE` for a page that is not https, and `E_MOTION_BLOCKED` for
+a page whose permissions policy forbids the sensors. Each is a client code
+whose sentence tells the player what happened and what to do, and the run's
+`detail` is that sentence. iOS remembers a refusal for the site and answers
+every later request with it, without asking, until the site's data is
+cleared in the browser's settings; the sentence for `E_MOTION_DENIED` says
+so. A request whose promise is rejected rather than answered fails the run
+with `E_UNEXPECTED`.
 
 The platform keeps one open run per player, game and mode, and a second tab
 of the same browser is the same player. Started while the first tab's run has
@@ -492,7 +513,9 @@ are one site. A module import carries no cookies either way, so the gap is
 named rather than closed with an `/etc/hosts` entry.
 
 The page adds what a studio's page does not need. **Start** and **End** drive
-the run; Start asks for tilt first when the game reads it. When the run ends,
+the run; Start asks for tilt first when the game reads it, and like Play on
+a studio's page starts no run without it, keeping the code and its sentence
+on the status line. When the run ends,
 the page sends its recording back, and the harness replays it against the
 built rules code, to the tick it ended, in a process of its own with an empty
 environment, so a game cannot read a studio's key or a cloud credential from

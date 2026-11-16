@@ -22,6 +22,7 @@ import {
   type RunState,
 } from "../platform/run.js"
 import { type GameAddress, type LoadedGame, loadGame } from "./load.js"
+import { motionRefusal } from "./motion.js"
 
 /** What `playRun` needs of the browser's Web Locks, for a test to stand in for. */
 export interface RunLocks {
@@ -67,7 +68,10 @@ export interface PlayedRun {
    * `E_MOTION_NEEDS_TAP` it is the run's own module, for the next tap.
    */
   readonly game: LoadedGame
-  /** The answer to the tilt request the click made, or null when none was made. */
+  /**
+   * The answer to the tilt request the click made, or null when none was
+   * made. Anything but a grant has already failed the run with its code.
+   */
   readonly motion: Promise<MotionAccess> | null
   /** The player leaving: the run ends where it stands, and is submitted. */
   end(): void
@@ -101,7 +105,9 @@ const LOCKED_PHASES: ReadonlySet<RunPhase> = new Set([
  * Call it from the Play button's click handler. When the game reads tilt it
  * asks for it first, before anything is awaited, because iOS grants it only
  * there; then it asks for the game's lock, and starts the run once it holds
- * it. Every failure arrives as the run's state, with the code that says why:
+ * it and tilt is granted. Every failure arrives as the run's state, with the
+ * code that says why: tilt refused or missing (`E_MOTION_DENIED` and the
+ * engine's other refusals, each with the client's sentence for the player),
  * another tab playing the game in this mode, a start the platform refused, a
  * run module that did not load, or `E_MOTION_NEEDS_TAP` when the run turned
  * out to be on a version that reads tilt the click did not ask for. Then call
@@ -155,8 +161,11 @@ export function playRun(element: HTMLElement, options: PlayOptions): PlayedRun {
       return
     }
     // The player's answer comes first, so a request that failed spends no
-    // run. A refusal is an answer: the game plays on its other devices.
-    await motion
+    // run, and neither does a refusal: a game steered by tilt is not played
+    // without it.
+    const access = await motion
+    const refused = access === null ? null : motionRefusal(access)
+    if (refused !== null) throw refused
     const started = await options.client.startRun(
       options.mode === "practice" ? { practice: true } : {},
     )

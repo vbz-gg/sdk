@@ -24,8 +24,12 @@ from the page's own origin and the game's own path and nowhere else, and no
   allow, or a page that replaced a built-in is refused, and the refusal is in
   the status line.
 - **Start and End.** Start asks for tilt first when the game reads it, as a
-  studio's Play button does. End stops the run where it stands, which is how
-  to get a recording out of a game you do not intend to lose at.
+  studio's Play button does, and without tilt starts no run, with the code
+  and the player's sentence in the status line. On a laptop, give the page a
+  sensor with the browser's emulation: in Chrome, DevTools' Sensors panel
+  (the Command Menu's Show Sensors). End stops the run where it stands,
+  which is how to get a recording out of a game you do not intend to lose
+  at.
 - **A report on every run**, three lines under the game once it ends:
   - `replayed:` whether the recording, replayed against the built rules code
     to the tick it ended, matches what the page reported. A run that differs

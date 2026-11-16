@@ -14,14 +14,22 @@ import {
   test,
 } from "bun:test"
 import { hashCanonical, type PlainValue } from "@clockwork2/engine"
-import { ManualScheduler } from "@clockwork2/engine/host"
+import {
+  ManualScheduler,
+  MOTION_REFUSALS,
+  type MotionAccess,
+} from "@clockwork2/engine/host"
 import { GlobalRegistrator } from "@happy-dom/global-registrator"
 import type { RunChunk, StartedRun } from "../../src/api/index"
 import type { MountHandle, MountOptions } from "../../src/game/contract"
 import { definePageModule } from "../../src/game/define"
 import type { GameAddress, LoadedGame } from "../../src/host/load"
 import { playRun, type RunLocks, runLockName } from "../../src/host/play"
-import { PlatformClientError, PlatformRefusal } from "../../src/platform/errors"
+import {
+  CLIENT_ERROR,
+  PlatformClientError,
+  PlatformRefusal,
+} from "../../src/platform/errors"
 import { RUN_PHASE, type RunState } from "../../src/platform/run"
 import { Drawn, devices, FRAME_MS, MANIFEST, Probe } from "../game/subject"
 import { settle } from "../platform/fake-page"
@@ -86,9 +94,9 @@ class FakeGame implements LoadedGame {
     readonly needsMotion = false,
   ) {}
 
-  requestMotion() {
+  requestMotion(): Promise<MotionAccess> {
     calls.push(`motion ${this.presentUrl}`)
-    return Promise.resolve({ granted: true } as const)
+    return Promise.resolve({ granted: true })
   }
 
   mount(element: HTMLElement, options: MountOptions): MountHandle {
@@ -235,6 +243,83 @@ describe("the click", () => {
     })
     expect(calls.some((call) => call.startsWith("start"))).toBe(false)
     expect(held.held.size).toBe(0)
+  })
+
+  /**
+   * A game steered by tilt is not played without it. On an iPad after "Don't
+   * Allow", iOS answers every later request with a refusal and asks nothing,
+   * so a run started anyway is a ranked run spent on a game nobody can
+   * steer; on a laptop there is no sensor to read at all. Each refusal the
+   * engine answers fails the run with its own code and the client's sentence
+   * for the player, before a run is asked for, and lets the lock go.
+   */
+  for (const code of Object.values(MOTION_REFUSALS)) {
+    test(`a tilt request answered ${code} starts no run, and says why`, async () => {
+      const game = new FakeGame(PRESENT, "mh-new", true)
+      const answer: MotionAccess = {
+        granted: false,
+        code,
+        detail: "what the engine saw",
+      }
+      game.requestMotion = () => {
+        calls.push("motion")
+        return Promise.resolve(answer)
+      }
+      const held = locks()
+      const states: RunState[] = []
+      const name = runLockName(PAGE_KEY, "ranked")
+      const played = playRun(stage, {
+        client: client(),
+        game,
+        mode: "ranked",
+        locks: held,
+        onState: (state) => states.push(state),
+      })
+      await settle()
+      expect(states).toEqual([
+        {
+          phase: RUN_PHASE.FAILED,
+          errorCode: code,
+          detail: CLIENT_ERROR[code],
+          refusalDetail: null,
+          result: null,
+        },
+      ])
+      // Asked in the click, then the lock, and nothing of the platform.
+      expect(calls).toEqual(["motion", `lock ${name}`, `unlock ${name}`])
+      expect(held.held.size).toBe(0)
+      expect(await played.motion).toBe(answer)
+    })
+  }
+
+  /**
+   * A page module built against a later engine may answer a refusal this
+   * page has no sentence for. It is still a refusal, so nothing starts, and
+   * the code it answered is kept in the detail.
+   */
+  test("a refusal this page has no code for starts no run either, and is named", async () => {
+    const game = new FakeGame(PRESENT, "mh-new", true)
+    game.requestMotion = () =>
+      Promise.resolve({
+        granted: false,
+        code: "E_MOTION_LATER",
+        detail: "a reason from a later engine",
+      } as unknown as MotionAccess)
+    const states: RunState[] = []
+    playRun(stage, {
+      client: client(),
+      game,
+      mode: "ranked",
+      locks: locks(),
+      onState: (state) => states.push(state),
+    })
+    await settle()
+    expect(states.at(-1)).toMatchObject({
+      phase: RUN_PHASE.FAILED,
+      errorCode: "E_UNEXPECTED",
+      detail: `${CLIENT_ERROR.E_UNEXPECTED}: E_MOTION_LATER: a reason from a later engine`,
+    })
+    expect(calls.some((call) => call.startsWith("start"))).toBe(false)
   })
 
   test("a game that reads no tilt asks for nothing", async () => {

@@ -4,8 +4,9 @@
  * Tilt is recorded as one small number, how far the screen leans left or
  * right, from -10 to 10, rather than three raw gravity axes: a game-sized
  * value records less and replays the same. The arrow keys move the paddle
- * too, so the fixture plays on a desktop with no sensor, and Space brings it
- * back to the middle.
+ * too, and Space brings it back to the middle. A page starts no run of a
+ * game that reads tilt without it, so the keys play beside a sensor and
+ * never instead of one.
  */
 
 import type { Manifest } from "@clockwork2/engine/manifest"
