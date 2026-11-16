@@ -7,8 +7,10 @@
  * A `workspace:` range would reach the registry verbatim and make a version
  * uninstallable by anyone, permanently, since nothing can be unpublished after
  * 72 hours. A missing `dist` ships a package whose every exports target is a
- * 404. And an extensionless relative import runs everywhere here and nowhere
- * under plain node.
+ * 404. An extensionless relative import runs everywhere here and nowhere
+ * under plain node. And a `dist` that lost the comments on `loadGame`'s
+ * import of a game's code builds, passes and then loads no game on a studio's
+ * page bundled with webpack.
  *
  *   bun run scripts/check-publishable.ts
  *
@@ -38,6 +40,8 @@ export type Shipped = {
   readonly files: readonly string[]
   /** What plain node made of every subpath the exports map names. */
   readonly imports: ImportReport
+  /** The bundler comments `loadGame`'s import has lost, if any. */
+  readonly bundlerComments: readonly string[]
 }
 
 type ExportsMap = Record<string, { default?: string } | string>
@@ -150,6 +154,33 @@ export const RUNTIME_FILES: readonly string[] = [
   "templates/game/site/main.ts",
 ]
 
+/**
+ * The file holding `loadGame`'s import of a game's page module, and the
+ * comments that keep a studio's bundler off it. That import takes a URL
+ * handed over at run time, so it is the browser's to make. Measured by the
+ * browser suite's packed install: without `webpackIgnore`, webpack 5.112
+ * turns it into a lookup in its own module table and the page loads no
+ * game. `@vite-ignore` is Vite's spelling of the same request; Vite 8's
+ * production build leaves the import alone either way.
+ */
+export const BUNDLER_COMMENTS = {
+  file: "dist/host/load.js",
+  comments: ["/* webpackIgnore: true */", "/* @vite-ignore */"],
+} as const
+
+/**
+ * The bundler comments no dynamic `import(` in `source` carries. A comment
+ * anywhere else in the file tells a bundler nothing.
+ */
+export function missingBundlerComments(source: string): string[] {
+  const calls = [...source.matchAll(/\bimport\(([^)]*)\)/g)].map(
+    (call) => call[1] ?? "",
+  )
+  return BUNDLER_COMMENTS.comments.filter(
+    (comment) => !calls.some((call) => call.includes(comment)),
+  )
+}
+
 /** Reads the package.json a tarball would carry, not the one on disk. */
 export async function pack(pkg: string, into: string): Promise<Shipped> {
   // What is on disk is what ships: there is one package, with no sibling to
@@ -169,6 +200,7 @@ export async function pack(pkg: string, into: string): Promise<Shipped> {
     bin?: Record<string, string>
   }
   const files = [...new Bun.Glob("**/*").scanSync(join(out, "package"))]
+  const loader = join(out, "package", BUNDLER_COMMENTS.file)
   return {
     name: manifest.name,
     version: manifest.version,
@@ -176,6 +208,11 @@ export async function pack(pkg: string, into: string): Promise<Shipped> {
     bin: manifest.bin ?? {},
     files,
     imports: await unimportableSubpaths(join(out, "package")),
+    // A tarball with no such file has lost them all, and says so twice:
+    // here, and as the subpath node cannot import.
+    bundlerComments: existsSync(loader)
+      ? missingBundlerComments(readFileSync(loader, "utf8"))
+      : [...BUNDLER_COMMENTS.comments],
   }
 }
 
@@ -230,6 +267,11 @@ export function problemsWith(shipped: Shipped): string[] {
         `${shipped.name} would ship no ${published}, which the "${command}" command runs`,
       )
     }
+  }
+  for (const comment of shipped.bundlerComments) {
+    problems.push(
+      `${shipped.name}'s ${BUNDLER_COMMENTS.file} has lost ${comment} from loadGame's import, so a studio's bundler would rewrite the import of a game's code`,
+    )
   }
   problems.push(...shipped.imports.problems)
   return problems

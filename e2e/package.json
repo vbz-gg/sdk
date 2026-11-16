@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "What a browser decides: a page module from another origin under a studio's policy, the template's buttons under two fingers, keys beside a Play button, tilt, and a run watched",
+  "description": "What a browser decides: a page module from another origin under a studio's policy, the template's buttons under two fingers, keys beside a Play button, tilt, a run watched, and a page bundled from the packed package",
   "scripts": {
     "test": "playwright test",
     "test:ui": "playwright test --ui",
@@ -12,6 +12,9 @@
     "install:browser-deps": "playwright install-deps chromium firefox webkit"
   },
   "devDependencies": {
-    "@playwright/test": "1.56.1"
+    "@playwright/test": "1.56.1",
+    "esbuild": "0.28.2",
+    "vite": "8.3.5",
+    "webpack": "5.112.2"
   }
 }

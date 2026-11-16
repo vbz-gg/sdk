@@ -143,6 +143,13 @@ the tarball - `RUNTIME_FILES` in the script - because the harness bundles its
 page script from a path built off `import.meta.dir`, and nothing importing the
 package would notice that file missing.
 
+**`loadGame`'s import of a game's code keeps both bundler comments**,
+`webpackIgnore: true` and `@vite-ignore`, on the call itself. The URL arrives
+at run time, so the import is the browser's to make, and a studio's bundler
+that took it for one of its own loads no game. `check:publishable` holds the
+packed `dist` to carrying both, and the browser suite's packed install
+measures what they are for.
+
 **A command's path in `bin` is written the way `npm publish` writes it**: no
 leading `./`. `npm pack` leaves the entry alone and `npm publish` rewrites
 it, and npm 12 logs the rewrite as the command being removed while keeping
@@ -248,6 +255,11 @@ What only a browser can settle, and what each spec found:
 - A recording replays to the counters the page displayed, held both by the
   harness's own report and by a replay in the spec, against the bytes the
   browser loaded.
+- A page bundled from the packed package by Vite, webpack and esbuild, each
+  in its production build, loads a game from another origin and plays it.
+  Without its comment webpack turns `loadGame`'s import into a lookup of its
+  own and the page loads nothing; Vite 8 and esbuild leave it alone either
+  way.
 
 Chromium runs every spec; Firefox and WebKit run the one about the policy,
 which is each engine's to decide. The fingers and the sensor override are
