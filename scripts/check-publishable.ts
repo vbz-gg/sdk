@@ -129,19 +129,83 @@ export function guideDifferences(
   return problems
 }
 
+/** Runs git in `cwd` with `args`, feeding it `input`, and answers its stdout. */
+export type Git = (
+  cwd: string,
+  args: readonly string[],
+  input?: Uint8Array,
+) => Promise<Uint8Array>
+
+const runGit: Git = async (cwd, args, input) => {
+  const child = Bun.spawn(["git", ...args], {
+    cwd,
+    stdin: input ?? "ignore",
+    stdout: "pipe",
+    stderr: "pipe",
+  })
+  const [out, err, code] = await Promise.all([
+    new Response(child.stdout).arrayBuffer(),
+    new Response(child.stderr).text(),
+    child.exited,
+  ])
+  if (code !== 0) {
+    throw new Error(`git ${args.join(" ")} exited ${code}: ${err.trim()}`)
+  }
+  return new Uint8Array(out)
+}
+
+const NEWLINE = 0x0a
+
+/**
+ * Splits what `git cat-file --batch` printed for `objects`, in the order they
+ * were asked for. Each answer is a header, `<object> blob <size>`, then that
+ * many bytes and a newline, so the sizes rather than the newlines decide
+ * where one blob ends: a blob may hold newlines of its own.
+ */
+export function parseBatch(
+  output: Uint8Array,
+  objects: readonly string[],
+): Uint8Array[] {
+  const decoder = new TextDecoder()
+  const blobs: Uint8Array[] = []
+  let at = 0
+  for (const object of objects) {
+    const end = output.indexOf(NEWLINE, at)
+    const header = end === -1 ? "" : decoder.decode(output.subarray(at, end))
+    const match = /^([0-9a-f]+) blob (\d+)$/.exec(header)
+    if (match === null || match[1] !== object) {
+      throw new Error(
+        `git cat-file has no blob ${object}: it printed "${header}"`,
+      )
+    }
+    const start = end + 1
+    const size = Number(match[2])
+    if (start + size + 1 > output.length) {
+      throw new Error(`git cat-file's answer for ${object} is cut short`)
+    }
+    blobs.push(output.slice(start, start + size))
+    at = start + size + 1
+  }
+  return blobs
+}
+
 /**
  * The guide as git holds it, keyed by path inside the package.
  *
  * This reads git's index, which in CI is the commit being checked and on a
  * laptop is what the next commit would hold, and the blob bytes themselves
  * rather than the working tree, so a guide edited and never staged is not
- * what this compares against.
+ * what this compares against. Two processes, however many files: one to list
+ * them and one `cat-file --batch` for all their bytes.
  */
 export async function committedGuide(
   packageDir: string,
+  git: Git = runGit,
 ): Promise<Map<string, CommittedFile>> {
-  const listed = await $`git ls-files -s -z -- ${GUIDE}`.cwd(packageDir).text()
-  const out = new Map<string, CommittedFile>()
+  const listed = new TextDecoder().decode(
+    await git(packageDir, ["ls-files", "-s", "-z", "--", GUIDE]),
+  )
+  const entries: { mode: string; object: string; path: string }[] = []
   for (const entry of listed.split("\0")) {
     if (entry === "") continue
     // <mode> <object> <stage>\t<path>, with the path relative to packageDir.
@@ -151,17 +215,29 @@ export async function committedGuide(
         `git ls-files printed an entry this cannot read: ${entry}`,
       )
     }
-    const mode = match[1] as string
-    const object = match[2] as string
-    const path = match[3] as string
-    const blob = await $`git cat-file blob ${object}`
-      .cwd(packageDir)
-      .arrayBuffer()
-    out.set(path, {
-      bytes: new Uint8Array(blob),
-      executable: mode === GIT_EXECUTABLE,
+    entries.push({
+      mode: match[1] as string,
+      object: match[2] as string,
+      path: match[3] as string,
     })
   }
+  const out = new Map<string, CommittedFile>()
+  if (entries.length === 0) return out
+  const objects = entries.map((entry) => entry.object)
+  const blobs = parseBatch(
+    await git(
+      packageDir,
+      ["cat-file", "--batch"],
+      new TextEncoder().encode(`${objects.join("\n")}\n`),
+    ),
+    objects,
+  )
+  entries.forEach((entry, index) => {
+    out.set(entry.path, {
+      bytes: blobs[index] as Uint8Array,
+      executable: entry.mode === GIT_EXECUTABLE,
+    })
+  })
   return out
 }
 

@@ -7,10 +7,12 @@ import {
   type CommittedFile,
   committedGuide,
   exportTargets,
+  type Git,
   GUIDE,
   guideDifferences,
   missingBundlerComments,
   PUBLIC_PACKAGES,
+  parseBatch,
   problemsWith,
   RUNTIME_FILES,
   type Shipped,
@@ -384,6 +386,58 @@ describe("the guide the tarball carries", () => {
     expect(problems).toEqual([
       `no committed files under ${GUIDE}/ to compare with`,
     ])
+  })
+
+  /**
+   * One process for the listing and one for every blob, however many files
+   * the guide holds. A process per file grows with the guide and costs a
+   * fork on every check.
+   */
+  test("the committed guide is read with two git processes, whatever its size", async () => {
+    const calls: string[] = []
+    const counting: Git = async (cwd, args, input) => {
+      calls.push(args.slice(0, 2).join(" "))
+      const child = Bun.spawn(["git", ...args], {
+        cwd,
+        stdin: input ?? "ignore",
+        stdout: "pipe",
+      })
+      const out = new Uint8Array(await new Response(child.stdout).arrayBuffer())
+      await child.exited
+      return out
+    }
+    const committed = await committedGuide(
+      join(import.meta.dir, "..", "packages", "sdk"),
+      counting,
+    )
+    expect(committed.size).toBeGreaterThan(3)
+    expect(calls).toEqual(["ls-files -s", "cat-file --batch"])
+  })
+
+  test("a batch answer is split by the size each header gives", () => {
+    // A blob may hold newlines, and the last byte of one is followed by the
+    // newline git adds, so the sizes decide where one ends.
+    const encode = (text: string) => new TextEncoder().encode(text)
+    const out = encode("aaa blob 6\nab\ncd\n\nbbb blob 0\n\nccc blob 2\n\n\n\n")
+    const blobs = parseBatch(out, ["aaa", "bbb", "ccc"])
+    expect(blobs.map((blob) => new TextDecoder().decode(blob))).toEqual([
+      "ab\ncd\n",
+      "",
+      "\n\n",
+    ])
+  })
+
+  test("a batch answer that does not hold every object asked for is refused", () => {
+    const encode = (text: string) => new TextEncoder().encode(text)
+    expect(() => parseBatch(encode("aaa missing\n"), ["aaa"])).toThrow(
+      "git cat-file has no blob aaa",
+    )
+    expect(() => parseBatch(encode("aaa blob 9\nshort\n"), ["aaa"])).toThrow(
+      "git cat-file's answer for aaa is cut short",
+    )
+    expect(() => parseBatch(encode("aaa blob 1\nx\n"), ["aaa", "bbb"])).toThrow(
+      "git cat-file has no blob bbb",
+    )
   })
 
   test("the package's committed guide is read as git holds it", async () => {
