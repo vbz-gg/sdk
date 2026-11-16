@@ -344,6 +344,7 @@ export async function unimportableSubpaths(
 export const RUNTIME_FILES: readonly string[] = [
   "dist/harness/page/main.js",
   "dist/harness/replay-child.js",
+  "dist/cli/check-child.js",
   "templates/game/package.json",
   // What `vbz new` renames on the way into a game, by the names it ships
   // under, read from the table that renames them.

@@ -34,6 +34,9 @@ coveragePathIgnorePatterns = [
   # never comes. What it decides is `replayRecording`, which is exported and
   # tested, and the tests run this file as the child it is.
   "packages/sdk/src/harness/replay-child.ts",
+  # The same, for `vbz check`'s process. What it decides is `checkHere`, which
+  # is exported and tested, and the tests run this file as the child it is.
+  "packages/sdk/src/cli/check-child.ts",
   "fixtures/**",
   # A test's own stand-ins, such as the fake page the platform client's tests
   # drive. They are how a test reaches the code under test, not that code, and

@@ -772,6 +772,35 @@ describe("the real command", () => {
     }
   })
 
+  /**
+   * The command holds the studio's secret key in its environment, so it
+   * never evaluates what it uploads. A build whose modules would hand the
+   * environment on, if anything ran them, is sent as bytes and never run.
+   */
+  test("runs none of the game's code, so nothing of it reads the key", async () => {
+    const marker = join(dir, "ran.json")
+    const handsOn = new TextEncoder().encode(
+      `import { writeFileSync } from "node:fs"\n` +
+        `writeFileSync(${JSON.stringify(marker)}, JSON.stringify(process.env))\n` +
+        "export const MANIFEST = {}\n",
+    )
+    await writeDist(dir)
+    await writeFile(join(dir, "dist", "sim.js"), handsOn)
+    await writeFile(join(dir, "dist", "present.js"), handsOn)
+    const { server, seen } = platform(status("published"))
+    try {
+      const result = await run(`http://127.0.0.1:${server.port}`, {
+        [STUDIO_KEY_VARIABLE]: KEY,
+      })
+      expect(result.code).toBe(0)
+      expect(seen.parts.sim).toBe(new TextDecoder().decode(handsOn))
+      expect(seen.parts.present).toBe(new TextDecoder().decode(handsOn))
+      expect(await Bun.file(marker).exists()).toBe(false)
+    } finally {
+      server.stop(true)
+    }
+  })
+
   test("exits 1 and prints the reason when the checks reject it", async () => {
     await writeDist(dir)
     const { server } = platform(

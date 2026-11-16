@@ -360,7 +360,9 @@ describe("replaying in a process of its own", () => {
   test("the child's entry is found as source here and as built output once installed", async () => {
     const both = join(dir, "entries")
     await mkdir(both, { recursive: true })
-    expect(() => replayChildEntry(both)).toThrow(/replay entry is missing/)
+    expect(() => replayChildEntry(both)).toThrow(
+      /replay-child entry is missing/,
+    )
     await writeFile(join(both, "replay-child.js"), "")
     expect(replayChildEntry(both)).toBe(join(both, "replay-child.js"))
     await writeFile(join(both, "replay-child.ts"), "")

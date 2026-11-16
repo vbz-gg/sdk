@@ -9,13 +9,13 @@
  * to the manifest the build wrote with `checkInputs`, which is what a server
  * runs on a submit, budget included. None of it settles or ranks anything.
  *
- * The rules code is somebody's game, so it is run in a process of its own,
- * as the manifest reader runs it, rather than in the harness's, and with an
- * empty environment: `vbz dev` runs where an author keeps a studio's secret
- * key and cloud credentials, and a game that read them would have them.
+ * The rules code is somebody's game, so it is run as every command runs a
+ * game's code, through `runGameProcess`: in a process of its own with an
+ * empty environment, because `vbz dev` runs where an author keeps a studio's
+ * secret key and cloud credentials, and a game that read them would have
+ * them.
  */
 
-import { existsSync } from "node:fs"
 import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -31,6 +31,7 @@ import {
   RecordedInputSource,
   runSession,
 } from "@clockwork2/engine"
+import { childEntry, runGameProcess } from "../build/game-process.js"
 
 /** A failure, as plain data a page can show. */
 export interface Problem {
@@ -156,21 +157,14 @@ export function replayRecording<TView, TConfig>(
  * installed. The directory is a parameter so both can be tested.
  */
 export function replayChildEntry(dir = import.meta.dir): string {
-  for (const name of ["replay-child.ts", "replay-child.js"]) {
-    const candidate = join(dir, name)
-    if (existsSync(candidate)) return candidate
-  }
-  throw new Error(`the harness's replay entry is missing from ${dir}`)
+  return childEntry(dir, "replay-child")
 }
 
 /**
  * `replayRecording` in a process of its own, against the built rules code.
  * A child that fails to answer is a failed replay, with what it printed.
- *
- * The child is this same Bun, named by its own path because an empty
- * environment has no `PATH` to find it on, and it needs nothing else: its
- * entry, the rules code and the engine are found from their own paths, and
- * what it reads arrives on stdin.
+ * It needs nothing of the environment: its entry, the rules code and the
+ * engine are found from their own paths, and what it reads arrives on stdin.
  */
 export async function replayInChild(
   sim: Uint8Array,
@@ -182,19 +176,12 @@ export async function replayInChild(
   try {
     const path = join(dir, "sim.js")
     await writeFile(path, sim)
-    const child = Bun.spawn([process.execPath, entry, path], {
-      env: {},
-      stdin: new TextEncoder().encode(
-        JSON.stringify({ manifest, recording: text }),
-      ),
-      stdout: "pipe",
-      stderr: "pipe",
+    const child = await runGameProcess([entry, path], {
+      stdin: JSON.stringify({ manifest, recording: text }),
     })
-    const [out, err, code] = await Promise.all([
-      new Response(child.stdout).text(),
-      new Response(child.stderr).text(),
-      child.exited,
-    ])
+    const out = new TextDecoder().decode(child.stdout)
+    const err = child.stderr
+    const code = child.code
     if (code === 0) {
       try {
         return JSON.parse(out) as DevReport

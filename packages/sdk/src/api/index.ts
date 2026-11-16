@@ -47,7 +47,12 @@ export type PublicRefusalCode =
   // Any route.
   /** The body or a query parameter is not the shape the route takes. */
   | "E_BAD_REQUEST"
-  /** No route at that path. */
+  /**
+   * No route at that path, or nothing there this reader may have: a run that
+   * does not exist, has not settled, is another player's or another
+   * studio's, or is from a day still open and not the reader's own. Each is
+   * answered alike, so the difference tells a reader nothing.
+   */
   | "E_NOT_FOUND"
   /** The platform failed. The answer says nothing more, on purpose. */
   | "E_INTERNAL"
@@ -530,7 +535,7 @@ export type RunFault = "mismatch" | "log_fault" | "platform_fault"
 /**
  * `GET /v1/runs/:id/result`: the player's own run and what its replay
  * decided. Only that player reads it, with their token; to anybody else it is
- * the 404 a missing run is. It never carries the seed.
+ * the 404 a missing run is, `E_NOT_FOUND`. It never carries the seed.
  *
  * `submitted` waits for a replay. `expired` is a run closed without a submit:
  * one that sent chunks is then replayed from them and moves on, and one that
@@ -564,8 +569,10 @@ export interface RunResult {
 
 /**
  * `GET /v1/runs/:id`: a settled run, with what a page module needs to play it
- * back. A run from a day still open is its player's alone. `inputs` are the
- * engine's own input events, which the engine reads.
+ * back. A run from a day still open is its player's alone; to anybody else,
+ * as for a run that does not exist or has not settled, the answer is
+ * `E_NOT_FOUND`. `inputs` are the engine's own input events, which the
+ * engine reads.
  */
 export interface WatchedRun {
   readonly sessionId: string

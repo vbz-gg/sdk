@@ -122,6 +122,15 @@ class Refused extends Error {
   }
 }
 
+/**
+ * The platform's answer for a run a reader may not have, or that does not
+ * exist, on the routes that read one back: one answer for both, word for
+ * word, so a reader learns nothing from the difference.
+ */
+function nothingThere(): Refused {
+  return new Refused("E_NOT_FOUND", "there is nothing there")
+}
+
 /** An engine refusal of a log, as the platform answers it. */
 function inputRefusal(error: unknown): Refused {
   if (isClockworkError(error) && INPUT_CODES.has(error.code)) {
@@ -443,7 +452,9 @@ export function startStandIn(options: StandInOptions): RunningStandIn {
       }
       if (request.method === "GET" && part === "/result") {
         requirePlayer(request)
-        return result(sessionOf(id))
+        const session = sessions.get(id)
+        if (session === undefined) throw nothingThere()
+        return result(session)
       }
       if (request.method === "GET" && part === "") {
         pageKeyOf(request)
@@ -729,7 +740,7 @@ export function startStandIn(options: StandInOptions): RunningStandIn {
       session.settled === null ||
       (dayOpen && !asPlayer)
     ) {
-      throw new Refused("E_NO_SESSION", "no settled run by that id")
+      throw nothingThere()
     }
     const { started, settled } = session
     return {

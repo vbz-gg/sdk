@@ -79,4 +79,8 @@ be one naming a module nobody checked.
 
 `dist/manifest.json` is read by evaluating the built simulation in a
 subprocess, so what it holds is the manifest the code carries rather than a
-second copy that can drift.
+second copy that can drift. That process, the bundler, which runs any macro
+the source imports, and `vbz check`'s and `vbz dev`'s processes all start
+with an empty environment (the bundler is given `NODE_ENV` alone), so a
+game's code never sees a key or a credential the shell holds. Nothing in a
+game should read `process.env`; `vbz publish` runs none of the game.

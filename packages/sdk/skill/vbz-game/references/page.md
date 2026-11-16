@@ -104,6 +104,10 @@ platform; `references/harness.md` says what the stand-in does.
 
 `watchRun(stage, { client: platform, runId })` reads a settled run, loads its
 own version's module and replays it to where the platform's replay stopped.
+A run from a day still open can be watched only by its own player. To anybody
+else, as for a run that does not exist or has not settled, the platform
+answers `E_NOT_FOUND`, and so does the result of a run that is not the
+player's.
 
 `Run`, which `playRun` drives, holds the rules a page would otherwise get
 wrong:
