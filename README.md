@@ -35,7 +35,7 @@ packages/sdk/templates/  a game to copy and start from, shipped with it
 skill/vbz-game/          the agent skill for building one
 docs/sdk.md              how it works, from first principles
 fixtures/paddle/         a small game that draws its own controls
-e2e/                     the browser suite, driving the harness for real
+e2e/                     the browser suite, driving the harness and a studio's page for real
 scripts/                 this repository's own tooling
 ```
 
@@ -49,7 +49,7 @@ bun run lint           # biome check .
 bun run lint:fix
 bun test               # the unit suite
 bun run test:coverage  # the same tests, then the 99% floor over packages/*/src
-bun run test:e2e       # the browser suite: a real sandboxed frame, a real pad
+bun run test:e2e       # the browser suite: the harness and a studio's page, for real
 bun run check:publishable   # pack the package and read what a consumer gets
 ```
 

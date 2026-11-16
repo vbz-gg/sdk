@@ -7,7 +7,8 @@
  * Tilt arrives as a level: the device helpers record it when it changes,
  * merged to one value a tick, so `tick` keeps the last value it was given and
  * moves the paddle by it every tick until a new one arrives. A replay feeds
- * the same values on the same ticks, so the paddle goes where it went.
+ * the same values on the same ticks, so the paddle goes where it went. The
+ * arrow keys step it, and Space puts it back in the middle.
  */
 
 import {
@@ -124,6 +125,9 @@ export class Paddle implements GameModule<View, Config> {
     }
     if (input.code === "right" && input.value === 1) {
       this.paddleX = this.clamp(this.paddleX + KEY_STEP)
+    }
+    if (input.code === "centre" && input.value === 1) {
+      this.paddleX = PLAYFIELD / 2
     }
   }
 

@@ -7,11 +7,15 @@
  * records nothing. A mapping that reads tilt is what makes the page module
  * report `needsMotion`, so a page asks for motion in the Play button's click,
  * the one place iOS lets it.
+ *
+ * Space is mapped as well as the arrows, which is what the browser suite
+ * needs: a page's Play button is activated by Space, so a game mapping it is
+ * where a key reaching the button instead of the game would show.
  */
 
 import type { CaptureMapping } from "@clockwork2/engine/host"
 
 export const capture: CaptureMapping = {
   tilt: { x: "tilt", fullAt: 30 },
-  keys: { ArrowLeft: "left", ArrowRight: "right" },
+  keys: { ArrowLeft: "left", ArrowRight: "right", Space: "centre" },
 }

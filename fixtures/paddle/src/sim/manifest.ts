@@ -4,7 +4,8 @@
  * Tilt is recorded as one small number, how far the screen leans left or
  * right, from -10 to 10, rather than three raw gravity axes: a game-sized
  * value records less and replays the same. The arrow keys move the paddle
- * too, so the fixture plays on a desktop with no sensor.
+ * too, so the fixture plays on a desktop with no sensor, and Space brings it
+ * back to the middle.
  */
 
 import type { Manifest } from "@clockwork2/engine/manifest"
@@ -26,6 +27,7 @@ export const MANIFEST: Manifest = {
     tilt: { min: -10, max: 10, label: "Tilt" },
     left: { min: 0, max: 1, label: "Left" },
     right: { min: 0, max: 1, label: "Right" },
+    centre: { min: 0, max: 1, label: "Centre" },
   },
   counters: [
     { name: "caught", direction: "up", monotonic: true, label: "Caught" },

@@ -22,7 +22,7 @@ bun run lint           # biome check .
 bun run lint:fix
 bun test               # the unit suite
 bun run test:coverage  # the same tests, then the 99% floor over packages/*/src
-bun run test:e2e       # the browser suite, against a real sandboxed frame
+bun run test:e2e       # the browser suite: the harness and a studio's page, for real
 bun run check:publishable   # pack the package and read what a consumer gets
 ```
 
@@ -211,22 +211,47 @@ until the reference has a line.
 
 ## The browser suite
 
-`e2e/` drives the harness an author runs, against both subjects this
-repository ships: the template, which declares a scheme, and the paddle
-fixture, which declares `{ mode: "custom" }`. One process builds each game
-through the real CLI and serves it, so a stale `dist` cannot be what is
-tested, and it keeps a request log per subject that a spec reads to see what
-the browser actually fetched.
+`e2e/` drives what an author and a studio's page actually run. One process,
+`e2e/src/servers.ts`, builds the package and both subjects through the real
+CLI, so a stale `dist` cannot be what is tested, and serves: each subject's
+harness, as `vbz dev` serves it; the suite's studio page, `e2e/page/`, on an
+origin of its own under the policy the SDK recommends, against a stand-in for
+the platform per game; a bundles origin holding every game's modules under
+the game's own path; and this package packed and installed apart. It keeps a
+request log per bundles origin, which a spec reads to see what the browser
+actually fetched.
 
-What only a browser can settle, and what each one caught: a sandboxed frame
-loading its own modules from an opaque origin; `max()` around an `env()`
-resolving at all; a pointer that presses a button and is released somewhere
-else, which without `setPointerCapture` records the press and never the
-release; two fingers, where lifting one must not lift the other; and a
-recording replaying to the counters the page displayed. The picker test found
-a live bug while it was being written - the harness page handed a game's
-declared binding to every layout the picker offered, so a game binding two
-slots drew two buttons under `dpad+2` and called it six.
+The subjects are the template, which draws its own two buttons, and the
+paddle fixture, which reads tilt and maps Space. Beside them, `e2e/frozen/`
+holds the template's two modules as the first release of contract 1 built
+them. They are never rebuilt: a page built from every later tree has to play
+them, and rebuilding them would test a release against itself.
+
+What only a browser can settle, and what each spec found:
+
+- The recommended policy admits a page module and its own static import of
+  its rules code, and refuses another game's path on the same origin before
+  any request leaves, in Chromium, Firefox and WebKit.
+- All three keep a failed module import for the life of the page and answer
+  a second `import()` of that URL without asking the network, which is why
+  `E_GAME_UNLOADABLE` tells the player to reload.
+- Two thumbs on the template's buttons are two pointers, and lifting one
+  leaves the other down. A thumb that slides off its button and off the game,
+  onto the page around it, still records its release.
+- With Play focused, a mapped Space reaches the game and does not press Play,
+  because the helpers cancel a mapped key's default. Measured in Chromium.
+- A second tab handed the same run stops at the run's Web Lock and sends
+  nothing for it.
+- Watching an abandoned run stops at its end tick.
+- Tilt through Chromium's orientation override: the first reading is recorded
+  as it is, and after that a level only when it changes.
+- A recording replays to the counters the page displayed, held both by the
+  harness's own report and by a replay in the spec, against the bytes the
+  browser loaded.
+
+Chromium runs every spec; Firefox and WebKit run the one about the policy,
+which is each engine's to decide. The fingers and the sensor override are
+Chromium's own protocol.
 
 One thing about the tools themselves, measured rather than read:
 
@@ -234,6 +259,11 @@ One thing about the tools themselves, measured rather than read:
   down, although the protocol describes `touchPoints` as "active touch
   points". With two fingers down, ending with the point that is still down
   releases that one. `e2e/src/fingers.ts` has the sequence that measured it.
+- **A window that closes itself inside a click can close before Chromium
+  answers the click's `mouseup`**, and Playwright then reports the click as
+  failed with the page closed. The stand-in's sign-in window does exactly
+  that, as the platform's does, so `signIn` in `e2e/src/studio.ts` takes a
+  click that failed because the window closed as the click working.
 
 Until engine 0.7.1 a spec could not import `@clockwork2/engine` at all, because
 its built output imported its own files without extensions and Playwright's

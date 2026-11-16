@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <title>A studio's page</title>
+    <link rel="stylesheet" href="/page.css" />
+    <script type="module" src="/main.js"></script>
+  </head>
+  <body>
+    <header>
+      <button id="signin" type="button">Sign in</button>
+      <span id="player"></span>
+    </header>
+    <main>
+      <!-- The element the game fills. It is smaller than the page, so a
+           finger can slide off it onto the page around it. -->
+      <div id="stage" class="stage"></div>
+      <div class="actions">
+        <button id="play" type="button">Play</button>
+        <button id="end" type="button">End</button>
+        <button id="watch" type="button">Watch</button>
+        <button id="retry" type="button">Load again</button>
+      </div>
+      <p id="state" role="status">starting</p>
+      <div id="watch-stage" class="stage"></div>
+      <!-- Filled in by the page for the suite to read: the run it played,
+           the run it watched, and every policy violation it heard. -->
+      <script type="application/json" id="run"></script>
+      <script type="application/json" id="watched"></script>
+      <script type="application/json" id="violations">[]</script>
+      <!-- Taller than any viewport, so a key that scrolls the page shows. -->
+      <div class="below"></div>
+    </main>
+  </body>
+</html>

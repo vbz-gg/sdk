@@ -1,5 +1,5 @@
 /**
- * What a spec does with a harness: open it, play it, read what it recorded.
+ * What a spec does with the harness: open it, play it, read what it recorded.
  *
  * These run under node, because Playwright's runner does. Until engine 0.7.1
  * that ruled the engine out entirely - its built output imported its own
@@ -26,10 +26,10 @@ import { CONTROL_ORIGIN, hostOrigin, type SubjectName } from "./env"
 
 export interface SubjectInfo {
   readonly hostOrigin: string
-  readonly frameOrigin: string
-  /** The path the artifact is served at, which is its own content address. */
+  readonly bundlesOrigin: string
+  /** The path each module is served at, which is its own content address. */
   readonly sim: string
-  readonly frame: string
+  readonly present: string
 }
 
 /** As much of a recording as a spec reads. The engine owns the whole shape. */
@@ -42,7 +42,6 @@ export interface RecordedRun {
   readonly endTick: number
   readonly inputs: readonly {
     readonly tick: number
-    readonly device: string
     readonly code: string
     readonly value: number
   }[]
@@ -56,9 +55,9 @@ export interface RecordedRun {
  * How a recording's checkpoints fall against whole seconds of play.
  *
  * A platform replays with one checkpoint per second, plus one on the tick the
- * run ended, so a frame that wrote them at any other interval disagrees with
- * every replay of every run. `seconds` counts the ones before the end, so a
- * test can refuse a run too short to show the interval at all.
+ * run ended, so a page module that wrote them at any other interval disagrees
+ * with every replay of every run. `seconds` counts the ones before the end,
+ * so a test can refuse a run too short to show the interval at all.
  */
 export function checkpointCadence(recording: RecordedRun): {
   readonly seconds: number
@@ -75,7 +74,7 @@ export function checkpointCadence(recording: RecordedRun): {
 
 let known: Record<SubjectName, SubjectInfo> | null = null
 
-/** Where each subject ended up, asked once and remembered. */
+/** Where each subject's harness ended up, asked once and remembered. */
 export async function subjects(): Promise<Record<SubjectName, SubjectInfo>> {
   if (known === null) {
     const response = await fetch(`${CONTROL_ORIGIN}/subjects`)
@@ -84,13 +83,15 @@ export async function subjects(): Promise<Record<SubjectName, SubjectInfo>> {
   return known
 }
 
-/** Opens the harness page and waits for the frame to finish its handshake. */
+/**
+ * Opens the harness page and waits until `loadGame` has the page module.
+ *
+ * Reaching `ready` at all is a cross-origin assertion: the page imports the
+ * module from the bundles origin under a policy naming the game's path, and
+ * the module imports its rules code from there in turn.
+ */
 export async function open(page: Page, name: SubjectName): Promise<void> {
   await page.goto(hostOrigin(name))
-  // `ready` is the frame saying its module loaded and its manifest is here.
-  // Reaching it at all is the CORS assertion: the frame's own script is
-  // cross-origin to an opaque origin, so without
-  // `access-control-allow-origin: *` nothing loads and nothing says so.
   await expect(page.locator("#status")).toHaveText("ready")
 }
 
@@ -109,6 +110,17 @@ export async function play(page: Page): Promise<void> {
   await expect(page.locator("#status")).toHaveText(/^tick [1-9]/)
 }
 
+/** What the harness said about a run once it came back from its replay. */
+export interface HarnessReport {
+  readonly replay: { readonly kind: string }
+  readonly inputs: {
+    readonly count: number
+    readonly budget: number
+    readonly problem: { readonly code: string } | null
+  }
+  readonly bytes: number
+}
+
 export interface Run {
   readonly result: {
     readonly tick: number
@@ -118,52 +130,60 @@ export interface Run {
   /** The recording as the page published it, for handing to a replay. */
   readonly encoded: string
   readonly recording: RecordedRun
+  readonly report: HarnessReport
 }
 
 /**
  * Ends the run and reads what it produced.
  *
- * The page publishes the recording only once every piece of it has arrived,
- * so waiting on `body[data-run="recorded"]` is waiting for a whole one.
+ * The page publishes the run once its recording is whole and the harness has
+ * answered with its report, so waiting on `body[data-run="recorded"]` is
+ * waiting for both.
  */
 export async function endRun(page: Page): Promise<Run> {
   await page.getByRole("button", { name: "End" }).click()
+  return await recorded(page)
+}
+
+/** Reads a run that has ended, however it ended. */
+export async function recorded(page: Page): Promise<Run> {
   await page.waitForSelector('body[data-run="recorded"]')
   const raw = (await page.locator("#run").textContent()) ?? ""
   const parsed = JSON.parse(raw) as {
     readonly result: Run["result"]
     readonly recording: string
+    readonly report: HarnessReport
   }
   return {
     result: parsed.result,
     encoded: parsed.recording,
     recording: JSON.parse(parsed.recording) as RecordedRun,
+    report: parsed.report,
   }
 }
 
 /**
- * A point inside the framed game, as a fraction of it.
+ * A point inside the element the game fills, as a fraction of it.
  *
- * Measured rather than assumed: the frame is not the viewport - on the phone
- * this suite emulates it is 412 by 839 inside a 412 by 915 window - and a
- * touch a few pixels below it lands on the page behind and reaches the game
- * as nothing at all. The fractions also map straight onto the simulation's
- * own space, since the frame hands `InputCapture` a viewport the width of the
- * playfield: 0.15 across is about 150 units in.
+ * The fractions map onto the game's own space, because the presentation is
+ * stretched over the whole element on both axes and the device helpers
+ * measure a finger across that same element: 0.15 across the template is
+ * 72 of its 480 units.
  */
-export async function framePoint(
+export async function stagePoint(
   page: Page,
   fx: number,
   fy: number,
+  stage = "#stage",
 ): Promise<{ readonly x: number; readonly y: number }> {
-  const box = await page.locator("#stage iframe").boundingBox()
-  if (box === null) throw new Error("the game is not framed")
+  const box = await page.locator(stage).boundingBox()
+  if (box === null) throw new Error(`${stage} is not on the page`)
   return { x: box.x + box.width * fx, y: box.y + box.height * fy }
 }
 
-/** Every action in the log, in order, as `action=value` pairs. */
-export function log(run: Run): string[] {
-  return run.recording.inputs.map((input) => `${input.code}=${input.value}`)
+/** Every input in the log, in order, as `name=value` pairs. */
+export function log(recording: RecordedRun): string[] {
+  return recording.inputs.map((input) => `${input.code}=${input.value}`)
 }
 
 export interface Replayed {
@@ -180,21 +200,34 @@ export interface Replayed {
 /**
  * Replays a run against the very bytes the browser loaded.
  *
- * The simulation is fetched from the frame origin at its content address
+ * The rules code is fetched from the bundles origin at its content address
  * rather than imported from the source tree, so what runs here is the module
  * the page ran and not a second build of the same file. Decoding the
  * recording is itself a check: the format, the version and the shape of every
- * input are what a platform would refuse a submission over.
+ * input are what a platform would refuse a submission over. This is the
+ * spec's own replay, beside the harness's report on the same run, so a fault
+ * in the harness's replay cannot pass both.
  *
  * It is written as `.mjs` and not `.js`. A temp directory has no package.json
  * above it, so node reads a bare `.js` as CommonJS, and importing the
  * simulation then fails on its first `export` with a syntax error that says
  * nothing about the extension.
  */
-export async function replay(name: SubjectName, run: Run): Promise<Replayed> {
+export async function replay(
+  name: SubjectName,
+  encoded: string,
+): Promise<Replayed> {
   const info = (await subjects())[name]
-  const recording = decodeRecording(run.encoded)
-  const source = await (await fetch(`${info.frameOrigin}${info.sim}`)).text()
+  return await replayAgainst(`${info.bundlesOrigin}${info.sim}`, encoded)
+}
+
+/** `replay`, against the rules code at `simUrl`. */
+export async function replayAgainst(
+  simUrl: string,
+  encoded: string,
+): Promise<Replayed> {
+  const recording = decodeRecording(encoded)
+  const source = await (await fetch(simUrl)).text()
 
   const dir = await mkdtemp(join(tmpdir(), "sdk-replay-"))
   try {
@@ -227,12 +260,16 @@ export async function replay(name: SubjectName, run: Run): Promise<Replayed> {
   }
 }
 
-/** Forgets every path the frame origin was asked for, for this subject. */
-export async function clearRequests(name: SubjectName): Promise<void> {
+/** Forgets every path a bundles origin was asked for: a subject's, or `studio`. */
+export async function clearRequests(
+  name: SubjectName | "studio",
+): Promise<void> {
   await fetch(`${CONTROL_ORIGIN}/requests/${name}`, { method: "DELETE" })
 }
 
-export async function requests(name: SubjectName): Promise<string[]> {
+export async function requests(
+  name: SubjectName | "studio",
+): Promise<string[]> {
   const response = await fetch(`${CONTROL_ORIGIN}/requests/${name}`)
   return (await response.json()) as string[]
 }

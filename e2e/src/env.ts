@@ -1,10 +1,10 @@
 /**
  * The ports the suite runs on, in one place.
  *
- * Two per subject, because the harness is two servers and the whole point of
- * it is that they are two origins. Fixed rather than port 0: Playwright's
- * `webServer` waits on a URL it was given before any test runs, so the ports
- * have to be knowable before the process that binds them exists.
+ * Fixed rather than port 0: Playwright's `webServer` waits on a URL it was
+ * given before any test runs, so the ports have to be knowable before the
+ * process that binds them exists. The two stand-ins for the platform take any
+ * free port, because a page reads where they are from its own `config.json`.
  */
 
 export const CONTROL_PORT = 4319
@@ -12,28 +12,45 @@ export const CONTROL_PORT = 4319
 /**
  * The games this suite drives, and why each one is here.
  *
- * `template` declares a scheme, so the host draws its pad. `paddle` declares
- * `{ mode: "custom" }`, so the host draws nothing and the game hit-tests
- * pointers itself. Between them they are the two answers a game can give, and
- * a browser is the only place the difference is visible.
+ * `template` is what `vbz new` copies: a game that draws its own two buttons
+ * and takes keys and a controller. `paddle` reads tilt, and maps Space, which
+ * is what the spec about a focused Play button needs. Each is served by the
+ * harness an author runs, on a page origin and a bundles origin of its own,
+ * and each also plays on the suite's studio page.
  */
 export const SUBJECTS = {
   template: {
     dir: ["packages", "sdk", "templates", "game"],
     hostPort: 4320,
-    framePort: 4321,
+    bundlesPort: 4321,
+    /** The id the studio page serves the game under. */
+    gameId: "00000000-0000-4000-8000-000000000001",
   },
-  paddle: { dir: ["fixtures", "paddle"], hostPort: 4322, framePort: 4323 },
+  paddle: {
+    dir: ["fixtures", "paddle"],
+    hostPort: 4322,
+    bundlesPort: 4323,
+    gameId: "00000000-0000-4000-8000-000000000002",
+  },
 } as const
 
 export type SubjectName = keyof typeof SUBJECTS
 
+/**
+ * The suite's studio page, standing in for a page a studio serves its game
+ * from, and the bundles origin it loads games from, standing in for the
+ * platform's.
+ */
+export const STUDIO_PORT = 4324
+export const STUDIO_BUNDLES_PORT = 4325
+
 export const CONTROL_ORIGIN = `http://127.0.0.1:${CONTROL_PORT}`
+export const STUDIO_ORIGIN = `http://127.0.0.1:${STUDIO_PORT}`
 
 export function hostOrigin(name: SubjectName): string {
   return `http://127.0.0.1:${SUBJECTS[name].hostPort}`
 }
 
-export function frameOrigin(name: SubjectName): string {
-  return `http://127.0.0.1:${SUBJECTS[name].framePort}`
+export function bundlesOrigin(name: SubjectName): string {
+  return `http://127.0.0.1:${SUBJECTS[name].bundlesPort}`
 }
