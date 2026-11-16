@@ -74,8 +74,9 @@ browser blocks it.
 
 **The client's codes and the platform's never share a name.** `CLIENT_ERROR`
 in `errors.ts` is the client's table, a compile-time check keeps it apart from
-`PublicRefusalCode`, and the skill's `references/page.md` explains every entry,
-held both ways by `skill/tests/skill.test.ts`. A new code is a new row in both.
+`PublicRefusalCode`, and the guide's `references/page.md` explains every entry,
+held both ways by `packages/sdk/skill/tests/skill.test.ts`. A new code is a
+new row in both.
 
 ## The page module
 
@@ -209,28 +210,34 @@ once the checks pass, which runs the version serves.
 **Its exit code is the verdict.** 0 means the version passed its checks and
 is published, and the command has printed which runs it serves. Anything
 else, including a version an operator took down, is 1. This sentence, the
-package README, `docs/sdk.md`, the skill's `SKILL.md` and `cli/publish.ts`
+package README, `docs/sdk.md`, the guide's `SKILL.md` and `cli/publish.ts`
 say it together, and change together.
 
 No template or example names a script `publish`, because npm runs one with
 that name as a lifecycle hook of `npm publish`.
 
-## The skill
+## The agent guide
 
-`skill/vbz-game/` is prose an agent follows literally, so a stale sentence
-is worse than a missing one. It has one subject: everything between a
-conforming simulation and a game the platform can check and replay.
+`packages/sdk/skill/vbz-game/` is prose an agent follows literally, so a
+stale sentence is worse than a missing one. It has one subject: everything
+between a conforming simulation and a game the platform can check and replay.
 Determinism belongs to clockwork2's `platform-game`, and this one points at it
 rather than repeating it - two copies of that rulebook is how one of them goes
 quietly out of date.
 
-`skill/tests/skill.test.ts` measures the drift a machine can see: the size
-caps match the code, every artifact refusal named exists and every one that
-exists is explained, `references/page.md` explains every client code and no
-other, every prose copy of what a release line fixes (in `SKILL.md`,
-`references/ingest.md` and `docs/sdk.md`) names exactly the fields
-`LINE_RULES` fixes, the commands are the CLI's, the layout it prints is the
-template's, and every reference is linked both ways. Adding a client code
+The guide ships in the package, and its tests sit beside it at
+`packages/sdk/skill/tests/`, outside what ships. `check:publishable` compares
+the packed guide with git's copy, file for file, byte for byte and execute
+bit, and fails on anything else under `skill/` in the tarball, because npm
+packs the disk and not the commit.
+
+`packages/sdk/skill/tests/skill.test.ts` measures the drift a machine can
+see: the size caps match the code, every artifact refusal named exists and
+every one that exists is explained, `references/page.md` explains every
+client code and no other, every prose copy of what a release line fixes (in
+`SKILL.md`, `references/ingest.md` and `docs/sdk.md`) names exactly the
+fields `LINE_RULES` fixes, the commands are the CLI's, the layout it prints is
+the template's, and every reference is linked both ways. Adding a client code
 fails it until `page.md` has a row.
 
 ## Tests
@@ -447,8 +454,9 @@ the trailer says you re-read the pages covering what you changed and brought
 them back in line.
 
 It is demanded when the commit stages anything under `packages/`, `e2e/`,
-`scripts/`, `skill/`, `docs/`, `templates/` or `fixtures/`, or `README.md`,
-`package.json`, `tsconfig*.json`, `biome.json`, `bunfig.toml` or `.github/`.
+`scripts/`, `docs/` or `fixtures/`, or `README.md`, `package.json`,
+`tsconfig*.json`, `biome.json`, `bunfig.toml` or `.github/`. The agent guide
+and the template are under `packages/`.
 Merge, revert, fixup, squash and `chore(release)` commits are exempt: git and
 commit-and-tag-version write those messages themselves, some with no editor at
 all.

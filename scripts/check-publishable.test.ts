@@ -1,10 +1,14 @@
 import { describe, expect, test } from "bun:test"
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 import {
   BUNDLER_COMMENTS,
+  type CommittedFile,
+  committedGuide,
   exportTargets,
+  GUIDE,
+  guideDifferences,
   missingBundlerComments,
   PUBLIC_PACKAGES,
   problemsWith,
@@ -28,6 +32,7 @@ function shipped(over: Partial<Shipped> = {}): Shipped {
     ],
     imports: { problems: [], skipped: [] },
     bundlerComments: [],
+    guide: [],
     ...over,
   }
 }
@@ -135,6 +140,17 @@ describe("what a tarball would do to a consumer", () => {
     expect(problems.join("\n")).toContain("./controls")
   })
 
+  test("a guide that differs from the committed one is a problem", () => {
+    const problems = problemsWith(
+      shipped({
+        guide: [
+          `${GUIDE}/SKILL.md in the tarball differs from the committed file`,
+        ],
+      }),
+    )
+    expect(problems.join("\n")).toContain(`${GUIDE}/SKILL.md`)
+  })
+
   test("the checker names the package that is published", () => {
     expect(PUBLIC_PACKAGES).toEqual(["sdk"])
   })
@@ -227,4 +243,141 @@ describe("what plain node makes of the exports map", () => {
       await rm(dir, { recursive: true, force: true })
     }
   }, 30_000)
+})
+
+describe("the guide the tarball carries", () => {
+  type Tree = Record<string, { text: string; executable?: boolean }>
+
+  /** Writes a tree of files under `root`, at paths inside the package. */
+  async function write(root: string, tree: Tree): Promise<string[]> {
+    for (const [path, file] of Object.entries(tree)) {
+      await mkdir(dirname(join(root, path)), { recursive: true })
+      await writeFile(join(root, path), file.text)
+      await chmod(join(root, path), file.executable === true ? 0o755 : 0o644)
+    }
+    return Object.keys(tree).sort()
+  }
+
+  const GOOD: Tree = {
+    [`${GUIDE}/SKILL.md`]: { text: "---\nname: vbz-game\n---\n" },
+    [`${GUIDE}/references/page.md`]: { text: "# The page\n" },
+  }
+
+  /** What git would hold for a tree, without a repository to hold it. */
+  function asCommitted(tree: Tree): Map<string, CommittedFile> {
+    return new Map(
+      Object.entries(tree).map(([path, file]) => [
+        path,
+        {
+          bytes: new TextEncoder().encode(file.text),
+          executable: file.executable === true,
+        },
+      ]),
+    )
+  }
+
+  /** Unpacks `inTarball` to a directory and compares it with `committed`. */
+  async function compare(
+    inTarball: Tree,
+    committed: Tree = GOOD,
+  ): Promise<string[]> {
+    const dir = await mkdtemp(join(tmpdir(), "sdk-guide-"))
+    try {
+      const shipped = await write(dir, {
+        "package.json": { text: "{}" },
+        ...inTarball,
+      })
+      return guideDifferences(dir, shipped, asCommitted(committed))
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  }
+
+  test("the committed guide, packed whole, has nothing to say", async () => {
+    expect(await compare(GOOD)).toEqual([])
+  })
+
+  test("a byte that differs is named, as an edit nobody committed is", async () => {
+    // npm packs the working tree, so an uncommitted edit is what ships.
+    const problems = await compare({
+      ...GOOD,
+      [`${GUIDE}/SKILL.md`]: { text: "---\nname: vbz-games\n---\n" },
+    })
+    expect(problems).toEqual([
+      `${GUIDE}/SKILL.md in the tarball differs from the committed file`,
+    ])
+  })
+
+  test("a committed file the tarball dropped is named", async () => {
+    // npm drops a file an ignore rule matches, and says nothing about it.
+    const problems = await compare({
+      [`${GUIDE}/SKILL.md`]: { text: "---\nname: vbz-game\n---\n" },
+    })
+    expect(problems).toEqual([
+      `${GUIDE}/references/page.md is committed and the tarball does not carry it`,
+    ])
+  })
+
+  test("an untracked file is named, because npm packs the disk", async () => {
+    // A scratch note left in the guide's folder ships, and `vbz new` would
+    // then copy it into every game.
+    const problems = await compare({
+      ...GOOD,
+      [`${GUIDE}/notes.txt`]: { text: "scratch" },
+    })
+    expect(problems).toEqual([
+      `${GUIDE}/notes.txt is in the tarball and is not committed`,
+    ])
+  })
+
+  test("the guide's tests shipping beside it are named", async () => {
+    const problems = await compare({
+      ...GOOD,
+      "skill/tests/skill.test.ts": { text: "test()" },
+    })
+    expect(problems).toEqual([
+      `skill/tests/skill.test.ts ships, and only ${GUIDE}/ belongs under skill/`,
+    ])
+  })
+
+  test("a file whose execute bit moved is named", async () => {
+    // `vbz new` copies the guide with the modes it shipped with, so a mode
+    // the tarball changed is a mode every new game gets.
+    const committed: Tree = {
+      ...GOOD,
+      [`${GUIDE}/scripts/run.sh`]: { text: "#!/bin/sh\n", executable: true },
+    }
+    const problems = await compare(
+      { ...GOOD, [`${GUIDE}/scripts/run.sh`]: { text: "#!/bin/sh\n" } },
+      committed,
+    )
+    expect(problems).toEqual([
+      `${GUIDE}/scripts/run.sh is executable when committed and not in the tarball`,
+    ])
+  })
+
+  test("no committed guide at all is a problem, not a pass", async () => {
+    // A listing that came back empty would otherwise compare nothing against
+    // nothing and agree.
+    const problems = await compare({}, {})
+    expect(problems).toEqual([
+      `no committed files under ${GUIDE}/ to compare with`,
+    ])
+  })
+
+  test("the package's committed guide is read as git holds it", async () => {
+    // The listing is what the comparison trusts for "committed": paths inside
+    // the package, under the guide and not its tests, with git's bytes and
+    // git's mode for each.
+    const committed = await committedGuide(
+      join(import.meta.dir, "..", "packages", "sdk"),
+    )
+    const paths = [...committed.keys()]
+    expect(paths).toContain(`${GUIDE}/SKILL.md`)
+    expect(paths).toContain(`${GUIDE}/references/page.md`)
+    expect(paths.every((path) => path.startsWith(`${GUIDE}/`))).toBe(true)
+    expect(committed.get(`${GUIDE}/SKILL.md`)?.executable).toBe(false)
+    const skill = committed.get(`${GUIDE}/SKILL.md`)?.bytes ?? new Uint8Array()
+    expect(new TextDecoder().decode(skill)).toStartWith("---\nname: ")
+  })
 })

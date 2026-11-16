@@ -43,8 +43,8 @@ So the SDK owns seven things, one per subpath export:
 | `/harness` | The build and the handler, wired into a local page that loads the game the way a studio's page does |
 
 Beside them the package ships a CLI (`vbz new | build | check | dev | publish`),
-the template `new` copies, and `skill/vbz-game/`, which is the same material
-written for an agent to follow literally.
+the template `new` copies, and the agent guide at `skill/vbz-game/`, which is
+the same material written for an agent to follow literally.
 
 The platform imports `/api`, and declares each public route's answer with its
 types. It imports `/build`, so it reads a version, a release line and a

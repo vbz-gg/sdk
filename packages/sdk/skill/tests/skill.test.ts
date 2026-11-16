@@ -18,15 +18,15 @@ import {
   MAX_PRESENT_BYTES,
   MAX_SIM_BYTES,
   SIM_SPECIFIER,
-} from "../../packages/sdk/src/build/index.js"
-import {
-  CAPABILITY_RULES,
-  LINE_RULES,
-} from "../../packages/sdk/src/build/line.js"
-import { TEMPLATE_DIR } from "../../packages/sdk/src/cli/new.js"
-import { CLIENT_ERROR } from "../../packages/sdk/src/platform/errors.js"
+} from "../../src/build/index.js"
+import { CAPABILITY_RULES, LINE_RULES } from "../../src/build/line.js"
+import { TEMPLATE_DIR } from "../../src/cli/new.js"
+import { CLIENT_ERROR } from "../../src/platform/errors.js"
 
-const SKILL = join(import.meta.dir, "..", "vbz-game")
+/** `packages/sdk`, which ships the guide; the guide's tests sit outside it. */
+const PACKAGE = join(import.meta.dir, "..", "..")
+const REPOSITORY = join(PACKAGE, "..", "..")
+const SKILL = join(PACKAGE, "skill", "vbz-game")
 const REFERENCES = join(SKILL, "references")
 
 async function read(...parts: string[]): Promise<string> {
@@ -117,10 +117,7 @@ describe("what a release line fixes", () => {
     const copies = {
       "SKILL.md": await read("SKILL.md"),
       "references/ingest.md": await read("references", "ingest.md"),
-      "docs/sdk.md": await readFile(
-        join(import.meta.dir, "..", "..", "docs", "sdk.md"),
-        "utf8",
-      ),
+      "docs/sdk.md": await readFile(join(REPOSITORY, "docs", "sdk.md"), "utf8"),
     }
     for (const [name, text] of Object.entries(copies)) {
       const sentence = text
@@ -162,19 +159,7 @@ describe("the page's client", () => {
 
 describe("what the skill tells an author to run", () => {
   test("every command it lists is one the CLI takes", async () => {
-    const cli = await readFile(
-      join(
-        import.meta.dir,
-        "..",
-        "..",
-        "packages",
-        "sdk",
-        "src",
-        "cli",
-        "index.ts",
-      ),
-      "utf8",
-    )
+    const cli = await readFile(join(PACKAGE, "src", "cli", "index.ts"), "utf8")
     const text = await read("SKILL.md")
     for (const command of ["new", "build", "check", "dev", "publish"]) {
       expect(text).toContain(`vbz ${command}`)

@@ -34,13 +34,13 @@ What a game author does with it is in
 ## Layout
 
 ```
-packages/sdk/            the published package
-packages/sdk/templates/  a game to copy and start from, shipped with it
-skill/vbz-game/          the agent skill for building one
-docs/sdk.md              how it works, from first principles
-fixtures/paddle/         a small game steered by tilt
-e2e/                     the browser suite, driving the harness and a studio's page for real
-scripts/                 this repository's own tooling
+packages/sdk/                 the published package
+packages/sdk/templates/       a game to copy and start from, shipped with it
+packages/sdk/skill/vbz-game/  the agent guide for building one, shipped with it
+docs/sdk.md                   how it works, from first principles
+fixtures/paddle/              a small game steered by tilt
+e2e/                          the browser suite, driving the harness and a studio's page for real
+scripts/                      this repository's own tooling
 ```
 
 ## Commands

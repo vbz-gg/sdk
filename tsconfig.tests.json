@@ -5,5 +5,5 @@
     "noEmit": true,
     "types": ["bun"]
   },
-  "include": ["packages/*/tests", "scripts", "skill/tests"]
+  "include": ["packages/*/tests", "packages/sdk/skill/tests", "scripts"]
 }

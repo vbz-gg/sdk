@@ -40,7 +40,9 @@ coveragePathIgnorePatterns = [
   # how much of a stand-in a test happens to use says nothing about the SDK.
   "packages/sdk/tests/**",
   "packages/sdk/templates/**",
-  "skill/**",
+  # The agent guide the package ships, and its tests beside it. The guide is
+  # Markdown, and its tests are tests.
+  "packages/sdk/skill/**",
   "e2e/**",
   "scripts/**",
   # The template and the fixture, built to a temp directory and loaded by the

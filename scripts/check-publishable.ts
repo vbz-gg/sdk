@@ -12,6 +12,11 @@
  * import of a game's code builds, passes and then loads no game on a studio's
  * page bundled with webpack.
  *
+ * The package also carries the agent guide, at `skill/vbz-game/`, which
+ * `vbz new` and `vbz guides` copy into a game. Its tests sit beside it and
+ * must not ship, and what ships has to be the guide git holds, so the
+ * tarball's copy is compared with the committed one file by file.
+ *
  *   bun run scripts/check-publishable.ts
  *
  * Exit codes: 0 passed, 1 the package would ship broken, 2 nothing to check.
@@ -22,6 +27,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  statSync,
   symlinkSync,
 } from "node:fs"
 import { tmpdir } from "node:os"
@@ -30,6 +36,12 @@ import { pathToFileURL } from "node:url"
 import { $ } from "bun"
 
 export const PUBLIC_PACKAGES = ["sdk"] as const
+
+/**
+ * The agent guide, as a path inside the package. Everything the tarball holds
+ * under `skill/` has to be under this directory.
+ */
+export const GUIDE = "skill/vbz-game"
 
 export type Shipped = {
   readonly name: string
@@ -42,6 +54,114 @@ export type Shipped = {
   readonly imports: ImportReport
   /** The bundler comments `loadGame`'s import has lost, if any. */
   readonly bundlerComments: readonly string[]
+  /** How the guide in the tarball differs from the committed one. */
+  readonly guide: readonly string[]
+}
+
+/** One file of the guide as git holds it. */
+export type CommittedFile = {
+  readonly bytes: Uint8Array
+  readonly executable: boolean
+}
+
+/** git's mode for an executable file; a plain one is 100644. */
+const GIT_EXECUTABLE = "100755"
+
+/** Whether any of the owner, group or other execute bits is set. */
+function executable(path: string): boolean {
+  return (statSync(path).mode & 0o111) !== 0
+}
+
+/**
+ * Compares the guide an unpacked tarball carries with the committed one, file
+ * for file and byte for byte.
+ *
+ * `committed` maps each file git holds under the guide, by its path inside the
+ * package such as `skill/vbz-game/SKILL.md`, to the bytes and mode git holds
+ * for it. npm packs whatever is on disk, so a file git does not track reaches
+ * the tarball, an edit nobody committed ships, and an ignore rule nobody reads
+ * drops a tracked file without a word. The execute bit is compared too,
+ * because `vbz new` copies the guide into a game with the modes it shipped
+ * with.
+ */
+export function guideDifferences(
+  unpacked: string,
+  shipped: readonly string[],
+  committed: ReadonlyMap<string, CommittedFile>,
+): string[] {
+  const problems: string[] = []
+  const inGuide = (path: string): boolean => path.startsWith(`${GUIDE}/`)
+  const yesOrNo = (flag: boolean): string => (flag ? "" : "not ")
+
+  for (const path of shipped) {
+    if (path.startsWith("skill/") && !inGuide(path)) {
+      problems.push(`${path} ships, and only ${GUIDE}/ belongs under skill/`)
+    }
+  }
+
+  const packed = new Set(shipped.filter(inGuide))
+  const tracked = [...committed.keys()].filter(inGuide).sort()
+  if (tracked.length === 0) {
+    problems.push(`no committed files under ${GUIDE}/ to compare with`)
+  }
+  for (const path of tracked) {
+    const file = committed.get(path) as CommittedFile
+    if (!packed.has(path)) {
+      problems.push(`${path} is committed and the tarball does not carry it`)
+      continue
+    }
+    const inTarball = join(unpacked, path)
+    if (!Buffer.from(file.bytes).equals(readFileSync(inTarball))) {
+      problems.push(`${path} in the tarball differs from the committed file`)
+    }
+    if (file.executable !== executable(inTarball)) {
+      problems.push(
+        `${path} is ${yesOrNo(file.executable)}executable when committed and ${yesOrNo(executable(inTarball))}in the tarball`,
+      )
+    }
+  }
+  for (const path of [...packed].sort()) {
+    if (!committed.has(path)) {
+      problems.push(`${path} is in the tarball and is not committed`)
+    }
+  }
+  return problems
+}
+
+/**
+ * The guide as git holds it, keyed by path inside the package.
+ *
+ * This reads git's index, which in CI is the commit being checked and on a
+ * laptop is what the next commit would hold, and the blob bytes themselves
+ * rather than the working tree, so a guide edited and never staged is not
+ * what this compares against.
+ */
+export async function committedGuide(
+  packageDir: string,
+): Promise<Map<string, CommittedFile>> {
+  const listed = await $`git ls-files -s -z -- ${GUIDE}`.cwd(packageDir).text()
+  const out = new Map<string, CommittedFile>()
+  for (const entry of listed.split("\0")) {
+    if (entry === "") continue
+    // <mode> <object> <stage>\t<path>, with the path relative to packageDir.
+    const match = /^(\d{6}) ([0-9a-f]+) \d\t(.+)$/.exec(entry)
+    if (match === null) {
+      throw new Error(
+        `git ls-files printed an entry this cannot read: ${entry}`,
+      )
+    }
+    const mode = match[1] as string
+    const object = match[2] as string
+    const path = match[3] as string
+    const blob = await $`git cat-file blob ${object}`
+      .cwd(packageDir)
+      .arrayBuffer()
+    out.set(path, {
+      bytes: new Uint8Array(blob),
+      executable: mode === GIT_EXECUTABLE,
+    })
+  }
+  return out
 }
 
 type ExportsMap = Record<string, { default?: string } | string>
@@ -199,20 +319,28 @@ export async function pack(pkg: string, into: string): Promise<Shipped> {
     dependencies?: Record<string, string>
     bin?: Record<string, string>
   }
-  const files = [...new Bun.Glob("**/*").scanSync(join(out, "package"))]
-  const loader = join(out, "package", BUNDLER_COMMENTS.file)
+  const unpacked = join(out, "package")
+  // Dot files too. npm drops a few by name, `.DS_Store` among them, and packs
+  // every other one it finds under a `files` entry.
+  const files = [...new Bun.Glob("**/*").scanSync({ cwd: unpacked, dot: true })]
+  const loader = join(unpacked, BUNDLER_COMMENTS.file)
   return {
     name: manifest.name,
     version: manifest.version,
     dependencies: manifest.dependencies ?? {},
     bin: manifest.bin ?? {},
     files,
-    imports: await unimportableSubpaths(join(out, "package")),
+    imports: await unimportableSubpaths(unpacked),
     // A tarball with no such file has lost them all, and says so twice:
     // here, and as the subpath node cannot import.
     bundlerComments: existsSync(loader)
       ? missingBundlerComments(readFileSync(loader, "utf8"))
       : [...BUNDLER_COMMENTS.comments],
+    guide: guideDifferences(
+      unpacked,
+      files,
+      await committedGuide(`packages/${pkg}`),
+    ),
   }
 }
 
@@ -273,6 +401,7 @@ export function problemsWith(shipped: Shipped): string[] {
       `${shipped.name}'s ${BUNDLER_COMMENTS.file} has lost ${comment} from loadGame's import, so a studio's bundler would rewrite the import of a game's code`,
     )
   }
+  problems.push(...shipped.guide)
   problems.push(...shipped.imports.problems)
   return problems
 }
