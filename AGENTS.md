@@ -49,7 +49,9 @@ starts.
 types only, and the platform imports it. **A route's shape changes here
 first**: released, then taken by the platform, never the other way round,
 because the platform depends on this package and this package on nothing of
-the platform's. Within `/v1` a change only adds. `packages/sdk/tests/api.test.ts`
+the platform's. Within `/v1` a change only adds, from the day vbz-gg/platform's
+`AGENTS.md` marks the platform deployed; until then a shape may change in
+place, here first. `packages/sdk/tests/api.test.ts`
 holds the subpath to exporting no value, because a studio's page bundles it.
 
 ## The page's client
