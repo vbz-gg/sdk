@@ -2,13 +2,16 @@
  * What the harness page says when a run cannot start.
  *
  * The status line is how an author learns why nothing is playing, so a
- * refusal stays on it: a module that refuses the run at mount, and a tilt
- * request that fails rather than answering, each show their code there and
- * on the body, and nothing after them writes over it.
+ * refusal stays on it: a module that refuses the run at mount, a tilt
+ * request the player refuses, and one that fails rather than answering, each
+ * show their code there and on the body, and nothing after them writes over
+ * it.
  */
 
 import { expect, test } from "@playwright/test"
+import { CLIENT_ERROR } from "../../packages/sdk/src/platform/errors"
 import { open } from "../src/run"
+import { answerTilt, tiltAsked } from "../src/tilt"
 
 test("a run the module refuses at mount says why, and is not said to be playing", async ({
   page,
@@ -36,6 +39,26 @@ test("a run the module refuses at mount says why, and is not said to be playing"
   await expect(page.locator("#status")).toHaveText(
     /^E_WRONG_GAME: the run ticks at 30 Hz/,
   )
+})
+
+/**
+ * The harness plays a game as a studio's page does, so a game steered by
+ * tilt starts no run here without it either: the refusal iOS gives after
+ * "Don't Allow", in the client's own sentence, with nothing mounted.
+ */
+test("a refused tilt says why, and starts no run", async ({ page }) => {
+  await answerTilt(page, "denied")
+  await open(page, "paddle")
+  await page.getByRole("button", { name: "Start" }).click()
+  await expect(page.locator("body")).toHaveAttribute(
+    "data-refused",
+    "E_MOTION_DENIED",
+  )
+  await expect(page.locator("#status")).toHaveText(
+    `E_MOTION_DENIED: ${CLIENT_ERROR.E_MOTION_DENIED}`,
+  )
+  expect(await tiltAsked(page)).toEqual([{ active: true }])
+  await expect(page.locator("#stage > *")).toHaveCount(0)
 })
 
 /**

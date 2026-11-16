@@ -21,6 +21,7 @@ import {
   type MountHandle,
 } from "../../game/contract.js"
 import { type LoadedGame, loadGame } from "../../host/index.js"
+import { motionRefusal } from "../../host/motion.js"
 import type { DevReport } from "../replay.js"
 import { reportLines, reportPasses } from "../report.js"
 
@@ -158,8 +159,11 @@ loadGame({ presentUrl: config.presentUrl, manifestHash: config.manifestHash })
       if (game.needsMotion) {
         new Promise<MotionAccess>((resolve) => resolve(game.requestMotion()))
           .then((access) => {
-            if (!access.granted) say(`${access.code}: ${access.detail}`)
-            start(game)
+            // Read as `playRun` reads it: a game steered by tilt starts no
+            // run without it, and the status line keeps the sentence why.
+            const refused = motionRefusal(access)
+            if (refused === null) start(game)
+            else refuseWith(refused)
           })
           // A request that failed says why, and no run starts.
           .catch(refuseWith)

@@ -21,6 +21,7 @@ import {
   stagePoint,
   waitForTick,
 } from "../src/run"
+import { tiltSensor } from "../src/tilt"
 
 /**
  * Past two seconds of play at 60 Hz, so a recording holds two checkpoints
@@ -29,8 +30,9 @@ import {
 const PAST_TWO_SECONDS = 2 * 60 + 1
 
 /**
- * On a phone, so a tap is a finger: the template's two buttons are its own,
- * and a keyboard is the paddle's fallback for a device with no sensor.
+ * On a phone, so a tap is a finger: the template's two buttons are its own.
+ * The paddle takes keys beside tilt, and is played here by keys on a device
+ * held level, because a game that reads tilt starts no run without a sensor.
  */
 test.use({ ...devices["Pixel 7"] })
 
@@ -79,7 +81,9 @@ test("a run on the template's buttons replays to the score the browser showed", 
  */
 test("a keyboard run keeps one checkpoint a second and replays to its score", async ({
   page,
+  context,
 }) => {
+  await tiltSensor(context, page)
   await open(page, "paddle")
   await play(page)
 

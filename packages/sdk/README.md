@@ -131,6 +131,12 @@ A mapping that reads a controller or locks the mouse needs your page to pass
 that reads tilt makes your page ask for it in the Play button's click, which
 `playRun` does for you.
 
+A game that reads tilt starts no run without it, even if it maps keys too.
+On a device or in a browser that cannot give tilt, a laptop included, Play
+says why and asks the platform for nothing. Try such a game on a laptop with
+the browser's sensor emulation: in Chrome, DevTools' Sensors panel (the
+Command Menu's Show Sensors) sets the device's orientation.
+
 ## Typing your calls to the platform
 
 `@vbz-gg/sdk/api` holds the shapes of every route a game's page or a build
@@ -186,10 +192,12 @@ playButton.onclick = () => {
 ```
 
 `playRun` runs inside the click: a game that reads tilt has to be asked
-before anything is awaited. It moves focus to `stage` so keys reach the game,
-and keeps the game to one tab of the browser in each mode, so a second tab
-cannot close the first tab's run. The platform says which version
-each run plays, and a resumed run plays its own, which `playRun` loads when
+before anything is awaited, and when the answer is anything but yes, the run
+fails before it starts, with a code and a sentence that tells the player
+what happened and what to do. It moves focus to `stage` so keys reach the
+game, and keeps the game to one tab of the browser in each mode, so a second
+tab cannot close the first tab's run. The platform says which version each
+run plays, and a resumed run plays its own, which `playRun` loads when
 it is not the one you did.
 
 Your page's Content-Security-Policy has to let the game in and keep every

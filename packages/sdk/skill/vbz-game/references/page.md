@@ -68,13 +68,18 @@ replaced a built-in the rules code calls. Load it before the click, so a
 failure spends no run.
 
 `playRun` runs inside the click. When the game reads tilt it asks for it
-first, before anything is awaited, then starts the run. A resumed run plays
-the version it started on, and when that is not the module the page loaded,
-`playRun` loads the run's own. When that one reads tilt the click did not ask
-for, the run stops with `E_MOTION_NEEDS_TAP` having sent nothing; call
-`playRun` again with `played.game` from the next tap and the same run carries
-on. It moves focus to `stage`, labelled with `title`, so a key the game maps
-reaches the game rather than the Play button.
+first, before anything is awaited, then starts the run once tilt is granted.
+Any other answer fails the run before the platform is asked for one, with
+the engine's own code for it (`E_MOTION_DENIED` and the four after it under
+Codes below), and `detail` is a sentence that tells the player what happened
+and what to do: show it. A game that reads tilt therefore starts no run on a
+device or in a browser without it, a laptop included, even when it maps keys
+too. A resumed run plays the version it started on, and when that is not the
+module the page loaded, `playRun` loads the run's own. When that one reads
+tilt the click did not ask for, the run stops with `E_MOTION_NEEDS_TAP`
+having sent nothing; call `playRun` again with `played.game` from the next
+tap and the same run carries on. It moves focus to `stage`, labelled with
+`title`, so a key the game maps reaches the game rather than the Play button.
 
 `stage` is the element the game fills. The widgets take their colours from
 `--gb-widget-*` custom properties.
@@ -159,6 +164,11 @@ in `@vbz-gg/sdk/api`. A `PlatformClientError` is the client's:
 | `E_WRONG_GAME` | The page module is another version of the game than the one the run plays. |
 | `E_TICK_RATE_UNSUPPORTED` | The run's tick rate is not 30, 60 or 120. |
 | `E_MOTION_NEEDS_TAP` | The run's own module reads tilt and the click did not ask for it. Call `playRun` again with `played.game` from the next tap. |
+| `E_MOTION_DENIED` | The game reads tilt and the player did not allow it, or it was asked outside a tap. No run was started. iOS remembers the refusal and answers every later request with it without asking, until the site's data is cleared in the browser's settings, which the sentence tells the player. |
+| `E_MOTION_NO_SENSOR` | The game reads tilt and no reading arrived: a laptop or a desktop, or a device whose browser keeps its sensors from the site. No run was started. |
+| `E_MOTION_UNSUPPORTED` | The game reads tilt and the browser has no orientation events, or cannot say which way its screen is turned. No run was started. |
+| `E_MOTION_INSECURE` | The game reads tilt and the page is not https, or localhost, so the browser gives it no sensor. No run was started. |
+| `E_MOTION_BLOCKED` | The game reads tilt and the page's own `Permissions-Policy` forbids `accelerometer` or `gyroscope`. No run was started; the page has to allow both. |
 | `E_BROWSER_UNSUPPORTED` | The browser has no Web Locks, so it cannot keep a run to one tab: Safari before 15.4, or a page not on https. Nothing was started. |
 | `E_RUN_OPEN_ELSEWHERE` | Another tab or window of this browser is playing this game in this mode. Nothing was started. |
 | `E_NOTHING_TO_WATCH` | The run's replay covers no ticks. |

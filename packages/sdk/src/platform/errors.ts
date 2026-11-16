@@ -10,7 +10,11 @@
  */
 
 import type { PublicRefusalCode } from "../api/index.js"
-import type { MOUNT_ERROR, PageModuleProblemCode } from "../game/contract.js"
+import type {
+  MOUNT_ERROR,
+  PageModule,
+  PageModuleProblemCode,
+} from "../game/contract.js"
 
 export class PlatformRefusal extends Error {
   readonly code: PublicRefusalCode
@@ -69,6 +73,30 @@ export const CLIENT_ERROR = {
   /** The run's own module reads tilt, and the tap that started it did not ask. */
   E_MOTION_NEEDS_TAP:
     "this run's game reads tilt, which a browser grants only from a tap; tap Play again to carry on with the same run",
+  /*
+   * The five below are the engine's refusals of tilt, by its own names. A
+   * game that reads tilt starts no run without it, so `playRun` fails the run
+   * with whichever the click's request answered, before a run is started.
+   */
+  /** The page is not https, or localhost, and a browser gives tilt only to a secure page. */
+  E_MOTION_INSECURE:
+    "this game is steered by tilting, and a browser gives tilt only to an https page, so no run was started; open the game at its https address",
+  /** The browser has no orientation events, or cannot say which way its screen is turned. */
+  E_MOTION_UNSUPPORTED:
+    "this game is steered by tilting, and this browser cannot read tilt, so no run was started; play it on a phone or tablet in a current browser",
+  /**
+   * The player did not allow tilt, or was asked outside a tap. iOS remembers
+   * the refusal for the site and answers every later request with it without
+   * asking, until the site's data is cleared in the browser's settings.
+   */
+  E_MOTION_DENIED:
+    "this game is steered by tilting, and tilt was not allowed, so no run was started; tap Play and allow it, or if the browser does not ask again, clear this site's data in the browser's settings and reload the page",
+  /** The page's own permissions policy keeps the motion sensors from the game. */
+  E_MOTION_BLOCKED:
+    "this game is steered by tilting, and this page does not allow the motion sensors, so no run was started; only the page's owner can change that, so tell the game's studio",
+  /** No reading arrived: a laptop or a desktop, or a device whose browser keeps its sensors from the site. */
+  E_MOTION_NO_SENSOR:
+    "this game is steered by tilting, and no tilt reading came from this device, so no run was started; play it on a phone or tablet, with motion sensors allowed for this site in the browser's settings",
   /**
    * The browser has no Web Locks, so it cannot keep a run to one tab: Safari
    * before 15.4, or a page that is not https. Nothing was started.
@@ -99,14 +127,23 @@ export type ClientErrorCode = keyof typeof CLIENT_ERROR
 type Shared = Extract<ClientErrorCode, PublicRefusalCode>
 export const NO_CODE_IS_BOTH: [Shared] extends [never] ? true : Shared = true
 
+/** Every refusal a page module's `requestMotion` can answer. */
+type MotionRefusalCode = Extract<
+  Awaited<ReturnType<PageModule["requestMotion"]>>,
+  { readonly granted: false }
+>["code"]
+
 /**
- * Fails to compile when a page module can report a code of its own that this
- * table does not explain, so every code a run fails with outside the engine's
- * and the platform's own is one a page can look up here.
+ * Fails to compile when a page module can report a code this table does not
+ * explain: a problem or a mount failure of its own, or a refusal of tilt,
+ * which `playRun` fails a run with. So every code a run fails with outside
+ * the engine's mount errors and the platform's own is one a page can look up
+ * here.
  */
 type FromTheModule =
   | PageModuleProblemCode
   | (typeof MOUNT_ERROR)[keyof typeof MOUNT_ERROR]
+  | MotionRefusalCode
 type Unexplained = Exclude<FromTheModule, ClientErrorCode>
 export const EVERY_MODULE_CODE_IS_EXPLAINED: [Unexplained] extends [never]
   ? true

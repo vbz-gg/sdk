@@ -12,6 +12,10 @@
  * and reads the game again on every Play, so the first Play after a newer
  * patch passes its checks is a ranked run again. When the player is barred,
  * a start answers `E_PLAYER_BARRED`, and the page says when the bar ends.
+ *
+ * A game that reads tilt starts no run without it. `playRun` fails the run
+ * before asking the platform for one, and the page shows the client's own
+ * sentence, which tells the player what happened and what to do.
  */
 
 import type { PageGame, PageGameVersion, RunMode } from "@vbz-gg/sdk/api"

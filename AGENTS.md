@@ -117,7 +117,12 @@ its own in `CLIENT_ERROR`.
 
 **`playRun` asks for motion before it awaits anything**, when the game reads
 tilt, for the reason `signIn()` opens its window first: iOS grants it only in
-the click's own turn.
+the click's own turn. **Anything but a grant starts no run**: the run fails
+with the engine's refusal code, a client code with a sentence for the player,
+before the platform is asked for one, and the lock is let go. Never add a
+path that plays a tilt game without tilt, keys or not: on iOS a refusal is
+remembered, so every ranked run after it would be spent on a game nobody can
+steer. The harness page reads the answer through the same `motionRefusal`.
 
 **A game is held to one tab per mode by a Web Lock named for its page key
 and the mode**, taken in the click before the run is started and let go once
@@ -348,11 +353,17 @@ What only a browser can settle, and what each spec found:
   lock having asked the platform for nothing, before and after the first
   has committed a chunk.
 - The harness page keeps a refusal on its status line: a run the module
-  refuses at mount, and a tilt request that fails or throws, which starts no
-  run.
+  refuses at mount, and a tilt request that is refused, fails or throws,
+  which starts no run.
+- A tilt game on a studio's page starts no run without tilt, and asks the
+  platform for nothing: a refusal as iOS gives it after "Don't Allow",
+  answered by a stand-in for `requestPermission` because Chromium has none,
+  and a laptop's Chromium, which has orientation events and no sensor.
 - Watching an abandoned run stops at its end tick.
 - Tilt through Chromium's orientation override: the first reading is recorded
-  as it is, and after that a level only when it changes.
+  as it is, and after that a level only when it changes. A spec that plays
+  the paddle by its keys holds the override level, because without a sensor
+  the paddle starts no run.
 - A recording replays to the counters the page displayed, held both by the
   harness's own report and by a replay in the spec, against the bytes the
   browser loaded.

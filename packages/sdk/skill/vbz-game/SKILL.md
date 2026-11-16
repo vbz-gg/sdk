@@ -118,6 +118,11 @@ without loading anything that draws, and the engine's `checkCapture` refuses a
 mapping that names an input the manifest does not declare. The engine's
 device helpers do the recording, from real devices, through that mapping.
 
+A mapping that reads tilt makes tilt required. A page starts no run on a
+device or in a browser that cannot give it, a laptop included, and keys
+mapped beside it do not change that. Try such a game on a laptop with the
+browser's sensor emulation.
+
 A game draws its own controls. Its renderer paints them, the game records
 where a finger is and whether it is down, and the simulation **hit-tests in
 `tick`**, as the next section says.

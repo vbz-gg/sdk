@@ -18,6 +18,7 @@ import {
 } from "bun:test"
 import { readFile } from "node:fs/promises"
 import { join } from "node:path"
+import type { MotionAccess } from "@clockwork2/engine/host"
 import { GlobalRegistrator } from "@happy-dom/global-registrator"
 import type {
   Board,
@@ -28,7 +29,8 @@ import type {
 } from "../../src/api/index"
 import { TEMPLATE_DIR } from "../../src/cli/new"
 import type { LoadedGame } from "../../src/host/load"
-import type { PlayOptions } from "../../src/host/play"
+import { type PlayOptions, playRun, type RunLocks } from "../../src/host/play"
+import { CLIENT_ERROR } from "../../src/platform/errors"
 import { RUN_PHASE, type RunState } from "../../src/platform/run"
 import {
   barredMessage,
@@ -39,7 +41,11 @@ import {
   SIGN_IN_FIRST,
   stateMessage,
 } from "../../templates/game/site/messages"
-import { readConfig, startSite } from "../../templates/game/site/page"
+import {
+  readConfig,
+  type SiteOptions,
+  startSite,
+} from "../../templates/game/site/page"
 
 beforeAll(() => {
   GlobalRegistrator.register({ url: "https://studio.example/" })
@@ -261,19 +267,29 @@ const EMPTY_BOARD: Board = {
   tiePolicy: "shared",
 }
 
-function moduleAt(version: PageGameVersion): LoadedGame {
+/** A module of `version`; one that reads tilt when `tilt` is its answer to asking. */
+function moduleAt(version: PageGameVersion, tilt?: MotionAccess): LoadedGame {
   return {
     presentUrl: version.presentUrl,
     manifestHash: version.manifestHash,
     contract: 1,
-    needsMotion: false,
-    requestMotion: async () => ({ granted: true }),
+    needsMotion: tilt !== undefined,
+    requestMotion: async () => tilt ?? { granted: true },
     mount: () => ({ recorded: () => [], stop: () => {}, destroy: () => {} }),
   }
 }
 
-/** The page, with a client, a loader and a player of runs that record what they were asked. */
-function rig(answers: { games: PageGame[]; signedIn?: boolean }) {
+/**
+ * The page, with a client, a loader and a player of runs that record what
+ * they were asked. With `play`, runs go through that instead, such as the
+ * SDK's own `playRun`; with `tilt`, every module reads tilt and answers it.
+ */
+function rig(answers: {
+  games: PageGame[]
+  signedIn?: boolean
+  tilt?: MotionAccess
+  play?: SiteOptions["play"]
+}) {
   document.body.innerHTML = `
     <h1 id="title">Game</h1><div id="signin"></div>
     <div id="game"></div><p id="message"></p>
@@ -282,6 +298,7 @@ function rig(answers: { games: PageGame[]; signedIn?: boolean }) {
   const games = [...answers.games]
   let reads = 0
   let boards = 0
+  let starts = 0
   const plays: Array<{
     readonly mode: RunMode
     readonly game: LoadedGame
@@ -308,6 +325,7 @@ function rig(answers: { games: PageGame[]; signedIn?: boolean }) {
       return EMPTY_BOARD
     },
     startRun: async () => {
+      starts += 1
       throw new Error("the page starts runs through playRun")
     },
     sendChunk: async () => ({ seq: 0, throughTick: 0 }),
@@ -322,30 +340,32 @@ function rig(answers: { games: PageGame[]; signedIn?: boolean }) {
       if (address.presentUrl.includes("broken")) {
         throw new Error("the game's code did not load")
       }
-      return moduleAt(address as PageGameVersion)
+      return moduleAt(address as PageGameVersion, answers.tilt)
     },
-    play: (_element, options) => {
-      const entry = {
-        mode: options.mode,
-        game: options.game,
-        options,
-        destroyed: false,
-        own: null as LoadedGame | null,
-      }
-      plays.push(entry)
-      return {
-        // The page reads only `game` and `destroy` of what `playRun` hands back.
-        run: {} as never,
-        get game() {
-          return entry.own ?? options.game
-        },
-        motion: null,
-        end: () => {},
-        destroy: () => {
-          entry.destroyed = true
-        },
-      }
-    },
+    play:
+      answers.play ??
+      ((_element, options) => {
+        const entry = {
+          mode: options.mode,
+          game: options.game,
+          options,
+          destroyed: false,
+          own: null as LoadedGame | null,
+        }
+        plays.push(entry)
+        return {
+          // The page reads only `game` and `destroy` of what `playRun` hands back.
+          run: {} as never,
+          get game() {
+            return entry.own ?? options.game
+          },
+          motion: null,
+          end: () => {},
+          destroy: () => {
+            entry.destroyed = true
+          },
+        }
+      }),
     formatTime: (time) => time.toISOString(),
   })
   const click = (id: string) =>
@@ -359,7 +379,15 @@ function rig(answers: { games: PageGame[]; signedIn?: boolean }) {
     message,
     reads: () => reads,
     boards: () => boards,
+    starts: () => starts,
   }
+}
+
+/** Web Locks as a browser with one tab has them: every lock is free. */
+const oneTab: RunLocks = {
+  async request(_name, _options, callback) {
+    return await callback({})
+  },
 }
 
 async function settled(): Promise<void> {
@@ -499,6 +527,36 @@ describe("the page", () => {
     page.click("play")
     expect(page.plays[1]?.mode).toBe("ranked")
     expect(page.plays[1]?.game.presentUrl).toBe(first.own.presentUrl)
+  })
+
+  /**
+   * The page with the SDK's own `playRun`, a game steered by tilt, and a
+   * player who would not allow it, as on an iPad after "Don't Allow". The
+   * page says why in the client's own sentence, and nothing is asked of the
+   * platform, so no ranked run is spent on a game nobody can steer.
+   */
+  test("a refusal of tilt is said in the client's sentence, and starts no run", async () => {
+    const page = rig({
+      games: [pageGame()],
+      tilt: {
+        granted: false,
+        code: "E_MOTION_DENIED",
+        detail: 'the browser answered "denied"',
+      },
+      // The SDK's own `playRun`, from the source under test. The site names
+      // the package's built copy, which declares the same `Run` class again,
+      // so the two answers differ only in where they were declared.
+      play: (element, options) =>
+        playRun(element, {
+          ...options,
+          locks: oneTab,
+        }) as unknown as ReturnType<NonNullable<SiteOptions["play"]>>,
+    })
+    await settled()
+    page.click("play")
+    await settled()
+    expect(page.message()).toBe(CLIENT_ERROR.E_MOTION_DENIED)
+    expect(page.starts()).toBe(0)
   })
 
   test("a practice tap in between is not the second tap of a ranked run", async () => {
