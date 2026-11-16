@@ -94,13 +94,24 @@ position is measured across that element.
 
 ## Testing it
 
+`bun run check` builds the game and runs the engine's conformance checks
+over the rules code, holds `src/capture.ts` to the manifest, and prints the
+version, its release line and the line's contract hash. It exits 0 only when
+all of that passes.
+
 `bun run dev` is your game's page on your laptop: the game's two modules on
 one origin, and a page on another that loads the page module the way a
-studio's page does. Two ports are two origins, so a module import that a
-studio's page would refuse is refused here first.
+studio's page does, under the Content-Security-Policy a studio's page sends.
+Two ports are two origins, so a module import that a studio's page would
+refuse is refused here first.
 
-End stops the run and publishes its recording, so you can check that what the
-browser produced replays to the score it showed.
+When a run ends, the harness replays its recording against the built rules
+code and says three things under the game: whether the replay matches, how
+many inputs the recording holds against the budget the platform allows, and
+its size in bytes. A run that does not match, or inputs the platform would
+refuse, is what to fix before publishing. `references/harness.md` has the
+flags for a phone (`--address`, `--https`) and `--site`, which serves the
+game's own page against a stand-in for the platform.
 
 ## When ingest refuses
 
@@ -129,21 +140,28 @@ A `version` is `MAJOR.MINOR.PATCH`, and vbz reads it as a promise about the
 rules. A **patch** changes how the game looks or fixes a bug and keeps what a
 score means; a **minor** changes the rules; a **major** is a different game.
 All patches of one `MAJOR.MINOR` are one release line, which the platform
-treats as one game: the day's ranked runs play the newest playable patch of
-the day's line, so a patch reaches players the moment it passes its checks,
-and a minor waits for the next day.
+treats as one game. A ranked run plays the highest published patch of the
+day's line, highest by version number, so a patch that passes its checks
+reaches the next ranked start. A new minor waits for the next day's seed.
 
-Before bumping, compare the new manifest with the line's first release. If
-`id`, `session`, `inputs`, `counters`, `rankBy`, `tiePolicy`, `params` or
-`capabilities` differ, it is a minor: the platform refuses that patch with
-`E_PATCH_CHANGES_RULES`. If only the rules code changed, decide whether the
-same play could now score differently. If it could, it is a minor too: the
-platform cannot see that difference, and the board mixes a line's patches.
+Before bumping, compare the new manifest with the line's contract, which is
+its earliest version that was not rejected. If `schemaVersion`, `id`,
+`session`, `inputs` (each one's `min` and `max`), `counters` (each one's
+`name`, `direction` and `monotonic`), `rankBy`, `tiePolicy`, `params` (all
+but `label` and `description`), or the capabilities `deterministic`,
+`physics` and `multiplayer` differ, it is a minor: the platform refuses that
+patch with `E_PATCH_CHANGES_RULES`. `vbz check` prints the line's contract
+hash, so two builds can be compared. If only the rules code changed, decide
+whether the same play could now score differently. If it could, it is a
+minor too: the platform cannot see that difference, and the board mixes a
+line's patches.
 
 A studio cannot take a version down. A broken version is replaced by
 publishing a newer patch, and until that patch passes its checks the broken
 one is what today's ranked runs play, so test a patch with `vbz dev` before
-publishing it.
+publishing it. When an operator takes down the patch today's ranked runs
+play, nothing falls back to an older one: ranked play is paused until a
+newer patch passes, and practice carries on.
 
 ## Never
 
@@ -153,7 +171,8 @@ publishing it.
   range your manifest declares before the log sees it, so a coordinate in
   your `tick` is already in that space.
 - **Draw a control somewhere the simulation does not believe it is.** Read one
-  constant from both sides, as `fixtures/paddle` does with `GRAB_TOP`.
+  set of numbers from both sides, as the template's renderer and its `tick`
+  both read the buttons' rectangles from `src/sim/field.ts`.
 - **Reach the renderer from the simulation.** Not for a canvas size, not for a
   device pixel ratio, not once.
 - **Change what the simulation does without bumping `version`.** Every score
@@ -167,7 +186,8 @@ publishing it.
 
 - `references/artifacts.md` - the two entries, `cw2:sim`, the rewrite, the
   content addressing and the size caps.
-- `references/harness.md` - what `vbz dev` serves and what it does not
+- `references/harness.md` - what `vbz dev` serves, the report on each run,
+  the flags for a phone and for the game's own page, and what it does not
   reproduce.
 - `references/ingest.md` - what the platform checks, in the order it checks it.
 - `references/page.md` - the studio's page: signing a player in, a run from
@@ -177,8 +197,14 @@ publishing it.
 
 - `vbz new <dir>` - a game that already conforms.
 - `vbz build <dir>` - the three files a submission carries.
-- `vbz dev <dir>` - your game's page, locally, on two origins.
+- `vbz check <dir>` - the engine's checks and the input mapping, with the
+  version, its release line and the line's contract hash.
+- `vbz dev <dir>` - your game's page, locally, on two origins, with a report
+  on every run.
 - `vbz publish <dir> --game <id>` - upload `dist/` and wait for the
   platform's verdict. The studio's secret key comes from `VBZ_STUDIO_KEY`,
-  never a flag. It exits 0 only when the version went live, and prints the
-  first failed check when it did not.
+  never a flag. It exits 0 when the version passed its checks and is
+  published, and prints the release line it joined and which runs it serves.
+  Anything else exits 1, a version an operator took down included: a
+  rejection prints the first check that failed, and a refusal the
+  platform's detail.

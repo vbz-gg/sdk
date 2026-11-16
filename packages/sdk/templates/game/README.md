@@ -80,13 +80,22 @@ ranks a run: it settles each one with the counters the page sent, and says so
 in the terminal. The page is served under the Content-Security-Policy a
 studio's page should send, which lets scripts come from your page's own
 origin and from your game's own path on the platform's bundles origin, and
-nowhere else.
+nowhere else. In production that path is
+`https://files.vbz.gg/g/<game id>/`.
 
 To deploy it, bundle `site/main.ts` for the browser with whatever builds the
 rest of your site, serve it as `main.js` beside `index.html` and `site.css`,
-and fill in `site/config.json`: the API and sign-in origins vbz.gg gives you,
-and the game's page key from the dashboard. A page key is public, so the file
-can ship as it is. Left empty, the page says which file to fill in.
+and put the game's page key from the dashboard in `site/config.json`. The
+file already names the platform's API, `https://api.vbz.gg`, and its sign-in
+window, `https://signin.vbz.gg`. A page key is public, so the file can ship
+as it is. Without one, the page says which file to fill in.
+
+For local work there is nothing to change: `bun run site` answers the page's
+`config.json` itself, with the stand-in's API, sign-in window and page key,
+and never reads the file. To point the page at another platform, such as one
+running on your own machine, set `apiOrigin` and `signInOrigin` in
+`site/config.json` to its origins and `pageKey` to a key it issued for your
+page's origin.
 
 ## Releasing
 

@@ -201,10 +201,12 @@ describe("the page's config", () => {
     })
   })
 
-  test("the template's own, left empty, says which file to fill in", async () => {
+  test("the template's own names the platform and, with no page key, says which file to fill in", async () => {
     const shipped = JSON.parse(
       await readFile(join(TEMPLATE_DIR, "site", "config.json"), "utf8"),
-    ) as unknown
+    ) as { apiOrigin?: string; signInOrigin?: string }
+    expect(shipped.apiOrigin).toBe("https://api.vbz.gg")
+    expect(shipped.signInOrigin).toBe("https://signin.vbz.gg")
     expect(() => readConfig(shipped)).toThrow(/site\/config\.json needs/)
     expect(() => readConfig(null)).toThrow(/site\/config\.json needs/)
     expect(() =>

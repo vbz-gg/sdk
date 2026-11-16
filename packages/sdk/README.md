@@ -54,7 +54,7 @@ the next day's, or none, and practice or not. Anything else exits 1: a
 rejection prints the code and the first check that failed, a refusal prints
 the platform's detail, such as the fields a patch may not change, and a
 version an operator took down exits 1 too. The platform is
-`https://studio.vbz.gg` unless `--api` or `VBZ_API_ORIGIN` names another.
+`https://api.vbz.gg` unless `--api` or `VBZ_API_ORIGIN` names another.
 Don't add a script called `publish` to your `package.json`: npm runs a script
 with that name on its own, as part of `npm publish`.
 

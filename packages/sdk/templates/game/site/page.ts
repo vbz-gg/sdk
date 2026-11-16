@@ -43,9 +43,10 @@ export type SiteConfig = Pick<
 >
 
 /**
- * `config.json`, held to what a client needs. The template ships it empty,
- * so a page deployed without filling it in says which file to fill rather
- * than calling an API that is not there.
+ * `config.json`, held to what a client needs. The template ships it with the
+ * platform's API and sign-in window and no page key, so a page deployed
+ * without the game's key says which file to fill in rather than calling the
+ * API with nothing.
  */
 export function readConfig(value: unknown): SiteConfig {
   const config = (value ?? {}) as Record<string, unknown>
@@ -59,7 +60,7 @@ export function readConfig(value: unknown): SiteConfig {
     !pageKey.startsWith("vbz_pk_")
   ) {
     throw new Error(
-      "site/config.json needs apiOrigin and signInOrigin, which vbz.gg gives you, and the game's pageKey from the dashboard",
+      "site/config.json needs the game's pageKey from the dashboard, beside apiOrigin and signInOrigin",
     )
   }
   return { apiOrigin, signInOrigin, pageKey: pageKey as SiteConfig["pageKey"] }

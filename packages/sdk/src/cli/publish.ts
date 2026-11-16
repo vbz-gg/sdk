@@ -32,8 +32,11 @@ import type {
 } from "../api/index.js"
 import { DIST_DIR, DIST_FILES } from "../build/dist.js"
 
-/** Where a studio's platform answers, unless a flag or the environment says. */
-export const DEFAULT_API_ORIGIN = "https://studio.vbz.gg"
+/**
+ * The platform's API, unless a flag or the environment names another.
+ * `https://studio.vbz.gg` is the studio dashboard, not the API.
+ */
+export const DEFAULT_API_ORIGIN = "https://api.vbz.gg"
 
 /** The environment variable holding the studio's secret key. */
 export const STUDIO_KEY_VARIABLE = "VBZ_STUDIO_KEY"

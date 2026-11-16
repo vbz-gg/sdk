@@ -472,7 +472,7 @@ The studio's secret key comes from `VBZ_STUDIO_KEY` and nowhere else. A flag
 would put it in shell history and in the process list. The request carries
 no `Origin` header, which is how the platform tells a build system from a
 browser: a secret key sent with one is refused. The platform's origin is
-`--api`, else `VBZ_API_ORIGIN`, else `https://studio.vbz.gg`, and it has to
+`--api`, else `VBZ_API_ORIGIN`, else `https://api.vbz.gg`, and it has to
 be https, or http to the same machine, because the key travels with the
 request.
 

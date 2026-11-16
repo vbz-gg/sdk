@@ -162,8 +162,8 @@ a version that did arrive is refused as `E_VERSION_EXISTS`.
 **Its exit code is the verdict.** 0 means the version passed its checks and
 is published, and the command has printed which runs it serves. Anything
 else, including a version an operator took down, is 1. This sentence, the
-package README, `docs/sdk.md` and `cli/publish.ts` say it together, and
-change together.
+package README, `docs/sdk.md`, the skill's `SKILL.md` and `cli/publish.ts`
+say it together, and change together.
 
 No template or example names a script `publish`, because npm runs one with
 that name as a lifecycle hook of `npm publish`.

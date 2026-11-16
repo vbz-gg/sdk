@@ -33,9 +33,9 @@ import { createRequester, type Requester } from "./request.js"
 import { requestSignInCode } from "./signin.js"
 
 export interface PlatformClientOptions {
-  /** `API_ORIGIN`, from vbz.gg. */
+  /** Where the platform's API answers: `https://api.vbz.gg`. */
   readonly apiOrigin: string
-  /** `SIGN_IN_ORIGIN`, from vbz.gg. */
+  /** Where the platform's sign-in window is: `https://signin.vbz.gg`. */
   readonly signInOrigin: string
   /** The game's page key, from the dashboard. */
   readonly pageKey: PageKey

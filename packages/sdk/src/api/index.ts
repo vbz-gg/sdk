@@ -141,9 +141,18 @@ export type PublicRefusalCode =
   | "E_CHUNKS_INCOMPLETE"
   | "E_CHECKPOINT_CONTRADICTED"
   | "E_TIME_IMPOSSIBLE"
-  /** An input whose name the version's manifest does not declare. */
+  /**
+   * An input whose name the version's manifest does not declare, or whose
+   * value is outside the range the manifest declares for it. The engine's
+   * `checkInputs` and `checkInputSpan` report both as this code.
+   */
   | "E_INPUT_UNDECLARED"
-  /** An input whose value is not a whole number inside its declared range. */
+  /**
+   * An input no recording can hold: a tick or a value that is not a whole
+   * number, a value of -0, no name, or a tick past the run's end or outside
+   * the span a chunk covers. Not a value outside its range, which is
+   * `E_INPUT_UNDECLARED`.
+   */
   | "E_INPUT_RANGE"
   /** More inputs than any player makes in the ticks the log covers. */
   | "E_INPUT_BUDGET"

@@ -198,9 +198,9 @@ describe("what the command line and the environment say", () => {
     expect(parseArgs(["publish"]).game).toBeUndefined()
   })
 
-  test("with no --api and nothing in the environment, the platform is studio.vbz.gg", () => {
+  test("with no --api and nothing in the environment, the platform is api.vbz.gg", () => {
     const read = publishSettings({ dir, game: GAME, api: undefined }, env)
-    expect(DEFAULT_API_ORIGIN).toBe("https://studio.vbz.gg")
+    expect(DEFAULT_API_ORIGIN).toBe("https://api.vbz.gg")
     expect(read.apiOrigin).toBe(DEFAULT_API_ORIGIN)
     expect(read).toEqual({
       dir,

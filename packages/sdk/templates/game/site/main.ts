@@ -4,8 +4,9 @@
  * Bundle it for the browser with whatever builds the rest of your site;
  * `vbz dev --site` bundles it with bun and serves it as `main.js`, and
  * answers `config.json` with a stand-in for the platform on this machine.
- * In production `config.json` is the file beside this one, filled in with
- * the origins vbz.gg gives you and your game's page key from the dashboard.
+ * In production `config.json` is the file beside this one, which names the
+ * platform's API and sign-in window and needs your game's page key from the
+ * dashboard.
  */
 
 import { createPlatformClient } from "@vbz-gg/sdk/platform"

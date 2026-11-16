@@ -14,8 +14,8 @@ follow.
 import { createPlatformClient } from "@vbz-gg/sdk/platform"
 
 const platform = createPlatformClient({
-  apiOrigin: API_ORIGIN, // from vbz.gg
-  signInOrigin: SIGN_IN_ORIGIN, // from vbz.gg
+  apiOrigin: "https://api.vbz.gg",
+  signInOrigin: "https://signin.vbz.gg",
   pageKey: PAGE_KEY, // vbz_pk_..., from the dashboard
 })
 
@@ -55,6 +55,7 @@ playButton.onclick = () => {
     mode: "ranked", // or "practice", with page.practiceVersion loaded
     title: page.game.title,
     onState: (state) => show(state), // loading, playing, submitting, replaying, done, failed
+    onNotice: (notice) => tell(notice.detail), // a blocked controller, a refused mouse lock
   })
   // played.end() when the player leaves; played.destroy() before the next run
 }
@@ -77,6 +78,29 @@ reaches the game rather than the Play button.
 
 `stage` is the element the game fills. The widgets take their colours from
 `--gb-widget-*` custom properties.
+
+`onNotice` is required when the game's mapping reads a controller or locks
+the mouse, because a browser can block either and the player has to be told.
+Without it the run fails with the engine's `E_ARG_INVALID` before a tick.
+
+A failed state carries `errorCode` and `detail`. For a refusal from the
+platform it also carries `refusalDetail`, the platform's own detail, which is
+where a page finds when a bar ends: `refusalDetail.until` for
+`E_PLAYER_BARRED`. On `E_RANKED_PAUSED`, offer practice and read
+`platform.game()` again before the next Play, because a newer patch may have
+ended the pause.
+
+The page's Content-Security-Policy has to let the game's code in and keep
+every other game's out. Name your game's own path on the platform's bundles
+origin, never the whole origin, and the API in `connect-src`:
+
+```
+script-src 'self' https://files.vbz.gg/g/<game id>/; connect-src 'self' https://api.vbz.gg
+```
+
+No `unsafe-eval` is needed, and none should be added. `vbz dev --site`
+serves a game's own page under that policy, against a stand-in for the
+platform; `references/harness.md` says what the stand-in does.
 
 `watchRun(stage, { client: platform, runId })` reads a settled run, loads its
 own version's module and replays it to where the platform's replay stopped.
@@ -117,7 +141,7 @@ in `@vbz-gg/sdk/api`. A `PlatformClientError` is the client's:
 | `E_NOT_SIGNED_IN` | A run route, and no player is signed in on this page. Nothing was sent. |
 | `E_UNREACHABLE` | No answer. The request may or may not have arrived; a run write can be sent again. |
 | `E_ANSWER_UNREADABLE` | An answer that is not JSON, or a failure without a code. |
-| `E_GAME_UNLOADABLE` | The page module did not load from its address: the network, the page's Content-Security-Policy, or an address that is not https. The `detail` names the address. |
+| `E_GAME_UNLOADABLE` | The page module did not load from its address: the network, the page's Content-Security-Policy, or an address that is not https. The `detail` names the address. Chromium, Firefox and WebKit all keep a failed load for the life of the page, so loading it again fails at once: reload the page to try again. |
 | `E_GAME_MODULE_INVALID` | What the module exports is not a page module, or its own check found its parts disagree. The `detail` names the field. |
 | `E_GAME_CONTRACT_UNKNOWN` | The module was built with a newer `@vbz-gg/sdk` than the page's. Update the page's. |
 | `E_CAPTURE_INVALID` | The game's input mapping names an input or a device its manifest does not allow. |

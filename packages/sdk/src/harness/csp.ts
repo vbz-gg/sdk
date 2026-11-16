@@ -7,7 +7,9 @@
  * module that needs either, or a rules code it cannot import under it, is
  * refused here, on a laptop, rather than on a studio's page. Naming the
  * game's path rather than the whole bundles origin is what keeps another
- * game's code out of the page.
+ * game's code out of the page. In production the bundles origin is
+ * `https://files.vbz.gg`, so a studio's page names
+ * `https://files.vbz.gg/g/<game id>/`.
  */
 
 export interface PageCspOptions {
