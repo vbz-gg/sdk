@@ -25,6 +25,7 @@ import {
   SIM_SPECIFIER,
 } from "../../src/build/index.js"
 import { CAPABILITY_RULES, LINE_RULES } from "../../src/build/line.js"
+import { COMMANDS } from "../../src/cli/args.js"
 import { TEMPLATE_DIR } from "../../src/cli/new.js"
 import {
   DEFAULT_BUNDLES_PORT,
@@ -251,13 +252,33 @@ describe("the page's client", () => {
   })
 })
 
-describe("what the skill tells an author to run", () => {
-  test("every command it lists is one the CLI takes", async () => {
+describe("what the guide tells an author to run", () => {
+  /**
+   * A command the guide names that the CLI does not take is a step an agent
+   * runs and fails at, and a command the CLI takes that the guide never
+   * lists is one an agent never finds.
+   */
+  test("every command it names is one the CLI takes, and every one is listed", async () => {
+    const text = await everything()
+    const named = new Set(
+      [...text.matchAll(/`(?:bunx )?vbz ([a-z]+)\b/g)].map(
+        (match) => match[1] as string,
+      ),
+    )
+    for (const line of text.split("\n")) {
+      const command = /^(?:bunx (?:@vbz-gg\/sdk|vbz)|vbz) ([a-z]+)\b/.exec(line)
+      if (command !== null) named.add(command[1] as string)
+    }
+    expect(named.size).toBeGreaterThan(4)
+    for (const command of named) {
+      expect(COMMANDS as readonly string[]).toContain(command)
+    }
+    const skill = await read("SKILL.md")
     const cli = await readFile(join(PACKAGE, "src", "cli", "index.ts"), "utf8")
-    const text = await read("SKILL.md")
-    for (const command of ["new", "build", "check", "dev", "publish"]) {
-      expect(text).toContain(`vbz ${command}`)
+    for (const command of COMMANDS) {
+      expect(skill).toContain(`- \`vbz ${command} <dir>`)
       expect(cli).toContain(`case "${command}"`)
+      expect(cli).toContain(`  vbz ${command} `)
     }
   })
 

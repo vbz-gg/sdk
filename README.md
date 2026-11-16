@@ -22,6 +22,8 @@ It publishes one package, `@vbz-gg/sdk`, which carries:
 - **a harness**, which loads your game locally the way a studio's page does:
   two origins, the platform's paths and headers, the policy a studio's page
   sends, and a replay of every run
+- **an agent guide**, the same material written for an agent to follow,
+  which `vbz new` and `vbz guides` copy into a game beside the engine's
 
 Versions up to 0.2.0 were published as `@vbz-gg/game-base`, from a
 repository of that name, and the command was `game-base`. Later versions are
@@ -51,7 +53,7 @@ bun run build          # tsc -b over project references
 bun run typecheck
 bun run lint           # biome check .
 bun run lint:fix
-bun test               # the unit suite
+bun run test           # the unit suite; bare `bun test` also picks up the browser specs
 bun run test:coverage  # the same tests, then the 99% floor over packages/*/src
 bun run test:e2e       # the browser suite: the harness and a studio's page, for real
 bun run check:publishable   # pack the package and read what a consumer gets

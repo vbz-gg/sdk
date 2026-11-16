@@ -257,7 +257,9 @@ export async function unimportableSubpaths(
  * beside the source and in an installed copy it has to resolve to the
  * compiled file, which only ships if `tsc` emitted it. And `vbz new` copies
  * the template out of the package, which only works if the template is in
- * the tarball.
+ * the tarball, and renames `gitignore`, `agents.md` and `claude.md` on the
+ * way, which only works if npm packed each under that name. The guide `vbz
+ * new` copies is held by the comparison with git's copy instead.
  *
  * Nothing that imports the package would notice either one missing. The
  * failure arrives when somebody runs a command.
@@ -267,6 +269,8 @@ export const RUNTIME_FILES: readonly string[] = [
   "dist/harness/replay-child.js",
   "templates/game/package.json",
   "templates/game/gitignore",
+  "templates/game/agents.md",
+  "templates/game/claude.md",
   "templates/game/src/sim/index.ts",
   "templates/game/src/present.ts",
   "templates/game/src/capture.ts",

@@ -21,7 +21,7 @@ bun run build          # tsc -b over project references
 bun run typecheck
 bun run lint           # biome check .
 bun run lint:fix
-bun test               # the unit suite
+bun run test           # the unit suite; bare `bun test` also picks up the browser specs
 bun run test:coverage  # the same tests, then the 99% floor over packages/*/src
 bun run test:e2e       # the browser suite: the harness and a studio's page, for real
 bun run check:publishable   # pack the package and read what a consumer gets
@@ -234,7 +234,14 @@ engine exports, and points at the engine guide's reference for the full
 rules. Nothing else in this guide restates a determinism rule.
 
 The guide ships in the package, and its tests sit beside it at
-`packages/sdk/skill/tests/`, outside what ships. `check:publishable` compares
+`packages/sdk/skill/tests/`, outside what ships. `vbz new` copies it into a
+game's `.claude/skills/vbz-game/`, with the engine's guide from the engine
+installed beside the package at `.claude/skills/clockwork2/`, and `vbz guides`
+copies both again from the packages a game has installed. Neither falls back:
+a package or a guide that is missing is an error naming it, and nothing is
+written. The game's `AGENTS.md` and `CLAUDE.md` live in the template as
+`agents.md` and `claude.md`, renamed on the way in as `gitignore` is, so they
+never steer an agent working here. `check:publishable` compares
 the packed guide with git's copy, file for file, byte for byte and execute
 bit, and fails on anything else under `skill/` in the tarball, because npm
 packs the disk and not the commit.

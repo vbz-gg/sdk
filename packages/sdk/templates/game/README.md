@@ -22,6 +22,8 @@ src/capture.ts        which keys, fingers and controllers drive which inputs
 src/present/canvas.ts the renderer, which reads and never writes
 src/present.ts        the page module's entry, which a studio's page loads
 site/                 your game's page: sign-in, Play, Practice and the board
+AGENTS.md             what an agent working on the game reads first
+.claude/skills/       the engine's guide and the kit's, for an agent to follow
 ```
 
 The line that matters is between `src/sim/` and everything else. The
@@ -30,6 +32,10 @@ transitively: a simulation that can reach a canvas is a simulation that can
 decide a score from one. Swap the renderer and nothing in `sim/` changes,
 which is what lets the platform replay your game on a server with no canvas
 at all.
+
+The two guides in `.claude/skills/` come from the versions of
+`@clockwork2/engine` and `@vbz-gg/sdk` the game installed. After upgrading
+either, `bunx vbz guides` replaces them with the ones the new versions ship.
 
 ## Controls
 

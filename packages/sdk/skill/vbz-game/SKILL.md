@@ -14,8 +14,12 @@ steers it, and what the platform checks before it will list it. It repeats
 the engine's guide in two places, briefly, because they are the two things an
 author gets wrong first: where randomness comes from, and what to record.
 
-A path that starts `clockwork2/` is a file in the engine's guide, which the
-engine package ships at `node_modules/@clockwork2/engine/skill/clockwork2/`.
+A game made with `vbz new` keeps both guides in `.claude/skills/`, this one
+at `.claude/skills/vbz-game/` and the engine's at `.claude/skills/clockwork2/`,
+copied from the versions of the two packages it installed. The packages ship
+them at `node_modules/@vbz-gg/sdk/skill/vbz-game/` and
+`node_modules/@clockwork2/engine/skill/clockwork2/`. A path that starts
+`clockwork2/` is a file in the engine's guide.
 
 ## Start here
 
@@ -29,6 +33,12 @@ The copy builds and plays before a line of it is changed, so anything that
 breaks afterwards is something you just did. Its id is taken from the
 directory name and is **immutable once published**: changing it later is a
 different game with a different board.
+
+The copy also carries the two guides in `.claude/skills/`, and an `AGENTS.md`
+with the commands, the one rule and where the guides are, for an agent that
+reads that file rather than loading skills. After upgrading `@vbz-gg/sdk` or
+`@clockwork2/engine`, run `bunx vbz guides` from the game's root: it replaces
+both folders with the guides the installed versions ship.
 
 ## The shape of a game
 
@@ -258,7 +268,11 @@ newer patch passes, and practice carries on.
 
 ## Commands
 
-- `vbz new <dir>` - a game that already conforms.
+- `vbz new <dir>` - a game that already conforms, with both guides in
+  `.claude/skills/` and an `AGENTS.md`.
+- `vbz guides <dir>` - replace the game's two guides with the ones its
+  installed `@vbz-gg/sdk` and `@clockwork2/engine` ship. It stops, writing
+  nothing, when either package or its guide is missing.
 - `vbz build <dir>` - the three files a submission carries.
 - `vbz check <dir>` - the engine's checks and the input mapping, with the
   version, its release line and the line's contract hash.

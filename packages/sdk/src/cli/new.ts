@@ -8,6 +8,11 @@
  *
  * The template ships inside the package, at the same place relative to this
  * module in the source tree and in `dist`, so an installed copy has it too.
+ *
+ * A new game also gets the two agent guides, this package's and the engine's,
+ * in `.claude/skills/`, and an `AGENTS.md` that says where they are. Both
+ * guides are found before anything is written, so a missing one leaves no
+ * half-made game behind.
  */
 
 import {
@@ -19,6 +24,7 @@ import {
   writeFile,
 } from "node:fs/promises"
 import { basename, join, relative, sep } from "node:path"
+import { type Guide, guidesBesideKit, installGuides } from "./guides.js"
 
 /** The template this package ships, wherever it is installed. */
 export const TEMPLATE_DIR = join(
@@ -33,15 +39,23 @@ export const TEMPLATE_DIR = join(
 const OWN_MANIFEST = join(import.meta.dir, "..", "..", "package.json")
 
 /**
- * The template's ignore file, which cannot be called `.gitignore` on disk.
+ * Files the template stores under one name and a new game gets under another.
  *
  * npm renames a `.gitignore` to `.npmignore` inside a tarball, so a template
  * carrying one ships without it and every game made from an installed copy
  * starts out committing its own build output. It is stored under a name npm
  * leaves alone and renamed on the way into a new game.
+ *
+ * `AGENTS.md` and `CLAUDE.md` steer an agent working in the directory that
+ * holds them. Under those names in the template, they would steer an agent
+ * working on this package as if it were working on a game, so the template
+ * stores them under names no tool reads.
  */
-export const IGNORE_IN_TEMPLATE = "gitignore"
-export const IGNORE_IN_GAME = ".gitignore"
+export const RENAMED_IN_GAME: Readonly<Record<string, string>> = {
+  gitignore: ".gitignore",
+  "agents.md": "AGENTS.md",
+  "claude.md": "CLAUDE.md",
+}
 
 /**
  * Directories a copy leaves behind, by name rather than by path.
@@ -121,12 +135,16 @@ export interface NewGameOptions {
   readonly dir: string
   readonly template?: string
   readonly versions?: { readonly sdk: string; readonly engine: string }
+  /** The guides to copy in; by default this package's and its engine's. */
+  readonly guides?: () => Promise<readonly Guide[]>
 }
 
 export interface NewGame {
   readonly id: string
   readonly title: string
   readonly dir: string
+  /** The guides it was given, in `.claude/skills/`. */
+  readonly guides: readonly Guide[]
 }
 
 /**
@@ -146,6 +164,9 @@ export async function createGame(options: NewGameOptions): Promise<NewGame> {
   const id = gameIdFrom(basename(dir))
   const title = titleFrom(id)
   const versions = options.versions ?? (await versionsFor())
+  // Found before anything is written: an engine without its guide stops
+  // here, rather than after a game half-made without one.
+  const guides = await (options.guides ?? guidesBesideKit)()
 
   await mkdir(dir, { recursive: true })
   // A template with a build in it would copy somebody else's artifacts into a
@@ -156,13 +177,19 @@ export async function createGame(options: NewGameOptions): Promise<NewGame> {
     filter: (source) => isCopied(template, source),
   })
 
-  await rename(join(dir, IGNORE_IN_TEMPLATE), join(dir, IGNORE_IN_GAME)).catch(
-    () => {
-      // A template without one is still a game; it just tracks its build.
-    },
-  )
+  for (const [stored, name] of Object.entries(RENAMED_IN_GAME)) {
+    await rename(join(dir, stored), join(dir, name)).catch(() => {
+      // A template without one is still a game; it just lacks that file.
+      // check:publishable holds the shipped template to carrying each.
+    })
+  }
 
-  for (const file of ["package.json", "README.md", "src/sim/manifest.ts"]) {
+  for (const file of [
+    "package.json",
+    "README.md",
+    "AGENTS.md",
+    "src/sim/manifest.ts",
+  ]) {
     const path = join(dir, file)
     const before = await readFile(path, "utf8").catch(() => null)
     if (before === null) continue
@@ -182,5 +209,7 @@ export async function createGame(options: NewGameOptions): Promise<NewGame> {
   }
   await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
 
-  return { id, title, dir }
+  await installGuides(dir, guides)
+
+  return { id, title, dir, guides }
 }

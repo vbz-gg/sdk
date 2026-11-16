@@ -24,6 +24,7 @@ import { buildGame, buildLines, writeBuild } from "./build.js"
 import { checkGame, checkLines } from "./check.js"
 import { devSettings } from "./dev.js"
 import { failureLine } from "./failure.js"
+import { guideLines, refreshGuides } from "./guides.js"
 import { createGame } from "./new.js"
 import {
   API_ORIGIN_VARIABLE,
@@ -39,6 +40,8 @@ import {
 const USAGE = `vbz - build and run a game for vbz.gg
 
   vbz new     [dir]   copy a game that already conforms, and rename it
+  vbz guides  [dir]   replace .claude/skills/ with the guides the game's
+                      installed engine and kit ship
   vbz build   [dir]   write dist/sim.js, dist/present.js and dist/manifest.json
   vbz check   [dir]   run the engine's checks and hold src/capture.ts to the manifest
   vbz dev     [dir]   serve the game the way production does
@@ -126,9 +129,18 @@ export async function main(argv: readonly string[]): Promise<number> {
       process.stdout.write(
         `${made.dir}\n\n` +
           `  ${made.id}, which is the id its board will be kept under\n\n` +
+          guideLines(made.guides)
+            .map((line) => `  ${line}\n`)
+            .join("") +
+          "  AGENTS.md says where they are, for an agent\n\n" +
           "  bun install\n" +
           "  bun run dev\n\n",
       )
+      return 0
+    }
+    case "guides": {
+      const guides = await refreshGuides(options.dir)
+      for (const line of guideLines(guides)) process.stdout.write(`${line}\n`)
       return 0
     }
     case "build":

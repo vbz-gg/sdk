@@ -27,10 +27,18 @@ name and is immutable once published.
 `@clockwork2/engine` is a peer dependency: your game installs one copy of the
 engine, and both of its modules are built against it.
 
-## The five commands
+The copy also carries two guides for an agent, in `.claude/skills/`: the
+engine's, `clockwork2`, on writing a simulation that replays exactly, and this
+package's, `vbz-game`, on everything else a game on vbz.gg needs. Its
+`AGENTS.md` says where they are. Both come from the versions the game
+installed, so after upgrading `@vbz-gg/sdk` or `@clockwork2/engine`, run
+`bunx vbz guides` to replace them with the guides the new versions ship.
+
+## The six commands
 
 ```bash
 vbz new     <dir>   copy a game that already conforms, and rename it
+vbz guides  <dir>   replace the game's agent guides with the installed ones
 vbz build   <dir>   write dist/sim.js, dist/present.js and dist/manifest.json
 vbz check   <dir>   run the engine's checks and hold src/capture.ts to the manifest
 vbz dev     <dir>   load the game the way a studio's page does, on two origins

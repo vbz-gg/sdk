@@ -110,6 +110,27 @@ describe("what a tarball would do to a consumer", () => {
    * with that line in its release log. Written the way npm publishes it,
    * the log says nothing.
    */
+  /**
+   * `vbz new` renames each of these on the way into a game. One the tarball
+   * lacks is a game without its ignore file, or without the file that tells
+   * an agent where the guides are, and nothing says so.
+   */
+  test("the template's files that a new game renames are held to shipping", () => {
+    for (const file of [
+      "templates/game/gitignore",
+      "templates/game/agents.md",
+      "templates/game/claude.md",
+    ]) {
+      expect(RUNTIME_FILES).toContain(file)
+      const problems = problemsWith(
+        shipped({ files: shipped().files.filter((f) => f !== file) }),
+      )
+      expect(problems).toEqual([
+        `@vbz-gg/sdk would ship no ${file}, which it reads at runtime`,
+      ])
+    }
+  })
+
   test("a command entry npm would rewrite at publish is caught", () => {
     const problems = problemsWith(
       shipped({ bin: { vbz: "./dist/cli/index.js" } }),
