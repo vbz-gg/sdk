@@ -1,5 +1,5 @@
 /**
- * Why a pair of artifacts was refused.
+ * Why a build or an upload was refused.
  *
  * One code per refusal, so a deploy script can switch on it and a host can map
  * it to a status from a table rather than a chain of instanceof checks. The
@@ -13,16 +13,18 @@ export const BUILD_REFUSAL = {
   ARTIFACT_TOO_LARGE: "E_ARTIFACT_TOO_LARGE",
   /** The sim imports something. It runs with no network and would fault. */
   SIM_NOT_SELF_CONTAINED: "E_SIM_NOT_SELF_CONTAINED",
-  /** The frame has no sim import, so it carries its own copy. */
-  FRAME_IMPORT_MISSING: "E_FRAME_IMPORT_MISSING",
-  /** The frame imports something besides the sim. */
-  FRAME_IMPORT_UNEXPECTED: "E_FRAME_IMPORT_UNEXPECTED",
+  /** The page module has no sim import, so it carries its own copy. */
+  PRESENT_IMPORT_MISSING: "E_PRESENT_IMPORT_MISSING",
+  /** The page module imports something besides the sim. */
+  PRESENT_IMPORT_UNEXPECTED: "E_PRESENT_IMPORT_UNEXPECTED",
   /** A dynamic import would choose its module at runtime, past the scan. */
-  FRAME_DYNAMIC_IMPORT: "E_FRAME_DYNAMIC_IMPORT",
+  PRESENT_DYNAMIC_IMPORT: "E_PRESENT_DYNAMIC_IMPORT",
   /** The specifier also appears as data, so rewriting it would change it. */
-  FRAME_SPECIFIER_AMBIGUOUS: "E_FRAME_SPECIFIER_AMBIGUOUS",
+  PRESENT_SPECIFIER_AMBIGUOUS: "E_PRESENT_SPECIFIER_AMBIGUOUS",
   /** The rewrite did not produce what it promised. */
   REWRITE_FAILED: "E_REWRITE_FAILED",
+  /** The manifest's version is not one a release line can hold. */
+  VERSION_INVALID: "E_VERSION_INVALID",
 } as const
 
 export type BuildRefusalCode =

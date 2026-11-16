@@ -9,11 +9,11 @@
  */
 
 import {
-  assertFrameImportsOnlySim,
+  assertPresentImportsOnlySim,
   assertSimSelfContained,
   assertSize,
   decodeArtifact,
-  MAX_FRAME_BYTES,
+  MAX_PRESENT_BYTES,
   MAX_SIM_BYTES,
   SIM_SPECIFIER,
 } from "./contract.js"
@@ -23,13 +23,20 @@ export interface GameSource {
   readonly root: string
   /** The simulation's entry, relative to the root. */
   readonly simEntry: string
-  /** The frame's entry, relative to the root. */
-  readonly frameEntry: string
+  /** The page module's entry, relative to the root. */
+  readonly presentEntry: string
+  /**
+   * The input mapping's module, relative to the root: a file that touches no
+   * DOM, so `vbz check` can import it under bun and run `checkCapture` over
+   * it without loading the page module. The build itself does not read it;
+   * the page module imports it.
+   */
+  readonly captureEntry: string
 }
 
 export interface GameArtifacts {
   readonly sim: Uint8Array
-  readonly frame: Uint8Array
+  readonly present: Uint8Array
 }
 
 /**
@@ -65,12 +72,14 @@ export async function buildGameArtifacts(
 
   // Bun never resolves an external bare specifier, so the specifier reaches
   // the output verbatim and no plugin is involved.
-  const frame = await bundle(source.root, source.frameEntry, [SIM_SPECIFIER])
-  const frameText = decodeArtifact(frame, "frame")
-  assertSize(frame, MAX_FRAME_BYTES, "frame")
-  assertFrameImportsOnlySim(frameText)
+  const present = await bundle(source.root, source.presentEntry, [
+    SIM_SPECIFIER,
+  ])
+  const presentText = decodeArtifact(present, "page module")
+  assertSize(present, MAX_PRESENT_BYTES, "page module")
+  assertPresentImportsOnlySim(presentText)
 
-  return { sim, frame }
+  return { sim, present }
 }
 
 async function bundle(
