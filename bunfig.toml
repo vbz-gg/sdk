@@ -44,6 +44,10 @@ coveragePathIgnorePatterns = [
   # says nothing about the SDK. They also arrive with a fresh random name
   # every run, as `../../../tmp/sdk-conformance-1hN9V6/index.js`.
   "**/sdk-conformance-*/**",
+  # The same, for the copy `vbz check` writes the built rules code to before
+  # the engine's checks load it, and for the games its own tests write.
+  "**/vbz-check-*/**",
+  "**/sdk-check-*/**",
 ]
 
 # No `coverageThreshold` here on purpose, and adding one back is a mistake.

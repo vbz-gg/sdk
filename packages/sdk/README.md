@@ -48,8 +48,12 @@ the platform's checks:
 VBZ_STUDIO_KEY=vbz_sk_... vbz publish . --game <game id>
 ```
 
-It exits 0 only when the version went live. A rejection exits 1 and prints
-the code and the first check that failed. The platform is
+It exits 0 when the version passed its checks and is published, and prints
+the release line it joined and which runs it serves: today's ranked runs,
+the next day's, or none, and practice or not. Anything else exits 1: a
+rejection prints the code and the first check that failed, a refusal prints
+the platform's detail, such as the fields a patch may not change, and a
+version an operator took down exits 1 too. The platform is
 `https://studio.vbz.gg` unless `--api` or `VBZ_API_ORIGIN` names another.
 Don't add a script called `publish` to your `package.json`: npm runs a script
 with that name on its own, as part of `npm publish`.

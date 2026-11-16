@@ -23,6 +23,7 @@ import {
   CHECK_POLL_MS,
   CHECK_WAIT_MS,
   DEFAULT_API_ORIGIN,
+  failureLines,
   PUBLISH_ERROR,
   PublishError,
   type PublishErrorCode,
@@ -455,6 +456,7 @@ describe("waiting for the checks", () => {
     }
     expect(net.slept).toEqual([CHECK_POLL_MS, CHECK_POLL_MS])
     expect(net.logged.join("\n")).toContain(VERSION_ID)
+    expect(net.logged.join("\n")).toContain("in release line 1.2")
   })
 
   test("a read the platform fails to answer is tried again", async () => {
@@ -510,10 +512,38 @@ describe("waiting for the checks", () => {
 })
 
 describe("the verdict a build log shows", () => {
-  test("published and served exits 0", () => {
+  test("published exits 0, and says its line and which runs it serves", () => {
     const verdict = verdictOf(status("published"))
     expect(verdict.exitCode).toBe(0)
-    expect(verdict.lines).toEqual(["published version 1.2.0"])
+    expect(verdict.lines[0]).toBe(
+      "published version 1.2.0, in release line 1.2",
+    )
+    expect(verdict.lines[1]).toMatch(
+      /^ranked runs: today's, from the next start/,
+    )
+    expect(verdict.lines[2]).toMatch(/^practice runs: from the next start/)
+  })
+
+  /**
+   * A new minor passes at noon and today's ranked runs stay on the day's
+   * line, so a build log that said only "published" would read as a ranked
+   * day that changed. It still exits 0: the version passed and is published.
+   */
+  test("a version that serves no run yet still exits 0, and says when it will", () => {
+    const waiting = verdictOf(
+      status("published", {
+        serving: { ranked: "from-next-seed", practice: false },
+      }),
+    )
+    expect(waiting.exitCode).toBe(0)
+    expect(waiting.lines[1]).toMatch(/^ranked runs: from the next day's seed/)
+    expect(waiting.lines[2]).toMatch(/^practice runs: none/)
+
+    const older = verdictOf(
+      status("published", { serving: { ranked: "none", practice: false } }),
+    )
+    expect(older.exitCode).toBe(0)
+    expect(older.lines[1]).toMatch(/^ranked runs: none/)
   })
 
   test("published and taken down exits 1, because no player is served it", () => {
@@ -548,6 +578,110 @@ describe("the verdict a build log shows", () => {
 
   test("a version still being checked has no verdict", () => {
     expect(() => verdictOf(status("pending"))).toThrow()
+  })
+})
+
+describe("what a refusal's detail says", () => {
+  function refused(
+    refusal: string,
+    detail?: Readonly<Record<string, unknown>>,
+  ): PublishError {
+    return new PublishError(
+      PUBLISH_ERROR.REFUSED,
+      "the platform refused: no",
+      refusal,
+      409,
+      detail,
+    )
+  }
+
+  test("a patch that changes its line's rules names the fields and the minor to use", () => {
+    expect(
+      failureLines(
+        refused("E_PATCH_CHANGES_RULES", {
+          line: "1.2",
+          comparedWith: "1.2.0",
+          fields: ["inputs", "rankBy"],
+          nextMinor: "1.3.0",
+        }),
+      ),
+    ).toEqual([
+      "the platform refused: no (E_PUBLISH_REFUSED, E_PATCH_CHANGES_RULES)",
+      "release line 1.2 fixes inputs, rankBy, as 1.2.0 set them",
+      "publish these rules as 1.3.0 instead",
+    ])
+  })
+
+  test("a version that does not move forward names what it had to be above", () => {
+    expect(
+      failureLines(
+        refused("E_VERSION_NOT_NEWER", {
+          highestInLine: "1.2.4",
+          highestInGame: "1.3.0",
+        }),
+      ).slice(1),
+    ).toEqual([
+      "the highest version in its release line is 1.2.4, and the highest the game has is 1.3.0",
+    ])
+    expect(
+      failureLines(
+        refused("E_VERSION_NOT_NEWER", {
+          highestInLine: null,
+          highestInGame: "2.0.0",
+        }),
+      ).slice(1),
+    ).toEqual([
+      "the highest version in its release line is none yet, and the highest the game has is 2.0.0",
+    ])
+  })
+
+  test("any other detail, or one not the shape its code promises, is printed as sent", () => {
+    expect(
+      failureLines(refused("E_QUOTA_EXCEEDED", { used: 20 })).slice(1),
+    ).toEqual(['detail: {"used":20}'])
+    expect(
+      failureLines(
+        refused("E_PATCH_CHANGES_RULES", { line: "1.2", fields: "inputs" }),
+      ).slice(1),
+    ).toEqual(['detail: {"line":"1.2","fields":"inputs"}'])
+    expect(
+      failureLines(refused("E_VERSION_NOT_NEWER", { highestInLine: 3 })).slice(
+        1,
+      ),
+    ).toEqual(['detail: {"highestInLine":3}'])
+  })
+
+  test("a refusal with no detail is its sentence alone", () => {
+    expect(failureLines(refused("E_VERSION_EXISTS"))).toHaveLength(1)
+  })
+
+  test("the platform's detail reaches the error", async () => {
+    await writeDist(dir)
+    const detail = {
+      line: "1.2",
+      comparedWith: "1.2.0",
+      fields: ["counters"],
+      nextMinor: "1.3.0",
+    }
+    const net = world([
+      () =>
+        json(
+          { error: "E_PATCH_CHANGES_RULES", message: "rules moved", detail },
+          409,
+        ),
+    ])
+    const error = await refusalOf(publish(settings(), net.deps))
+    expect(error.refusal).toBe("E_PATCH_CHANGES_RULES")
+    expect(error.detail).toEqual(detail)
+  })
+
+  test("a refusal whose detail is not an object is not read as a refusal", async () => {
+    await writeDist(dir)
+    const net = world([
+      () => json({ error: "E_X", message: "x", detail: "words" }, 409),
+    ])
+    const error = await refusalOf(publish(settings(), net.deps))
+    expect(error.code).toBe(PUBLISH_ERROR.ANSWER_UNREADABLE)
   })
 })
 
@@ -620,7 +754,11 @@ describe("the real command", () => {
         [STUDIO_KEY_VARIABLE]: KEY,
       })
       expect(result.code).toBe(0)
-      expect(result.stdout).toContain("published version 1.2.0")
+      expect(result.stdout).toContain(
+        "published version 1.2.0, in release line 1.2",
+      )
+      expect(result.stdout).toContain("ranked runs: today's")
+      expect(result.stdout).toContain("practice runs: from the next start")
       expect(seen.origin).toBeNull()
       expect(seen.authorization).toBe(`Bearer ${KEY}`)
       expect(seen.parts).toEqual({
@@ -647,6 +785,41 @@ describe("the real command", () => {
       expect(result.stdout).toContain(
         "rejected version 1.2.0: E_SEED_INSENSITIVE",
       )
+    } finally {
+      server.stop(true)
+    }
+  })
+
+  test("exits 1 and prints a refusal's detail when the platform refuses the upload", async () => {
+    await writeDist(dir)
+    const server = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      fetch: () =>
+        json(
+          {
+            error: "E_PATCH_CHANGES_RULES",
+            message: "version 1.2.1 changes what release line 1.2 fixes",
+            detail: {
+              line: "1.2",
+              comparedWith: "1.2.0",
+              fields: ["inputs"],
+              nextMinor: "1.3.0",
+            },
+          },
+          409,
+        ),
+    })
+    try {
+      const result = await run(`http://127.0.0.1:${server.port}`, {
+        [STUDIO_KEY_VARIABLE]: KEY,
+      })
+      expect(result.code).toBe(1)
+      expect(result.stderr).toContain("E_PATCH_CHANGES_RULES")
+      expect(result.stderr).toContain(
+        "release line 1.2 fixes inputs, as 1.2.0 set them",
+      )
+      expect(result.stderr).toContain("publish these rules as 1.3.0 instead")
     } finally {
       server.stop(true)
     }
@@ -757,6 +930,37 @@ describe("a version's answer is checked in every field the verdict reads", () =>
     expect(await readBack({ ...status("rejected"), rejectedCode: 7 })).toBe(
       PUBLISH_ERROR.ANSWER_UNREADABLE,
     )
+  })
+
+  test("an answer that does not say its line or which runs it serves is unreadable", async () => {
+    const { line: _line, ...noLine } = status("published")
+    expect(await readBack(noLine)).toBe(PUBLISH_ERROR.ANSWER_UNREADABLE)
+    const { serving: _serving, ...noServing } = status("published")
+    expect(await readBack(noServing)).toBe(PUBLISH_ERROR.ANSWER_UNREADABLE)
+    expect(
+      await readBack({
+        ...status("published"),
+        serving: { ranked: "tomorrow", practice: true },
+      }),
+    ).toBe(PUBLISH_ERROR.ANSWER_UNREADABLE)
+    expect(
+      await readBack({
+        ...status("published"),
+        serving: { ranked: "today", practice: "yes" },
+      }),
+    ).toBe(PUBLISH_ERROR.ANSWER_UNREADABLE)
+    expect(await readBack({ ...status("published"), serving: "today" })).toBe(
+      PUBLISH_ERROR.ANSWER_UNREADABLE,
+    )
+  })
+
+  test("an upload answer that does not name its line is unreadable", async () => {
+    await writeDist(dir)
+    const { line: _line, ...noLine } = uploaded()
+    const net = world([() => json(noLine, 201)])
+    const refused = await refusalOf(publish(settings(), net.deps))
+    expect(refused.code).toBe(PUBLISH_ERROR.ANSWER_UNREADABLE)
+    expect(refused.message).toContain(VERSION_ID)
   })
 
   test("a complete answer passes", async () => {

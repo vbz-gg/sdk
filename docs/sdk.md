@@ -460,9 +460,13 @@ still pending after that is reported as still being checked rather than as
 failed.
 
 It is built for a studio's build system, so its exit code is the verdict: 0
-only when the version went live. A rejection, a version an operator has
-taken down, a refusal and a platform that does not answer all exit 1 with a
-code that names which.
+when the version passed its checks and is published, with the release line
+it joined and which runs it serves printed. A version that serves no run yet,
+such as a new minor waiting for the next day's seed, still exits 0. A
+rejection, a version an operator has taken down, a refusal and a platform
+that does not answer all exit 1 with a code that names which, and a refusal
+prints its `detail`: the fields a patch changed and the minor to publish
+instead, or the versions an upload had to be above.
 
 The studio's secret key comes from `VBZ_STUDIO_KEY` and nowhere else. A flag
 would put it in shell history and in the process list. The request carries

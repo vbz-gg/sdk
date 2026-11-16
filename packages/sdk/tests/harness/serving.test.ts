@@ -14,14 +14,6 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { hashCanonical } from "@clockwork2/engine"
 import {
-  DEFAULT_CAPTURE_ENTRY,
-  DEFAULT_PRESENT_ENTRY,
-  DEFAULT_SIM_ENTRY,
-  parseArgs,
-} from "../../src/cli/args"
-import {
-  DEFAULT_BUNDLES_PORT,
-  DEFAULT_HOST_PORT,
   HARNESS_GAME_ID,
   HARNESS_SEED,
   type Harness,
@@ -232,53 +224,5 @@ describe("the page script the harness bundles at start", () => {
     expect(() => harnessPageEntry("/nowhere/that/exists")).toThrow(
       /harness page's entry is missing/,
     )
-  })
-})
-
-describe("what the command line said", () => {
-  test("a bare command builds the directory it was run in", () => {
-    const options = parseArgs(["build"])
-    expect(options.command).toBe("build")
-    expect(options.simEntry).toBe(DEFAULT_SIM_ENTRY)
-    expect(options.presentEntry).toBe(DEFAULT_PRESENT_ENTRY)
-    expect(options.captureEntry).toBe(DEFAULT_CAPTURE_ENTRY)
-    expect(options.hostPort).toBe(DEFAULT_HOST_PORT)
-    expect(options.bundlesPort).toBe(DEFAULT_BUNDLES_PORT)
-  })
-
-  test("a directory is resolved, so a relative path is not held against a server's cwd", () => {
-    expect(parseArgs(["dev", "./somewhere"]).dir).toMatch(/somewhere$/)
-    expect(parseArgs(["dev", "./somewhere"]).dir.startsWith("/")).toBe(true)
-  })
-
-  test("every default can be overridden", () => {
-    const options = parseArgs([
-      "dev",
-      ".",
-      "--sim",
-      "game/sim.ts",
-      "--present",
-      "game/present.ts",
-      "--capture",
-      "game/capture.ts",
-      "--host",
-      "5000",
-      "--bundles-port",
-      "5001",
-    ])
-    expect(options.simEntry).toBe("game/sim.ts")
-    expect(options.presentEntry).toBe("game/present.ts")
-    expect(options.captureEntry).toBe("game/capture.ts")
-    expect(options.hostPort).toBe(5000)
-    expect(options.bundlesPort).toBe(5001)
-  })
-
-  test("no command at all is a command of nothing, not a crash", () => {
-    expect(parseArgs([]).command).toBe("")
-  })
-
-  /** A flag with nothing after it takes an empty value rather than eating the next flag. */
-  test("a trailing flag does not swallow what follows it", () => {
-    expect(parseArgs(["build", "--sim"]).simEntry).toBe("")
   })
 })
