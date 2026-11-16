@@ -25,7 +25,7 @@ import {
   SIM_SPECIFIER,
 } from "../../src/build/index.js"
 import { CAPABILITY_RULES, LINE_RULES } from "../../src/build/line.js"
-import { COMMANDS } from "../../src/cli/args.js"
+import { COMMANDS } from "../../src/cli/index.js"
 import { TEMPLATE_DIR } from "../../src/cli/new.js"
 import {
   DEFAULT_BUNDLES_PORT,
@@ -270,15 +270,11 @@ describe("what the guide tells an author to run", () => {
       if (command !== null) named.add(command[1] as string)
     }
     expect(named.size).toBeGreaterThan(4)
-    for (const command of named) {
-      expect(COMMANDS as readonly string[]).toContain(command)
-    }
+    const commands = COMMANDS.map((command) => command.name)
+    for (const command of named) expect(commands).toContain(command)
     const skill = await read("SKILL.md")
-    const cli = await readFile(join(PACKAGE, "src", "cli", "index.ts"), "utf8")
-    for (const command of COMMANDS) {
+    for (const command of commands) {
       expect(skill).toContain(`- \`vbz ${command} <dir>`)
-      expect(cli).toContain(`case "${command}"`)
-      expect(cli).toContain(`  vbz ${command} `)
     }
   })
 

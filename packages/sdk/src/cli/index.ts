@@ -22,9 +22,10 @@ import {
 import { DEFAULT_ADDRESS, type Options, parseArgs } from "./args.js"
 import { buildGame, buildLines, writeBuild } from "./build.js"
 import { checkGame, checkLines } from "./check.js"
+import { type Command, usageText } from "./commands.js"
 import { devSettings } from "./dev.js"
 import { failureLine } from "./failure.js"
-import { guideLines, refreshGuides } from "./guides.js"
+import { GUIDES, guideLines, refreshGuides, SKILLS_DIR } from "./guides.js"
 import { createGame } from "./new.js"
 import {
   API_ORIGIN_VARIABLE,
@@ -37,17 +38,8 @@ import {
   verdictOf,
 } from "./publish.js"
 
-const USAGE = `vbz - build and run a game for vbz.gg
-
-  vbz new     [dir]   copy a game that already conforms, and rename it
-  vbz guides  [dir]   replace .claude/skills/ with the guides the game's
-                      installed engine and kit ship
-  vbz build   [dir]   write dist/sim.js, dist/present.js and dist/manifest.json
-  vbz check   [dir]   run the engine's checks and hold src/capture.ts to the manifest
-  vbz dev     [dir]   serve the game the way production does
-  vbz publish [dir]   upload dist/ and wait for the platform's verdict
-
-  --sim <path>       the simulation's entry   (default src/sim/index.ts)
+/** Everything the usage says after the commands: the flags, and publish's key. */
+const FLAGS = `  --sim <path>       the simulation's entry   (default src/sim/index.ts)
   --present <path>   the page module's entry  (default src/present.ts)
   --capture <path>   the input mapping        (default src/capture.ts)
   --host <port>      dev: the page that loads it   (default ${DEFAULT_HOST_PORT})
@@ -121,71 +113,130 @@ async function dev(options: Options): Promise<void> {
   )
 }
 
-export async function main(argv: readonly string[]): Promise<number> {
-  const options = parseArgs(argv)
-  switch (options.command) {
-    case "new": {
-      const made = await createGame({ dir: options.dir })
-      process.stdout.write(
-        `${made.dir}\n\n` +
-          `  ${made.id}, which is the id its board will be kept under\n\n` +
-          guideLines(made.guides)
-            .map((line) => `  ${line}\n`)
-            .join("") +
-          "  AGENTS.md says where they are, for an agent\n\n" +
-          "  bun install\n" +
-          "  bun run dev\n\n",
-      )
-      return 0
+async function newGame(options: Options): Promise<number> {
+  const made = await createGame({ dir: options.dir })
+  process.stdout.write(
+    `${made.dir}\n\n` +
+      `  ${made.id}, which is the id its board will be kept under\n\n` +
+      guideLines(made.guides)
+        .map((line) => `  ${line}\n`)
+        .join("") +
+      "  AGENTS.md says where they are, for an agent\n\n" +
+      "  bun install\n" +
+      "  bun run dev\n\n",
+  )
+  return 0
+}
+
+async function guides(options: Options): Promise<number> {
+  for (const line of guideLines(await refreshGuides(options.dir))) {
+    process.stdout.write(`${line}\n`)
+  }
+  return 0
+}
+
+async function check(options: Options): Promise<number> {
+  const checked = await checkGame(sourceOf(options))
+  for (const line of checkLines(checked, options.captureEntry)) {
+    process.stdout.write(`${line}\n`)
+  }
+  return checked.ok ? 0 : 1
+}
+
+async function serve(options: Options): Promise<number> {
+  await dev(options)
+  // Resolves only when the process is killed: the servers are the point.
+  await new Promise(() => {})
+  return 0
+}
+
+async function upload(options: Options): Promise<number> {
+  const settings = publishSettings(
+    { dir: options.dir, game: options.game, api: options.api },
+    process.env,
+  )
+  let status: Awaited<ReturnType<typeof publish>>
+  try {
+    status = await publish(settings, {
+      fetch: (url, init) => fetch(url, init),
+      sleep: (ms) => Bun.sleep(ms),
+      now: () => Date.now(),
+      log: (line) => process.stdout.write(`${line}\n`),
+    })
+  } catch (error) {
+    if (!(error instanceof PublishError)) throw error
+    for (const line of failureLines(error)) {
+      process.stderr.write(`${line}\n`)
     }
-    case "guides": {
-      const guides = await refreshGuides(options.dir)
-      for (const line of guideLines(guides)) process.stdout.write(`${line}\n`)
-      return 0
-    }
-    case "build":
+    return 1
+  }
+  const verdict = verdictOf(status)
+  for (const line of verdict.lines) process.stdout.write(`${line}\n`)
+  return verdict.exitCode
+}
+
+/**
+ * Every command `vbz` takes, in the order its usage lists them. The
+ * dispatcher, the usage and the agent guide's test all read this, so a new
+ * command is one row here.
+ */
+export const COMMANDS: readonly Command[] = [
+  {
+    name: "new",
+    args: "[dir]",
+    summary: ["copy a game that already conforms, and rename it"],
+    run: newGame,
+  },
+  {
+    name: "guides",
+    args: "[dir]",
+    summary: [
+      `replace ${GUIDES.map((guide) => `${SKILLS_DIR}/${guide.name}`).join(" and ")}`,
+      "with the guides the game's installed kit and engine ship",
+    ],
+    run: guides,
+  },
+  {
+    name: "build",
+    args: "[dir]",
+    summary: ["write dist/sim.js, dist/present.js and dist/manifest.json"],
+    run: async (options) => {
       await build(options)
       return 0
-    case "check": {
-      const checked = await checkGame(sourceOf(options))
-      for (const line of checkLines(checked, options.captureEntry)) {
-        process.stdout.write(`${line}\n`)
-      }
-      return checked.ok ? 0 : 1
-    }
-    case "dev":
-      await dev(options)
-      // Resolves only when the process is killed: the servers are the point.
-      await new Promise(() => {})
-      return 0
-    case "publish": {
-      const settings = publishSettings(
-        { dir: options.dir, game: options.game, api: options.api },
-        process.env,
-      )
-      let status: Awaited<ReturnType<typeof publish>>
-      try {
-        status = await publish(settings, {
-          fetch: (url, init) => fetch(url, init),
-          sleep: (ms) => Bun.sleep(ms),
-          now: () => Date.now(),
-          log: (line) => process.stdout.write(`${line}\n`),
-        })
-      } catch (error) {
-        if (!(error instanceof PublishError)) throw error
-        for (const line of failureLines(error)) {
-          process.stderr.write(`${line}\n`)
-        }
-        return 1
-      }
-      const verdict = verdictOf(status)
-      for (const line of verdict.lines) process.stdout.write(`${line}\n`)
-      return verdict.exitCode
-    }
-    default:
-      process.stdout.write(USAGE)
-      return options.command === "" ? 0 : 1
+    },
+  },
+  {
+    name: "check",
+    args: "[dir]",
+    summary: [
+      "run the engine's checks and hold src/capture.ts to the manifest",
+    ],
+    run: check,
+  },
+  {
+    name: "dev",
+    args: "[dir]",
+    summary: ["serve the game the way production does"],
+    run: serve,
+  },
+  {
+    name: "publish",
+    args: "[dir]",
+    summary: ["upload dist/ and wait for the platform's verdict"],
+    run: upload,
+  },
+]
+
+const USAGE = usageText(COMMANDS, FLAGS)
+
+export async function main(argv: readonly string[]): Promise<number> {
+  const options = parseArgs(argv)
+  const command = COMMANDS.find((row) => row.name === options.command)
+  if (command === undefined) {
+    process.stdout.write(USAGE)
+    return options.command === "" ? 0 : 1
   }
+  return await command.run(options)
 }
 
 if (import.meta.main) {

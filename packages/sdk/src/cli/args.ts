@@ -14,16 +14,6 @@
 import { resolve } from "node:path"
 import { DEFAULT_BUNDLES_PORT, DEFAULT_HOST_PORT } from "../harness/index.js"
 
-/** Every command `vbz` takes, in the order its usage lists them. */
-export const COMMANDS = [
-  "new",
-  "guides",
-  "build",
-  "check",
-  "dev",
-  "publish",
-] as const
-
 export const DEFAULT_SIM_ENTRY = "src/sim/index.ts"
 export const DEFAULT_PRESENT_ENTRY = "src/present.ts"
 export const DEFAULT_CAPTURE_ENTRY = "src/capture.ts"
