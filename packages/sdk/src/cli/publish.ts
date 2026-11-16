@@ -223,7 +223,7 @@ function badOrigin(raw: string, why: string): PublishError {
 export interface BuiltGame {
   readonly manifest: string
   readonly sim: Uint8Array<ArrayBuffer>
-  readonly frame: Uint8Array<ArrayBuffer>
+  readonly present: Uint8Array<ArrayBuffer>
 }
 
 /** Reads `dist/`, naming a file that is missing. */
@@ -242,12 +242,12 @@ export async function readBuild(dir: string): Promise<BuiltGame> {
       throw error
     }
   }
-  const [manifest, sim, frame] = await Promise.all([
+  const [manifest, sim, present] = await Promise.all([
     read(DIST_FILES.manifest),
     read(DIST_FILES.sim),
-    read(DIST_FILES.frame),
+    read(DIST_FILES.present),
   ])
-  return { manifest: new TextDecoder().decode(manifest), sim, frame }
+  return { manifest: new TextDecoder().decode(manifest), sim, present }
 }
 
 /** What a publish needs from the world, so a test can stand in for each. */
@@ -285,9 +285,9 @@ export async function publish(
     DIST_FILES.sim,
   )
   form.append(
-    "frame",
-    new Blob([built.frame], { type: "text/javascript" }),
-    DIST_FILES.frame,
+    "present",
+    new Blob([built.present], { type: "text/javascript" }),
+    DIST_FILES.present,
   )
 
   const uploaded: ResponseOf<"POST /v1/games/:gameId/versions"> = asUploaded(

@@ -8,18 +8,20 @@
  */
 
 import { resolve } from "node:path"
-import { DEFAULT_FRAME_PORT, DEFAULT_HOST_PORT } from "../harness/index.js"
+import { DEFAULT_BUNDLES_PORT, DEFAULT_HOST_PORT } from "../harness/index.js"
 
 export const DEFAULT_SIM_ENTRY = "src/sim/index.ts"
-export const DEFAULT_FRAME_ENTRY = "src/frame.ts"
+export const DEFAULT_PRESENT_ENTRY = "src/present.ts"
+export const DEFAULT_CAPTURE_ENTRY = "src/capture.ts"
 
 export interface Options {
   readonly command: string
   readonly dir: string
   readonly simEntry: string
-  readonly frameEntry: string
+  readonly presentEntry: string
+  readonly captureEntry: string
   readonly hostPort: number
-  readonly framePort: number
+  readonly bundlesPort: number
   /** `publish`: the game to upload to. */
   readonly game: string | undefined
   /** `publish`: the platform's origin, over the environment and the default. */
@@ -42,9 +44,10 @@ export function parseArgs(argv: readonly string[]): Options {
     command: positional[0] ?? "",
     dir: resolve(positional[1] ?? "."),
     simEntry: flags.get("sim") ?? DEFAULT_SIM_ENTRY,
-    frameEntry: flags.get("frame") ?? DEFAULT_FRAME_ENTRY,
+    presentEntry: flags.get("present") ?? DEFAULT_PRESENT_ENTRY,
+    captureEntry: flags.get("capture") ?? DEFAULT_CAPTURE_ENTRY,
     hostPort: Number(flags.get("host") ?? DEFAULT_HOST_PORT),
-    framePort: Number(flags.get("frame-port") ?? DEFAULT_FRAME_PORT),
+    bundlesPort: Number(flags.get("bundles-port") ?? DEFAULT_BUNDLES_PORT),
     game: flags.get("game"),
     api: flags.get("api"),
   }

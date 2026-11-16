@@ -2,8 +2,8 @@
  * The host origin, and the harness started whole.
  *
  * Two ports are two origins, which is the point of the harness: an author
- * meets a real sandboxed cross-origin frame on a laptop rather than in an
- * upload. These tests drive both servers over real HTTP, because a handler
+ * meets a cross-origin module import on a laptop rather than on a studio's
+ * page. These tests drive both servers over real HTTP, because a handler
  * called directly would not prove the ports differ.
  */
 
@@ -12,14 +12,17 @@ import { existsSync } from "node:fs"
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { hashCanonical } from "@clockwork2/engine"
 import {
-  DEFAULT_FRAME_ENTRY,
+  DEFAULT_CAPTURE_ENTRY,
+  DEFAULT_PRESENT_ENTRY,
   DEFAULT_SIM_ENTRY,
   parseArgs,
 } from "../../src/cli/args"
 import {
-  DEFAULT_FRAME_PORT,
+  DEFAULT_BUNDLES_PORT,
   DEFAULT_HOST_PORT,
+  HARNESS_GAME_ID,
   HARNESS_SEED,
   type Harness,
   harnessPageEntry,
@@ -55,9 +58,9 @@ describe("the host origin", () => {
   })
 
   /**
-   * A rebuild changes the artifact hashes the page names, so a cached page
-   * would frame a game that is no longer served and show a blank iframe with
-   * a 404 nobody sees.
+   * A rebuild changes the module hashes the page names, so a cached page
+   * would load a game that is no longer served and show a blank stage with a
+   * 404 nobody sees.
    */
   test("nothing from the harness is cached", async () => {
     for (const path of ["/", "/harness.js"]) {
@@ -72,6 +75,19 @@ describe("the host origin", () => {
   })
 })
 
+const SOURCE = {
+  simEntry: "src/sim/index.ts",
+  presentEntry: "src/present.ts",
+  captureEntry: "src/capture.ts",
+}
+
+/** What `vbz build` would have written beside the artifacts. */
+const DIST_MANIFEST = {
+  name: "Probe Game",
+  session: { tickHz: 30, maxTicks: 900 },
+  inputs: { left: { min: 0, max: 1 } },
+}
+
 describe("the harness, started whole", () => {
   let root: string
   let harness: Harness
@@ -81,36 +97,22 @@ describe("the harness, started whole", () => {
     await mkdir(join(root, "src", "sim"), { recursive: true })
     await writeFile(
       join(root, "src", "sim", "index.ts"),
-      `export const MANIFEST = {
-         schemaVersion: 1, id: "probe", version: "1.0.0", name: "Probe Game",
-         session: { tickHz: 30, maxTicks: 900, maxWallSeconds: 60, hasEnding: true },
-         inputs: { map: { left: [] }, controls: { mode: "scheme", scheme: "dpad", bind: { left: "left" } } },
-       }\n`,
+      `export const MANIFEST = ${JSON.stringify(DIST_MANIFEST)}\n`,
     )
     await writeFile(
-      join(root, "src", "frame.ts"),
+      join(root, "src", "present.ts"),
       `import { MANIFEST } from "cw2:sim"\ndocument.title = MANIFEST.name\n`,
     )
     // The manifest is read from dist, which is what `vbz build` writes.
     await mkdir(join(root, "dist"), { recursive: true })
     await writeFile(
       join(root, "dist", "manifest.json"),
-      JSON.stringify({
-        name: "Probe Game",
-        session: { tickHz: 30, maxTicks: 900 },
-        inputs: {
-          controls: { mode: "scheme", scheme: "dpad", bind: { left: "left" } },
-        },
-      }),
+      JSON.stringify(DIST_MANIFEST),
     )
     harness = await startHarness({
-      source: {
-        root,
-        simEntry: "src/sim/index.ts",
-        frameEntry: "src/frame.ts",
-      },
+      source: { root, ...SOURCE },
       hostPort: 0,
-      framePort: 0,
+      bundlesPort: 0,
     })
   })
 
@@ -120,12 +122,14 @@ describe("the harness, started whole", () => {
   })
 
   /**
-   * The whole reason for two servers. One origin would hide the opaque-origin
-   * CORS trap, which is the failure that shows up as a blank game with no
-   * error anywhere.
+   * The whole reason for two servers. One origin would hide the cross-origin
+   * module import a studio's page makes, and the CORS headers it needs.
    */
-  test("the game and the page that frames it are on different origins", () => {
-    expect(harness.frameOrigin).not.toBe(harness.hostOrigin)
+  test("the game's code and the page that loads it are on different origins", () => {
+    expect(harness.bundlesOrigin).not.toBe(harness.hostOrigin)
+    expect(harness.presentUrl.startsWith(`${harness.bundlesOrigin}/g/`)).toBe(
+      true,
+    )
   })
 
   test("the page carries the manifest's own session settings", async () => {
@@ -138,9 +142,15 @@ describe("the harness, started whole", () => {
     expect(html).toContain(`"seed":"${HARNESS_SEED}"`)
   })
 
-  test("the page is told which controls the game declared", async () => {
+  /**
+   * The page checks the module it loads against the manifest the build wrote,
+   * as a studio's page checks it against the version the platform names.
+   */
+  test("the page is told where the page module is and which manifest it must be", async () => {
     const html = await (await fetch(harness.hostOrigin)).text()
-    expect(html).toContain(`"scheme":"dpad"`)
+    expect(html).toContain(`"presentUrl":"${harness.presentUrl}"`)
+    expect(html).toContain(`"manifestHash":"${hashCanonical(DIST_MANIFEST)}"`)
+    expect(harness.presentUrl).toContain(`/g/${HARNESS_GAME_ID}/present/`)
   })
 
   test("the page's script bundles and is served", async () => {
@@ -148,16 +158,14 @@ describe("the harness, started whole", () => {
       await fetch(`${harness.hostOrigin}/harness.js`)
     ).text()
     expect(script.length).toBeGreaterThan(0)
-    // It reaches the renderer, which is the thing the picker drives.
-    expect(script).toContain("gb-controls")
+    // It loads the game the way a studio's page does.
+    expect(script).toContain("E_PAGE_ALTERS_BUILTINS")
   })
 
-  /** Only the harness page may frame the game, as only the shell may in production. */
-  test("the frame origin names the host origin as its only embedder", async () => {
-    const response = await fetch(`${harness.frameOrigin}/play`)
-    expect(response.headers.get("content-security-policy")).toContain(
-      `frame-ancestors ${harness.hostOrigin}`,
-    )
+  test("the page module is served from the bundles origin with the edge's headers", async () => {
+    const response = await fetch(harness.presentUrl)
+    expect(response.status).toBe(200)
+    expect(response.headers.get("access-control-allow-origin")).toBe("*")
   })
 
   test("a game with no manifest on disk still starts, on defaults", async () => {
@@ -169,25 +177,21 @@ describe("the harness, started whole", () => {
         "export const a = 1",
       )
       await writeFile(
-        join(bare, "src", "frame.ts"),
+        join(bare, "src", "present.ts"),
         `import { a } from "cw2:sim"\ndocument.title = String(a)\n`,
       )
       const plain = await startHarness({
-        source: {
-          root: bare,
-          simEntry: "src/sim/index.ts",
-          frameEntry: "src/frame.ts",
-        },
+        source: { root: bare, ...SOURCE },
         hostPort: 0,
-        framePort: 0,
+        bundlesPort: 0,
         seed: "chosen",
       })
       try {
         const html = await (await fetch(plain.hostOrigin)).text()
         expect(html).toContain(`"tickHz":60`)
-        // An empty manifest, which the page reads as a game that wants a
-        // keyboard, the same as a manifest that declares no controls.
-        expect(html).toContain(`"manifest":{}`)
+        // An empty manifest's hash, which no page module carries, so the
+        // page refuses the game rather than playing one it cannot check.
+        expect(html).toContain(`"manifestHash":"${hashCanonical({})}"`)
         expect(html).toContain(`"seed":"chosen"`)
       } finally {
         await plain.stop()
@@ -236,9 +240,10 @@ describe("what the command line said", () => {
     const options = parseArgs(["build"])
     expect(options.command).toBe("build")
     expect(options.simEntry).toBe(DEFAULT_SIM_ENTRY)
-    expect(options.frameEntry).toBe(DEFAULT_FRAME_ENTRY)
+    expect(options.presentEntry).toBe(DEFAULT_PRESENT_ENTRY)
+    expect(options.captureEntry).toBe(DEFAULT_CAPTURE_ENTRY)
     expect(options.hostPort).toBe(DEFAULT_HOST_PORT)
-    expect(options.framePort).toBe(DEFAULT_FRAME_PORT)
+    expect(options.bundlesPort).toBe(DEFAULT_BUNDLES_PORT)
   })
 
   test("a directory is resolved, so a relative path is not held against a server's cwd", () => {
@@ -252,17 +257,20 @@ describe("what the command line said", () => {
       ".",
       "--sim",
       "game/sim.ts",
-      "--frame",
-      "game/frame.ts",
+      "--present",
+      "game/present.ts",
+      "--capture",
+      "game/capture.ts",
       "--host",
       "5000",
-      "--frame-port",
+      "--bundles-port",
       "5001",
     ])
     expect(options.simEntry).toBe("game/sim.ts")
-    expect(options.frameEntry).toBe("game/frame.ts")
+    expect(options.presentEntry).toBe("game/present.ts")
+    expect(options.captureEntry).toBe("game/capture.ts")
     expect(options.hostPort).toBe(5000)
-    expect(options.framePort).toBe(5001)
+    expect(options.bundlesPort).toBe(5001)
   })
 
   test("no command at all is a command of nothing, not a crash", () => {

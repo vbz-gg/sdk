@@ -3,8 +3,8 @@
  * `vbz`, the commands an author runs.
  *
  * `build` produces the three files an upload carries. `dev` serves the game
- * the way production serves it, on two origins, so the first time a game meets
- * a sandboxed cross-origin frame is on a laptop.
+ * the way production serves it, on two origins, so the first time a game's
+ * page module is imported from another origin is on a laptop.
  *
  * Entry points are excluded from the coverage floor, so everything with a
  * decision in it lives beside this file rather than in it.
@@ -15,7 +15,7 @@ import { join } from "node:path"
 import { DIST_DIR, DIST_FILES } from "../build/dist.js"
 import { buildGameArtifacts, type GameSource } from "../build/index.js"
 import {
-  DEFAULT_FRAME_PORT,
+  DEFAULT_BUNDLES_PORT,
   DEFAULT_HOST_PORT,
   startHarness,
 } from "../harness/index.js"
@@ -34,14 +34,15 @@ import {
 const USAGE = `vbz - build and run a game for vbz.gg
 
   vbz new     [dir]   copy a game that already conforms, and rename it
-  vbz build   [dir]   write dist/sim.js, dist/frame.js and dist/manifest.json
+  vbz build   [dir]   write dist/sim.js, dist/present.js and dist/manifest.json
   vbz dev     [dir]   serve the game the way production does
   vbz publish [dir]   upload dist/ and wait for the platform's verdict
 
-  --sim <path>     the simulation's entry   (default src/sim/index.ts)
-  --frame <path>   the frame's entry        (default src/frame.ts)
-  --host <port>    the page that frames it  (default ${DEFAULT_HOST_PORT})
-  --frame-port <p> the game's own origin    (default ${DEFAULT_FRAME_PORT})
+  --sim <path>       the simulation's entry   (default src/sim/index.ts)
+  --present <path>   the page module's entry  (default src/present.ts)
+  --capture <path>   the input mapping        (default src/capture.ts)
+  --host <port>      the page that loads it   (default ${DEFAULT_HOST_PORT})
+  --bundles-port <p> the game's code origin   (default ${DEFAULT_BUNDLES_PORT})
   --game <id>      publish: the game to upload to
   --api <origin>   publish: the platform    (default ${DEFAULT_API_ORIGIN},
                    or ${API_ORIGIN_VARIABLE})
@@ -54,32 +55,33 @@ function sourceOf(options: Options): GameSource {
   return {
     root: options.dir,
     simEntry: options.simEntry,
-    frameEntry: options.frameEntry,
+    presentEntry: options.presentEntry,
+    captureEntry: options.captureEntry,
   }
 }
 
 /**
  * Writes the three files an upload carries.
  *
- * The frame is written unrewritten, with its `cw2:sim` specifier intact. The
- * host rewrites it to the simulation's content address on the way in, so a
- * frame that arrived already pointing somewhere would be a frame naming a
- * module nobody checked.
+ * The page module is written unrewritten, with its `cw2:sim` specifier
+ * intact. The platform rewrites it to the simulation's content address on the
+ * way in, so a page module that arrived already pointing somewhere would be
+ * one naming a module nobody checked.
  */
 async function build(options: Options): Promise<void> {
-  const { sim, frame } = await buildGameArtifacts(sourceOf(options))
+  const { sim, present } = await buildGameArtifacts(sourceOf(options))
   const manifest = await readManifestFromSim(sim)
   const dist = join(options.dir, DIST_DIR)
   await rm(dist, { recursive: true, force: true })
   await mkdir(dist, { recursive: true })
   await writeFile(join(dist, DIST_FILES.sim), sim)
-  await writeFile(join(dist, DIST_FILES.frame), frame)
+  await writeFile(join(dist, DIST_FILES.present), present)
   await writeFile(
     join(dist, DIST_FILES.manifest),
     `${JSON.stringify(manifest, null, 2)}\n`,
   )
   process.stdout.write(
-    `sim ${sim.byteLength} bytes, frame ${frame.byteLength} bytes\n`,
+    `sim ${sim.byteLength} bytes, page module ${present.byteLength} bytes\n`,
   )
 }
 
@@ -89,13 +91,13 @@ async function dev(options: Options): Promise<void> {
   const harness = await startHarness({
     source: sourceOf(options),
     hostPort: options.hostPort,
-    framePort: options.framePort,
+    bundlesPort: options.bundlesPort,
   })
   process.stdout.write(
-    `\n  play    ${harness.hostOrigin}\n` +
-      `  game    ${harness.frameOrigin}\n` +
-      `  sim     ${harness.built.simSha256.slice(0, 12)}\n` +
-      `  frame   ${harness.built.frameSha256.slice(0, 12)}\n\n` +
+    `\n  play     ${harness.hostOrigin}\n` +
+      `  bundles  ${harness.bundlesOrigin}\n` +
+      `  sim      ${harness.built.simSha256.slice(0, 12)}\n` +
+      `  present  ${harness.built.presentSha256.slice(0, 12)}\n\n` +
       "  Ctrl-C to stop.\n",
   )
 }

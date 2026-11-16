@@ -40,7 +40,7 @@ const STUDIO = "2b7e2c5a-3c62-4bb6-8f2c-0c8f0b6a9e11"
 const VERSION_ID = "9a0e5d3c-1f3e-4b7f-a2d4-57c1c0a5c2b9"
 const MANIFEST = `${JSON.stringify({ id: "lane-runner", version: "1.2.0" })}\n`
 const SIM = new TextEncoder().encode("export const MANIFEST = {}\n")
-const FRAME = new TextEncoder().encode('import "cw2:sim"\n')
+const PRESENT = new TextEncoder().encode('import "cw2:sim"\n')
 
 let dir: string
 
@@ -56,7 +56,7 @@ async function writeDist(root: string): Promise<void> {
   await mkdir(join(root, "dist"), { recursive: true })
   await writeFile(join(root, "dist", "manifest.json"), MANIFEST)
   await writeFile(join(root, "dist", "sim.js"), SIM)
-  await writeFile(join(root, "dist", "frame.js"), FRAME)
+  await writeFile(join(root, "dist", "present.js"), PRESENT)
 }
 
 function settings(overrides: Partial<PublishSettings> = {}): PublishSettings {
@@ -74,14 +74,15 @@ function uploaded(overrides: Partial<UploadedVersion> = {}): UploadedVersion {
     gameVersionId: VERSION_ID,
     studioId: STUDIO,
     version: "1.2.0",
+    line: "1.2",
     state: "pending",
     simSha256: "a".repeat(64),
-    frameSha256: "b".repeat(64),
-    frameSourceSha256: "c".repeat(64),
+    presentSha256: "b".repeat(64),
+    presentSourceSha256: "c".repeat(64),
     manifestHash: "d".repeat(16),
     manifestSha256: "e".repeat(64),
-    simUrl: "https://bundles.example/sim/a.js",
-    frameUrl: "https://bundles.example/frame/b.js",
+    simUrl: `https://bundles.example/g/${GAME}/sim/a.js`,
+    presentUrl: `https://bundles.example/g/${GAME}/present/b.js`,
     ...overrides,
   }
 }
@@ -94,11 +95,16 @@ function status(
     gameVersionId: VERSION_ID,
     gameId: GAME,
     version: "1.2.0",
+    line: "1.2",
     state,
     rejectedCode: null,
     firstFailure: null,
     checkedAt: state === "pending" ? null : "2026-11-11T06:00:00.000Z",
     suspended: false,
+    serving: {
+      ranked: state === "published" ? "today" : "none",
+      practice: state === "published",
+    },
     createdAt: "2026-11-11T05:59:00.000Z",
     ...overrides,
   }
@@ -290,15 +296,15 @@ describe("reading what vbz build wrote", () => {
     const built = await readBuild(dir)
     expect(built.manifest).toBe(MANIFEST)
     expect(built.sim).toEqual(SIM)
-    expect(built.frame).toEqual(FRAME)
+    expect(built.present).toEqual(PRESENT)
   })
 
   test("a missing file is named, with what to run", async () => {
     await writeDist(dir)
-    await rm(join(dir, "dist", "frame.js"))
+    await rm(join(dir, "dist", "present.js"))
     const refused = await refusalOf(readBuild(dir))
     expect(refused.code).toBe(PUBLISH_ERROR.NOT_BUILT)
-    expect(refused.message).toContain(join(dir, "dist", "frame.js"))
+    expect(refused.message).toContain(join(dir, "dist", "present.js"))
     expect(refused.message).toContain("vbz build")
   })
 
@@ -340,8 +346,9 @@ describe("the upload", () => {
       new Uint8Array(await (form.get("sim") as File).arrayBuffer()),
     ).toEqual(SIM)
     expect(
-      new Uint8Array(await (form.get("frame") as File).arrayBuffer()),
-    ).toEqual(FRAME)
+      new Uint8Array(await (form.get("present") as File).arrayBuffer()),
+    ).toEqual(PRESENT)
+    expect(form.get("frame")).toBeNull()
   })
 
   test("a game id is put in the path escaped, never as more path", async () => {
@@ -571,7 +578,7 @@ describe("the real command", () => {
           seen.origin = request.headers.get("origin")
           seen.authorization = request.headers.get("authorization")
           const form = await request.formData()
-          for (const name of ["manifest", "sim", "frame"]) {
+          for (const name of ["manifest", "sim", "present"]) {
             const part = form.get(name)
             seen.parts[name] =
               typeof part === "string" ? part : await (part as Blob).text()
@@ -619,7 +626,7 @@ describe("the real command", () => {
       expect(seen.parts).toEqual({
         manifest: MANIFEST,
         sim: new TextDecoder().decode(SIM),
-        frame: new TextDecoder().decode(FRAME),
+        present: new TextDecoder().decode(PRESENT),
       })
       expect(seen.reads).toBe(1)
     } finally {

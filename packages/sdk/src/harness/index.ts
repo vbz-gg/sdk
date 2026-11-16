@@ -1,11 +1,12 @@
 /**
- * The harness: your game, framed the way production frames it.
+ * The harness: your game, loaded the way a studio's page loads it.
  *
- * It builds the two real artifacts, serves them content-addressed behind a
- * frame document with the production sandbox and CSP, and serves a page on a
- * second origin that frames it. The point is that the first time a game meets
- * a sandboxed cross-origin frame should be on a laptop rather than in an
- * upload.
+ * It builds the two real artifacts, serves them content-addressed at the
+ * paths and with the headers the platform's edge uses, and serves a page on a
+ * second origin that loads the page module from there with `loadGame` and
+ * plays it through the module's own `mount`. The point is that the first time
+ * a game meets a cross-origin module import should be on a laptop rather than
+ * on a studio's page.
  *
  * What it does not do is replay, settle or rank. That is the platform's half,
  * and a harness that pretended to do it would be teaching an author about a
@@ -15,26 +16,29 @@
 import { existsSync } from "node:fs"
 import { readFile } from "node:fs/promises"
 import { join } from "node:path"
+import { hashCanonical, type PlainValue } from "@clockwork2/engine"
 import { DIST_DIR, DIST_FILES } from "../build/dist.js"
 import type { GameSource } from "../build/index.js"
-import { type BuiltGame, buildAndAddress } from "./artifacts.js"
+import { type BuiltGame, blobKeys, buildAndAddress } from "./artifacts.js"
 import { harnessPage } from "./page/document.js"
-import { startFrameServer, startHostServer } from "./servers.js"
+import { startBundleServer, startHostServer } from "./servers.js"
 
 export interface HarnessOptions {
   readonly source: GameSource
   readonly hostPort?: number
-  readonly framePort?: number
+  readonly bundlesPort?: number
   /** The seed the run is played on. Fixed, so a session is repeatable. */
   readonly seed?: string
-  /** Every path the frame origin was asked for, for a test. */
+  /** Every path the bundles origin was asked for, for a test. */
   readonly onRequest?: (path: string) => void
 }
 
 export interface Harness {
   readonly hostOrigin: string
-  readonly frameOrigin: string
+  readonly bundlesOrigin: string
   readonly built: BuiltGame
+  /** The page module's absolute address, as the platform would hand it out. */
+  readonly presentUrl: string
   stop(): Promise<void>
 }
 
@@ -42,11 +46,17 @@ export interface Harness {
 interface HarnessManifest {
   readonly name?: string
   readonly session?: { readonly tickHz?: number; readonly maxTicks?: number }
-  readonly inputs?: { readonly controls?: unknown }
 }
 
 export const DEFAULT_HOST_PORT = 4310
-export const DEFAULT_FRAME_PORT = 4311
+export const DEFAULT_BUNDLES_PORT = 4311
+
+/**
+ * The game id the harness serves under. The platform issues each game a
+ * UUID and every path names it; a game on a laptop has none, so it gets
+ * this one.
+ */
+export const HARNESS_GAME_ID = "00000000-0000-4000-8000-000000000000"
 
 /**
  * A seed that does not move between runs.
@@ -58,12 +68,12 @@ export const DEFAULT_FRAME_PORT = 4311
 export const HARNESS_SEED = "harness"
 
 export async function startHarness(options: HarnessOptions): Promise<Harness> {
-  const built = await buildAndAddress(options.source)
+  const built = await buildAndAddress(options.source, HARNESS_GAME_ID)
   const manifest = await readManifest(options.source.root)
 
   const title = manifest.name ?? "Game"
 
-  // Bound first, because each server has to be told the other's origin and an
+  // Bound first, because the page has to name the bundles origin and an
   // origin is the port the socket got rather than the port it was asked for.
   // The host's page is written last, once both are known.
   const host = startHostServer({
@@ -71,40 +81,38 @@ export async function startHarness(options: HarnessOptions): Promise<Harness> {
     script: await bundlePage(),
   })
 
-  const frame = startFrameServer({
-    port: options.framePort ?? DEFAULT_FRAME_PORT,
-    title,
+  const bundles = startBundleServer({
+    port: options.bundlesPort ?? DEFAULT_BUNDLES_PORT,
     built,
-    // Only the harness page may frame it, as the platform lets only a game's
-    // allowed pages frame it. A game that works here against a real
-    // `frame-ancestors` will not be surprised by one in production.
-    siteOrigins: [host.origin],
     ...(options.onRequest === undefined ? {} : { log: options.onRequest }),
   })
+  const presentUrl = `${bundles.origin}/${blobKeys(built).present}`
 
   host.setPage(
     harnessPage({
       title,
       config: {
-        frameOrigin: frame.origin,
+        presentUrl,
+        // What the platform would compute from the uploaded manifest, so a
+        // page module carrying another one is refused here as it would be on
+        // a studio's page.
+        manifestHash: hashCanonical(manifest as PlainValue),
         title,
         seed: options.seed ?? HARNESS_SEED,
         tickHz: manifest.session?.tickHz ?? 60,
         maxTicks: manifest.session?.maxTicks ?? 36000,
-        config: null,
-        // Whole, so the page reads its controls the way a game's page does:
-        // through `mountHost`, which refuses what a host cannot draw.
-        manifest,
+        config: {},
       },
     }),
   )
 
   return {
     hostOrigin: host.origin,
-    frameOrigin: frame.origin,
+    bundlesOrigin: bundles.origin,
     built,
+    presentUrl,
     stop: async () => {
-      await Promise.all([host.stop(), frame.stop()])
+      await Promise.all([host.stop(), bundles.stop()])
     },
   }
 }
@@ -171,10 +179,10 @@ export {
   blobKeys,
   buildAndAddress,
 } from "./artifacts.js"
-export { harnessPage } from "./page/document.js"
+export { escapeHtml, harnessPage } from "./page/document.js"
 export {
   type RunningHostServer,
   type RunningServer,
-  startFrameServer,
+  startBundleServer,
   startHostServer,
 } from "./servers.js"

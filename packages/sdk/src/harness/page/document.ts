@@ -1,19 +1,25 @@
 /**
  * The harness page, shaped like a game's page in production.
  *
- * The game gets the whole viewport, one floating mark sits over it, and the
- * controls are drawn on top. The picker, the status line and the
- * two run buttons are what a game's page does not need: an author needs to
- * switch schemes without editing a manifest, needs to see what the bridge is
- * saying, and needs the run's recording, which is the evidence the platform
- * would replay.
+ * The game gets the whole viewport and one floating mark sits over it. The
+ * status line and the two run buttons are what a game's page does not need:
+ * an author needs to see what the game is saying, and needs the run's
+ * recording, which is the evidence the platform would replay.
  *
  * The config travels in a JSON script block rather than in the URL, so a seed
  * does not end up in a referrer or a server log, and the page's own script is
  * an ordinary module with no inline code.
  */
 
-import { escapeHtml } from "../../serve/index.js"
+/** A title comes from a manifest, so it is escaped. */
+export function escapeHtml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;")
+}
 
 export interface HarnessPageInput {
   readonly title: string
@@ -28,25 +34,19 @@ export function harnessPage(input: HarnessPageInput): string {
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>${escapeHtml(input.title)}</title>
     <style>
-      :root {
-        color-scheme: dark;
-        --gb-control-bg: rgba(28, 31, 38, 0.86);
-        --gb-control-fg: #ecedf0;
-        --gb-control-border: 1px solid #3a3d46;
-      }
+      :root { color-scheme: dark; }
       html, body { margin: 0; height: 100%; background: #0d0e11; color: #ecedf0;
         font: 14px system-ui, sans-serif; }
-      /* The stage is the positioning context the controls fill, and it is the
-         whole viewport, as the play view is. */
-      #stage { position: fixed; inset: 0; }
-      #stage iframe { display: block; border: 0; width: 100%; height: 100%; }
+      /* The stage is the element the game fills, and it is the whole
+         viewport, as the play view is. */
+      #stage { position: fixed; inset: 0; outline: none; }
       #mark { position: fixed; top: max(16px, env(safe-area-inset-top));
         left: max(16px, env(safe-area-inset-left)); z-index: 3;
         font-weight: 600; letter-spacing: 0.08em; opacity: 0.7; }
       #bar { position: fixed; top: max(12px, env(safe-area-inset-top));
         right: max(12px, env(safe-area-inset-right)); z-index: 3;
         display: flex; gap: 8px; align-items: center; }
-      #bar select, #bar button { background: #191b20; color: #ecedf0;
+      #bar button { background: #191b20; color: #ecedf0;
         border: 1px solid #3a3d46; border-radius: 8px; padding: 6px 10px;
         font: inherit; }
       #status { opacity: 0.6; }
@@ -59,7 +59,6 @@ export function harnessPage(input: HarnessPageInput): string {
     <div id="mark">vbz</div>
     <div id="bar">
       <span id="status">starting</span>
-      <select id="picker" aria-label="Control scheme"></select>
       <button id="start" type="button">Start</button>
       <button id="end" type="button">End</button>
       <a id="save" download="recording.json" hidden>Save recording</a>
