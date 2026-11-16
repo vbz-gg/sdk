@@ -68,6 +68,8 @@ export interface ResultOptions {
 export const RESULT_INTERVAL_MS = 2_000
 
 export interface PlatformClient {
+  /** The game's page key, which every request carries. */
+  readonly pageKey: PageKey
   /** Every page route, typed by `PlatformRoutes`. The methods below use it. */
   readonly request: Requester
   /** The game the page key names, and today's round. */
@@ -174,6 +176,7 @@ export function createPlatformClient(
     )
 
   return {
+    pageKey: options.pageKey,
     request,
 
     game: () => request("GET /v1/game", {}),

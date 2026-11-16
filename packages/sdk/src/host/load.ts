@@ -347,13 +347,14 @@ function problemsOf(parts: { check(): unknown }): PageModuleProblem[] {
 
 /**
  * The built-ins in `SIMULATION_BUILTINS` that this page has replaced, by
- * name, or an empty list. `Function.prototype.toString` is checked first,
- * since every other answer is read through it.
+ * name, or an empty list. One that is missing, or is not a function, is
+ * replaced too: the rules code calls it. `Function.prototype.toString` is
+ * checked first, since every other answer is read through it.
  */
 export function alteredBuiltins(): string[] {
   const source = Function.prototype.toString
   const native = (value: unknown): boolean =>
-    typeof value !== "function" || NATIVE.test(source.call(value))
+    typeof value === "function" && NATIVE.test(source.call(value))
   // A replacement wrapping the original shows its own source when asked
   // about itself, and one answering native for everything says it of this
   // function too, which is not.

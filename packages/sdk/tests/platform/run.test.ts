@@ -64,7 +64,17 @@ function failure(outcome: Exclude<Outcome, "ok">): Error {
   })
 }
 
-/** A client that records each call and answers from a script per kind. */
+const wireBytes = (body: unknown) =>
+  new TextEncoder().encode(JSON.stringify(body)).byteLength
+
+function tooLarge(code: "E_BODY_TOO_LARGE" | "E_RUN_TOO_LARGE"): Error {
+  return new PlatformRefusal(413, { error: code, message: "over the cap" })
+}
+
+/**
+ * A client that records each call, answers from a script per kind, and
+ * holds a run's chunks and recording to its byte caps as the platform does.
+ */
 function fakeClient(script: {
   chunks?: Outcome[]
   submits?: Outcome[]
@@ -74,15 +84,24 @@ function fakeClient(script: {
   const chunks: RunChunk[] = []
   const chunkOutcomes = [...(script.chunks ?? [])]
   const submitOutcomes = [...(script.submits ?? [])]
+  // The run's byte caps, held as the platform holds them.
+  let committed = 0
   return {
     order,
     chunks,
+    committed: () => committed,
     client: {
       async sendChunk(run: StartedRun, chunk: RunChunk) {
         expect(run.token).toBe("t-run")
         order.push(`chunk ${chunk.seq}`)
         const outcome = chunkOutcomes.shift() ?? "ok"
         if (outcome !== "ok") throw failure(outcome)
+        const bytes = wireBytes(chunk)
+        if (bytes > run.limits.chunkBytes) throw tooLarge("E_BODY_TOO_LARGE")
+        if (committed + bytes > run.limits.runBytes) {
+          throw tooLarge("E_RUN_TOO_LARGE")
+        }
+        committed += bytes
         chunks.push(chunk)
         return { seq: chunk.seq, throughTick: chunk.throughTick }
       },
@@ -90,6 +109,9 @@ function fakeClient(script: {
         order.push(`submit ${JSON.stringify(recording)}`)
         const outcome = submitOutcomes.shift() ?? "ok"
         if (outcome !== "ok") throw failure(outcome)
+        if (wireBytes({ recording }) > run.limits.runBytes) {
+          throw tooLarge("E_RUN_TOO_LARGE")
+        }
         return { sessionId: run.sessionId, recordingSha256: "r" }
       },
       async awaitResult(sessionId: string, options?: { token?: string }) {
@@ -460,6 +482,69 @@ describe("committing the run as it goes", () => {
     expect(game.calls).toEqual(["stop abandoned"])
     expect(order.at(-2)).toBe(`submit ${JSON.stringify(RECORDING)}`)
     expect(chunks.at(-1)?.throughTick).toBe(120)
+    expect(states.at(-1)?.phase).toBe(RUN_PHASE.DONE)
+  })
+})
+
+describe("staying inside what the platform takes", () => {
+  /**
+   * A chunk the cap cannot take is refused, and a refusal fails the run. One
+   * commit can be several pieces, so the room is checked before each piece,
+   * and a run that cannot send the next one ends where its chunks reach,
+   * as a player leaving it: the platform settles it from what it committed.
+   */
+  test("a commit cut into pieces past the run's cap ends the run where its chunks reach", async () => {
+    const tight = { ...RUN, limits: { chunkBytes: 300, runBytes: 1_300 } }
+    const { game, chunks, order, states, committed } = start({}, tight)
+    for (let tick = 1; tick <= 5; tick += 1) game.press(tick)
+    game.frame(120)
+    for (let tick = 121; tick <= 160; tick += 1) game.press(tick)
+    game.frame(240)
+    await settle()
+    expect(states.map((state) => state.errorCode)).not.toContain(
+      "E_RUN_TOO_LARGE",
+    )
+    expect(committed()).toBeLessThanOrEqual(1_300)
+    expect(game.calls).toEqual(["stop abandoned"])
+    // Nothing past the last chunk the platform took was claimed.
+    expect(order.some((call) => call.startsWith("submit"))).toBe(false)
+    expect(chunks.at(-1)?.throughTick).toBeLessThan(240)
+    expect(order.at(-1)).toBe("result s-1")
+    expect(states.at(-1)).toMatchObject({
+      phase: RUN_PHASE.DONE,
+      result: RESULT,
+    })
+  })
+
+  test("a last commit past the run's cap sends what fits, and submits nothing", async () => {
+    const tight = { ...RUN, limits: { chunkBytes: 300, runBytes: 1_000 } }
+    const { game, chunks, order, states, committed } = start({}, tight)
+    for (let tick = 1; tick <= 40; tick += 1) game.press(tick)
+    game.end(50)
+    await settle()
+    expect(states.map((state) => state.phase)).not.toContain(RUN_PHASE.FAILED)
+    expect(chunks.length).toBeGreaterThan(0)
+    expect(committed()).toBeLessThanOrEqual(1_000)
+    expect(chunks.at(-1)?.throughTick).toBeLessThan(50)
+    expect(order.some((call) => call.startsWith("submit"))).toBe(false)
+    expect(states.at(-1)?.phase).toBe(RUN_PHASE.DONE)
+  })
+
+  /** A recording is a body of its own, held to the same cap. */
+  test("a recording too large to submit is not sent, and the chunks settle the run", async () => {
+    const { game, order, states } = start(
+      {},
+      { ...RUN, limits: { chunkBytes: 1_000, runBytes: 2_000 } },
+    )
+    game.press(10)
+    game.handlers.onEnded({
+      tick: 20,
+      reason: "completed",
+      counters: {},
+      recording: { pad: "x".repeat(2_000) } as unknown as Recording,
+    })
+    await settle()
+    expect(order).toEqual(["chunk 0", "result s-1"])
     expect(states.at(-1)?.phase).toBe(RUN_PHASE.DONE)
   })
 })

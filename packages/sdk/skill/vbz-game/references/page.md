@@ -113,18 +113,24 @@ wrong:
 - A chunk goes every two seconds of play, and each ends at the last complete
   tick: one short of the last tick the game reported while the run plays, the
   end tick once it has ended. A chunk over the run's `limits.chunkBytes` is
-  cut between ticks.
+  cut between ticks, and each piece carries the checkpoints of its own ticks.
 - A chunk or a submit that got no answer, or that the platform or a proxy in
   front of it failed with a 5xx, goes again, unchanged. After a refusal
   nothing more is sent.
 - A failure is final: nothing more is sent, and the state stays `failed`.
-- A run about to reach `limits.runBytes` ends as if the player left.
+- Every piece is held to `limits.runBytes` before it is sent, with one
+  chunk's room kept for the last commit. A run about to eat into that room
+  ends as if the player left. One whose next piece would not fit at all is
+  not submitted, and the platform settles it from what it committed.
 - The last chunk reaches the platform before the recording.
 - After the submit it waits for the replay, and `done` carries the result:
   what the replay computed, never what the page showed.
-- While a run plays its page holds a Web Lock named after it, so a second
-  tab handed the same run stops with `E_RUN_OPEN_ELSEWHERE`. A browser with
-  no Web Locks starts nothing and stops with `E_BROWSER_UNSUPPORTED`.
+- From the click until the platform has the run, the page holds a Web Lock
+  named for the game and the mode, taken before the run is asked for. A
+  second tab of the same game and mode stops with `E_RUN_OPEN_ELSEWHERE`
+  having started nothing, which keeps it from closing the first tab's run. A
+  browser with no Web Locks starts nothing and stops with
+  `E_BROWSER_UNSUPPORTED`.
 
 A run can also fail with one of the engine's own codes, such as
 `E_ARG_INVALID` for a mapping the engine refuses, when the module reports one.
@@ -150,7 +156,7 @@ in `@vbz-gg/sdk/api`. A `PlatformClientError` is the client's:
 | `E_TICK_RATE_UNSUPPORTED` | The run's tick rate is not 30, 60 or 120. |
 | `E_MOTION_NEEDS_TAP` | The run's own module reads tilt and the click did not ask for it. Call `playRun` again with `played.game` from the next tap. |
 | `E_BROWSER_UNSUPPORTED` | The browser has no Web Locks, so it cannot keep a run to one tab: Safari before 15.4, or a page not on https. Nothing was started. |
-| `E_RUN_OPEN_ELSEWHERE` | Another tab or window of this browser is playing the same run. |
+| `E_RUN_OPEN_ELSEWHERE` | Another tab or window of this browser is playing this game in this mode. Nothing was started. |
 | `E_NOTHING_TO_WATCH` | The run's replay covers no ticks. |
 | `E_SIM_PACKS` | The manifest declares a data pack the simulation reads. The platform cannot store or replay one yet, and refuses such an upload too. |
 | `E_UNEXPECTED` | An error the client has no code for, or a game error without a code. It is a bug; report the `detail`. |

@@ -17,9 +17,15 @@
  *   ticks (`splitChunk`). They are sent one at a time, in order; one that got
  *   no answer goes again, unchanged, before the next; and after a refusal
  *   nothing more is sent.
- * - **A run stops before it outgrows what the platform takes.** Once what it
- *   committed is within one chunk of `runBytes`, it ends the way a player
- *   leaving ends it, and is submitted.
+ * - **A run stops before it outgrows what the platform takes.** Every piece
+ *   is held to `runBytes` before it is sent, and while the run plays one
+ *   chunk's room is kept for the last commit, which goes just before the
+ *   recording. A piece that would eat into that room ends the run the way a
+ *   player leaving ends it, and the last commit and the recording follow. A
+ *   piece that would not fit at all is never sent: the run then ends where
+ *   its chunks reach, is not submitted, and the platform settles it from
+ *   what it committed, as an abandoned run. So is a recording larger than
+ *   `runBytes`, which the platform would refuse.
  * - **The last chunk reaches the platform before the recording.** A submit
  *   whose chunks stop short of the run's end is refused.
  * - **A submit that got no answer goes again.** The same recording answers
@@ -56,7 +62,11 @@ export const RUN_PHASE = {
   PLAYING: "playing",
   /** The run ended, and its recording is going to the platform. */
   SUBMITTING: "submitting",
-  /** The platform took the recording, and a server is replaying it. */
+  /**
+   * The platform has the run, and a server is replaying it: the recording
+   * it took, or the chunks it committed of a run too large to submit, which
+   * it settles as abandoned.
+   */
   REPLAYING: "replaying",
   /** The result is final: `result` says what the replay decided. */
   DONE: "done",
@@ -230,10 +240,15 @@ export class Run {
     this.tick = Math.max(this.tick, ended.tick)
     this.counters = { ...ended.counters }
     this.ended = true
-    this.commit()
+    const reached = this.commit()
     this.move(RUN_PHASE.SUBMITTING)
+    // A recording whose chunks stop short of its end, or larger than the
+    // platform takes, would be refused. The chunks are the run then.
+    const fits =
+      byteLengthOf({ recording: ended.recording }) <=
+      (this.run?.limits.runBytes ?? 0)
+    const recording = reached && fits ? ended.recording : null
     // After the chunks, so the last chunk reaches the platform first.
-    const recording = ended.recording
     this.posting = this.posting.then(() => this.submit(recording))
   }
 
@@ -241,15 +256,20 @@ export class Run {
     this.fail(error.code, error.message)
   }
 
-  /** Sends what is complete since the last chunk, if anything is. */
-  private commit(): void {
+  /**
+   * Sends what is complete since the last chunk, if anything is, a piece at
+   * a time. Answers whether everything complete was sent: false when the
+   * next piece would take the run past what the platform takes, which ends
+   * a run still playing.
+   */
+  private commit(): boolean {
     const run = this.run
-    if (run === null) return
+    if (run === null) return false
     const log = this.handle?.recorded() ?? []
     const inputs = log.slice(this.inputsSent)
     this.committedAtTick = this.tick
     if (this.checkpoints.length === 0 && inputs.length === 0 && !this.ended) {
-      return
+      return true
     }
     const throughTick = throughTickFor({
       tick: this.tick,
@@ -258,7 +278,7 @@ export class Run {
       postedThrough: this.postedThrough,
     })
     // Nothing new is complete: keep what arrived for the next chunk.
-    if (throughTick === null) return
+    if (throughTick === null) return true
 
     const body: ChunkBody = {
       throughTick,
@@ -266,23 +286,23 @@ export class Run {
       inputs,
       counters: this.counters,
     }
-    this.inputsSent = log.length
-    this.postedThrough = throughTick
-    this.checkpoints = []
-    for (const piece of splitChunk(body, run.limits.chunkBytes)) {
-      const chunk: RunChunk = { seq: this.seq, ...piece }
+    // While the run plays, one chunk's room is kept for the last commit.
+    const room = run.limits.runBytes - (this.ended ? 0 : run.limits.chunkBytes)
+    for (const chunk of splitChunk(body, run.limits.chunkBytes, this.seq)) {
+      const bytes = byteLengthOf(chunk)
+      if (this.committedBytes + bytes > room) {
+        // What is left goes with the last commit, if the room takes it.
+        if (!this.ended) this.handle?.stop("abandoned")
+        return false
+      }
       this.seq += 1
-      this.committedBytes += byteLengthOf(chunk)
+      this.committedBytes += bytes
+      this.inputsSent += chunk.inputs.length
+      this.checkpoints = this.checkpoints.slice(chunk.checkpoints.length)
+      this.postedThrough = chunk.throughTick
       this.posting = this.posting.then(() => this.send(chunk))
     }
-    // One more chunk's room is what the tail and the recording's own
-    // envelope need, so the run stops there, as a player leaving it.
-    if (
-      !this.ended &&
-      this.committedBytes + run.limits.chunkBytes >= run.limits.runBytes
-    ) {
-      this.handle?.stop("abandoned")
-    }
+    return true
   }
 
   /** Sends the chunks that got no answer, then this one, in order. */
@@ -309,7 +329,13 @@ export class Run {
     }
   }
 
-  private async submit(recording: unknown): Promise<void> {
+  /**
+   * Sends the chunks still unsent, then the recording, or nothing more for a
+   * run that is not submitted, and waits for the result.
+   */
+  private async submit(
+    recording: MountedEnd["recording"] | null,
+  ): Promise<void> {
     const run = this.run
     if (run === null) return
     const attempts = this.options.submitAttempts ?? SUBMIT_ATTEMPTS
@@ -323,6 +349,8 @@ export class Run {
       if (this.abort.signal.aborted) return
       if (this.unsent.length > 0) {
         failure = new PlatformClientError("E_UNREACHABLE")
+      } else if (recording === null) {
+        break
       } else {
         try {
           await this.options.client.submit(run, recording)

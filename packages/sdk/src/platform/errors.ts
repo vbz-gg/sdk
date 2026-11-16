@@ -75,9 +75,12 @@ export const CLIENT_ERROR = {
    */
   E_BROWSER_UNSUPPORTED:
     "this browser cannot keep a run to one tab; play on an https page in Safari 15.4 or later, or another current browser",
-  /** Another tab or window of this browser is playing the same run. */
+  /**
+   * Another tab or window of this browser is playing this game in this mode,
+   * so nothing was started: a start would close its run.
+   */
   E_RUN_OPEN_ELSEWHERE:
-    "this run is already being played in another tab or window",
+    "a run of this game in this mode is being played in another tab or window; finish it there first",
   /** The run's replay covers no ticks, so there is nothing to show. */
   E_NOTHING_TO_WATCH: "the run has nothing to replay",
   /** The manifest declares a data pack the simulation reads. */

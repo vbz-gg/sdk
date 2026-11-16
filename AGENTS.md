@@ -119,15 +119,17 @@ its own in `CLIENT_ERROR`.
 tilt, for the reason `signIn()` opens its window first: iOS grants it only in
 the click's own turn.
 
-**A run is held to one tab by a Web Lock named after it**, taken before the
-module mounts and let go when the run stops playing. A browser with no Web
-Locks starts nothing, with `E_BROWSER_UNSUPPORTED`. Never add a path that
-plays unlocked: two tabs on one run post chunks that conflict, and the
-platform counts that against the player.
+**A game is held to one tab per mode by a Web Lock named for its page key
+and the mode**, taken in the click before the run is started and let go once
+the platform has the run. A browser with no Web Locks starts nothing, with
+`E_BROWSER_UNSUPPORTED`. Never add a path that plays unlocked, or a start
+before the lock is held: two tabs on one run post chunks that conflict, and a
+second tab's start closes a run the first has committed to.
 
 **The page never chooses a version.** A run plays what its start names, and
-`playRun` loads a resumed run's own module when it is not the one the page
-loaded.
+`playRun` loads a resumed run's own module when its manifest hash is not the
+loaded module's. The hash names a module; its address can be written more
+than one way.
 
 **The widgets are plain DOM with every colour a `--gb-widget-*` custom
 property**, and show a failure in the client's or the platform's own sentence
@@ -318,8 +320,12 @@ What only a browser can settle, and what each spec found:
   onto the page around it, still records its release.
 - With Play focused, a mapped Space reaches the game and does not press Play,
   because the helpers cancel a mapped key's default. Measured in Chromium.
-- A second tab handed the same run stops at the run's Web Lock and sends
-  nothing for it.
+- A second tab of the game and mode another tab is playing stops at the
+  lock having asked the platform for nothing, before and after the first
+  has committed a chunk.
+- The harness page keeps a refusal on its status line: a run the module
+  refuses at mount, and a tilt request that fails or throws, which starts no
+  run.
 - Watching an abandoned run stops at its end tick.
 - Tilt through Chromium's orientation override: the first reading is recorded
   as it is, and after that a level only when it changes.

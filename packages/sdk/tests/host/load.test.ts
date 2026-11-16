@@ -256,6 +256,43 @@ describe("what the page has done to the built-ins", () => {
     expect(alteredBuiltins()).toEqual(["Function.prototype.toString"])
   })
 
+  /**
+   * The rules code calls each of these. One set to something that is not a
+   * function, or taken away, throws on the page where the replay's isolate
+   * computes, so the page plays a different game from the one replayed.
+   */
+  test("a built-in that is not a function, or is missing, is named", () => {
+    const sqrt = Object.getOwnPropertyDescriptor(Math, "sqrt")
+    const flat = Object.getOwnPropertyDescriptor(Array.prototype, "flat")
+    const padEnd = Object.getOwnPropertyDescriptor(String.prototype, "padEnd")
+    let altered: string[]
+    try {
+      Object.defineProperty(Math, "sqrt", { value: 0, configurable: true })
+      Object.defineProperty(Array.prototype, "flat", {
+        value: undefined,
+        configurable: true,
+      })
+      Reflect.deleteProperty(String.prototype, "padEnd")
+      altered = alteredBuiltins()
+    } finally {
+      for (const [holder, name, descriptor] of [
+        [Math, "sqrt", sqrt],
+        [Array.prototype, "flat", flat],
+        [String.prototype, "padEnd", padEnd],
+      ] as const) {
+        if (descriptor !== undefined) {
+          Object.defineProperty(holder, name, descriptor)
+        }
+      }
+    }
+    expect(altered).toEqual([
+      "Math.sqrt",
+      "Array.prototype.flat",
+      "String.prototype.padEnd",
+    ])
+    expect(alteredBuiltins()).toEqual([])
+  })
+
   test("a toString that calls everything native is not believed", () => {
     Function.prototype.toString = () => "function floor() { [native code] }"
     expect(alteredBuiltins()).toEqual(["Function.prototype.toString"])

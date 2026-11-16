@@ -187,7 +187,8 @@ playButton.onclick = () => {
 
 `playRun` runs inside the click: a game that reads tilt has to be asked
 before anything is awaited. It moves focus to `stage` so keys reach the game,
-and holds the run to one tab of the browser. The platform says which version
+and keeps the game to one tab of the browser in each mode, so a second tab
+cannot close the first tab's run. The platform says which version
 each run plays, and a resumed run plays its own, which `playRun` loads when
 it is not the one you did.
 

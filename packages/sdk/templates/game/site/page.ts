@@ -70,6 +70,7 @@ export interface SiteOptions {
   readonly document: Document
   readonly client: Pick<
     PlatformClient,
+    | "pageKey"
     | "game"
     | "player"
     | "signIn"
