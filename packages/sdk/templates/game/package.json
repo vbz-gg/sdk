@@ -1,10 +1,10 @@
 {
   "name": "lane-runner",
-  "version": "1.0.0",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vbz dev .",
+    "check": "vbz check .",
     "build": "vbz build ."
   },
   "devDependencies": {
