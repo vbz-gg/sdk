@@ -173,7 +173,9 @@ exports map names with plain node, which is the only check that sees this. It
 also asserts the files the package reads at runtime rather than imports are in
 the tarball - `RUNTIME_FILES` in the script - because the harness bundles its
 page script from a path built off `import.meta.dir`, and nothing importing the
-package would notice that file missing.
+package would notice that file missing. `vbz new` reads the template the same
+way, and renames `gitignore`, `agents.md` and `claude.md` on the way into a
+game, so each of those is listed by the name it ships under.
 
 **`loadGame`'s import of a game's code keeps both bundler comments**,
 `webpackIgnore: true` and `@vite-ignore`, on the call itself. The URL arrives
