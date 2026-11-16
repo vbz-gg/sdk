@@ -9,7 +9,10 @@ prints the code and the first failed check of a rejection.
 
 ## 0. The version
 
-The upload's `version` has to move forward: a new release line (a new
+The upload's `version` has to be plain `MAJOR.MINOR.PATCH`: no prerelease or
+build suffix, no leading zero, and no part above 2147483647
+(`E_VERSION_INVALID`). `vbz build` refuses the same versions, with the same
+function. It has to move forward: a new release line (a new
 `MAJOR.MINOR`) greater than every version the game has, or a patch greater
 than every version in its line (`E_VERSION_NOT_NEWER`). The same version twice
 is `E_VERSION_EXISTS`.
@@ -22,12 +25,11 @@ lines" explains what a line means for the day's runs.
 
 ## 1. The manifest
 
-`assertManifest` on the shape, and then two things it does not cover:
+`assertManifest` on the shape, and then one thing it does not cover:
 
 - every name in `rankBy` is a declared counter, and `rankBy` is not empty
   (`E_RANKBY_UNDECLARED`). Without this a game lists, plays fine all day and
   can never rank anybody.
-- every action a control binds appears in `inputs.map` (`E_MANIFEST_INVALID`).
 
 The manifest is also compared against the one the built simulation exports.
 The code's copy wins: a submission whose JSON says something the simulation
@@ -37,11 +39,12 @@ does not is refused rather than believed.
 
 The contract in `references/artifacts.md`, on the uploaded bytes:
 `E_ARTIFACT_NOT_UTF8`, `E_ARTIFACT_TOO_LARGE`, `E_SIM_NOT_SELF_CONTAINED`,
-`E_FRAME_IMPORT_MISSING`, `E_FRAME_IMPORT_UNEXPECTED`,
-`E_FRAME_DYNAMIC_IMPORT`, `E_FRAME_SPECIFIER_AMBIGUOUS`.
+`E_PRESENT_IMPORT_MISSING`, `E_PRESENT_IMPORT_UNEXPECTED`,
+`E_PRESENT_DYNAMIC_IMPORT`, `E_PRESENT_SPECIFIER_AMBIGUOUS`.
 
-Then the addressing: the simulation is hashed, the frame's specifier is
-rewritten to that address, and the frame is hashed afterwards.
+Then the addressing: the simulation is hashed, the page module's specifier is
+rewritten to that address under the game's path, and the page module is
+hashed afterwards.
 
 ## 3. The conformance suite
 

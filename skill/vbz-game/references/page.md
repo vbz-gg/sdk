@@ -1,17 +1,17 @@
 # The page: `@vbz-gg/sdk/platform` and `@vbz-gg/sdk/host`
 
 A studio serves its game from a page of its own. The page signs a player in,
-starts a run, frames the game, sends the run to the platform as it goes,
-submits the recording and reads the board. `@vbz-gg/sdk/platform` does all of
-that against the platform's routes, and `@vbz-gg/sdk/host` puts the frame,
-its controls and two widgets on the page. The platform's page guide,
-`docs/your-game-page.md` in vbz-gg/platform, is the protocol they follow.
+loads the game's page module, starts a run, sends the run to the platform as
+it goes, submits the recording and reads the board. `@vbz-gg/sdk/platform`
+does all of that against the platform's routes, and `@vbz-gg/sdk/host` loads
+the module, plays a run through it and adds two widgets. The platform's page
+guide, `docs/your-game-page.md` in vbz-gg/platform, is the protocol they
+follow.
 
 ## The client
 
 ```ts
-import { createGameFrame } from "@clockwork2/engine/parent"
-import { createPlatformClient, Run } from "@vbz-gg/sdk/platform"
+import { createPlatformClient } from "@vbz-gg/sdk/platform"
 
 const platform = createPlatformClient({
   apiOrigin: API_ORIGIN, // from vbz.gg
@@ -36,69 +36,73 @@ signInButton.onclick = () => platform.signIn() // from the click, nothing awaite
 ## A run
 
 ```ts
-import { mountBoard, mountSignIn, playRun } from "@vbz-gg/sdk/host"
+import { loadGame, mountBoard, mountSignIn, playRun } from "@vbz-gg/sdk/host"
 
 mountSignIn(signInSlot, { client: platform }) // opens the window in the click
 const board = mountBoard(boardSlot, { client: platform, period: "day" })
 await board.refresh()
 
-const run = await platform.startRun() // { practice: true } for practice
-const played = playRun(stage, {
-  client: platform,
-  run,
-  onState: (state) => show(state), // waiting, playing, submitting, replaying, done, failed
-})
-// played.end() when the player leaves; played.destroy() before the next run
+// Before the click: the module the next ranked start plays. Null while the
+// day is paused, when page.practiceVersion is the one to offer.
+const ranked = page.today?.version ?? null
+const game = ranked === null ? null : await loadGame(ranked)
+
+playButton.onclick = () => {
+  if (game === null) return
+  const played = playRun(stage, {
+    client: platform,
+    game, // loaded above
+    mode: "ranked", // or "practice", with page.practiceVersion loaded
+    title: page.game.title,
+    onState: (state) => show(state), // loading, playing, submitting, replaying, done, failed
+  })
+  // played.end() when the player leaves; played.destroy() before the next run
+}
 ```
 
-`playRun` frames `run.game.frameUrl` in `stage`, draws the controls the
-run's own manifest asks for, and sends their presses through the run, so a
-press before the run starts or after it ends is dropped. `stage` needs a
-positioning context of its own: the frame fills it and the controls sit on
-top. The widgets take their colours from `--gb-widget-*` custom properties,
-as the pad takes its from `--gb-control-*`.
+`loadGame` imports the module from its absolute `presentUrl` and checks it
+before anything is played: its contract, its parts, that its manifest hash is
+the version's, its own check of its mapping, and that no script on the page
+replaced a built-in the rules code calls. Load it before the click, so a
+failure spends no run.
 
-A page that frames the game itself uses `Run` directly, and keeps the host so
-it can take the controls down with the frame:
+`playRun` runs inside the click. When the game reads tilt it asks for it
+first, before anything is awaited, then starts the run. A resumed run plays
+the version it started on, and when that is not the module the page loaded,
+`playRun` loads the run's own. When that one reads tilt the click did not ask
+for, the run stops with `E_MOTION_NEEDS_TAP` having sent nothing; call
+`playRun` again with `played.game` from the next tap and the same run carries
+on. It moves focus to `stage`, labelled with `title`, so a key the game maps
+reaches the game rather than the Play button.
 
-```ts
-let host: Host | undefined
-const driver = new Run({
-  client: platform,
-  run,
-  mount: (handlers) => {
-    host = mountHost(stage, {
-      frameUrl: run.game.frameUrl,
-      manifest: run.game.manifest,
-      handlers,
-      onPress: (action, value) => driver.press(action, value),
-    })
-    return host.frame
-  },
-  onState: (state) => show(state),
-})
-// before the next run: driver.destroy(), then host?.destroy()
-```
+`stage` is the element the game fills. The widgets take their colours from
+`--gb-widget-*` custom properties.
 
-`Run` holds the rules a page would otherwise get wrong:
+`watchRun(stage, { client: platform, runId })` reads a settled run, loads its
+own version's module and replays it to where the platform's replay stopped.
 
-- The frame must report the run's manifest hash before a tick runs, or the
+`Run`, which `playRun` drives, holds the rules a page would otherwise get
+wrong:
+
+- The module must report the run's manifest hash before a tick runs, or the
   run fails with `E_WRONG_GAME`.
-- Each chunk ends at the last complete tick: one short of the last tick the
-  frame reported while the run plays, the end tick once it has ended.
+- A chunk goes every two seconds of play, and each ends at the last complete
+  tick: one short of the last tick the game reported while the run plays, the
+  end tick once it has ended. A chunk over the run's `limits.chunkBytes` is
+  cut between ticks.
 - A chunk or a submit that got no answer, or that the platform or a proxy in
-  front of it failed with a 5xx, goes again, unchanged. A refusal does not.
+  front of it failed with a 5xx, goes again, unchanged. After a refusal
+  nothing more is sent.
 - A failure is final: nothing more is sent, and the state stays `failed`.
+- A run about to reach `limits.runBytes` ends as if the player left.
 - The last chunk reaches the platform before the recording.
 - After the submit it waits for the replay, and `done` carries the result:
-  what the replay computed, never what the frame showed.
+  what the replay computed, never what the page showed.
+- While a run plays its page holds a Web Lock named after it, so a second
+  tab handed the same run stops with `E_RUN_OPEN_ELSEWHERE`.
 
-Frame each run with its own `run.game.frameUrl`, and make a new frame for each
-run. A drawn pad passes presses to `driver.press(action, value)`.
-
-`mountHost` refuses before anything is framed when the manifest asks for
-something a host cannot do, and refuses a frame that answers in another
-version of the engine's frame protocol, so nothing is started in it.
+A run can also fail with one of the engine's own codes, such as
+`E_ARG_INVALID` for a mapping the engine refuses, when the module reports one.
 
 ## Codes
 
@@ -112,12 +116,15 @@ in `@vbz-gg/sdk/api`. A `PlatformClientError` is the client's:
 | `E_NOT_SIGNED_IN` | A run route, and no player is signed in on this page. Nothing was sent. |
 | `E_UNREACHABLE` | No answer. The request may or may not have arrived; a run write can be sent again. |
 | `E_ANSWER_UNREADABLE` | An answer that is not JSON, or a failure without a code. |
-| `E_WRONG_GAME` | The frame serves another version than the run plays. |
+| `E_GAME_UNLOADABLE` | The page module did not load from its address: the network, the page's Content-Security-Policy, or an address that is not https. The `detail` names the address. |
+| `E_GAME_MODULE_INVALID` | What the module exports is not a page module, or its own check found its parts disagree. The `detail` names the field. |
+| `E_GAME_CONTRACT_UNKNOWN` | The module was built with a newer `@vbz-gg/sdk` than the page's. Update the page's. |
+| `E_CAPTURE_INVALID` | The game's input mapping names an input or a device its manifest does not allow. |
+| `E_PAGE_ALTERS_BUILTINS` | A script on the page replaced a built-in the rules code calls, so the page would play a different game from the one the platform replays. The `detail` names it. |
+| `E_WRONG_GAME` | The page module is another version of the game than the one the run plays. |
 | `E_TICK_RATE_UNSUPPORTED` | The run's tick rate is not 30, 60 or 120. |
-| `E_RECORDING_UNREADABLE` | The frame's recording did not parse. |
-| `E_FRAME_FAILED` | The frame posted an error of its own; the state's `detail` has it. |
-| `E_FRAME_PROTOCOL` | The frame answered in another version of the engine's frame protocol than the page's engine. Build the page and the game against the same engine minor. |
-| `E_MANIFEST_UNREADABLE` | The manifest handed to a host is not an object with readable `inputs`. |
-| `E_SCHEME_UNDRAWABLE` | The manifest names a scheme this SDK does not draw, or binds a slot the scheme does not have. |
+| `E_MOTION_NEEDS_TAP` | The run's own module reads tilt and the click did not ask for it. Call `playRun` again with `played.game` from the next tap. |
+| `E_RUN_OPEN_ELSEWHERE` | Another tab or window of this browser is playing the same run. |
+| `E_NOTHING_TO_WATCH` | The run's replay covers no ticks. |
 | `E_SIM_PACKS` | The manifest declares a data pack the simulation reads. The platform cannot store or replay one yet, and refuses such an upload too. |
-| `E_UNEXPECTED` | An error the client has no code for. It is a bug; report the `detail`. |
+| `E_UNEXPECTED` | An error the client has no code for, or a game error without a code. It is a bug; report the `detail`. |
