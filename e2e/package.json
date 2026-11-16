@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "What a browser decides: a page module from another origin under a studio's policy, the template's buttons under two fingers, keys beside a Play button, tilt, a run watched, and a page bundled from the packed package",
+  "description": "What a browser decides: a page module from another origin under a studio's policy, the template's buttons under two fingers, keys beside a Play button, tilt, a run watched, a page bundled from the packed package, and a game made from the packed kit and engine",
   "scripts": {
     "test": "playwright test",
     "test:ui": "playwright test --ui",

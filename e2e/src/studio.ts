@@ -19,6 +19,10 @@ export interface StudioInfo {
   readonly modules: Readonly<Record<string, StudioModule>>
   /** The packed package, unpacked beside the engine, as a studio installs it. */
   readonly nodeModules: string
+  /** A registry holding the two tarballs, and npm's packages beside them. */
+  readonly registry: string
+  /** The packed kit and the engine packed from the copy installed here. */
+  readonly tarballs: { readonly sdk: string; readonly engine: string }
 }
 
 let known: StudioInfo | null = null

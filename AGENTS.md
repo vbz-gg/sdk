@@ -291,9 +291,11 @@ CLI, so a stale `dist` cannot be what is tested, and serves: each subject's
 harness, as `vbz dev` serves it; the suite's studio page, `e2e/page/`, on an
 origin of its own under the policy the SDK recommends, against a stand-in for
 the platform per game; a bundles origin holding every game's modules under
-the game's own path; and this package packed and installed apart. It keeps a
-request log per bundles origin, which a spec reads to see what the browser
-actually fetched.
+the game's own path; this package packed and installed apart; and a package
+registry holding that tarball and one of the engine, packed from the copy
+installed here, which fetches every other package from npm. It keeps a
+request log per bundles origin and one for the registry, which a spec reads
+to see what was actually fetched.
 
 The subjects are the template, which draws its own two buttons, and the
 paddle fixture, which reads tilt and maps Space. Beside them, `e2e/frozen/`
@@ -327,6 +329,13 @@ What only a browser can settle, and what each spec found:
   Without its comment webpack turns `loadGame`'s import into a lookup of its
   own and the page loads nothing; Vite 8 and esbuild leave it alone either
   way.
+- A game made the way an author makes one: the kit and the engine installed
+  from their tarballs, `vbz new`, the game's own install from the registry,
+  `vbz guides`, `vbz check`, and `vbz dev` with no studio key, its page
+  loaded and played. And `bunx @vbz-gg/sdk new`, against the registry
+  through `BUN_CONFIG_REGISTRY`, which `bunx` reads and a `bunfig.toml` in
+  its working directory does not. `bunx` reuses its install under `TMPDIR`
+  from one run to the next, so every run gets its own `TMPDIR` and bun cache.
 
 Chromium runs every spec; Firefox and WebKit run the one about the policy,
 which is each engine's to decide. The fingers and the sensor override are
