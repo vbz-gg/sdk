@@ -82,7 +82,11 @@ export async function buildGameArtifacts(
   return { sim, present }
 }
 
-async function bundle(
+/**
+ * One entry under `root` bundled for the browser, as `buildGameArtifacts`
+ * bundles each module, and as `vbz dev --site` bundles a game's page script.
+ */
+export async function bundle(
   root: string,
   entry: string,
   external: readonly string[],

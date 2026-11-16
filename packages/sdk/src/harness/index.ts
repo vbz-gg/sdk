@@ -17,13 +17,12 @@
  */
 
 import { existsSync } from "node:fs"
-import { readFile } from "node:fs/promises"
 import { join } from "node:path"
 import { hashCanonical, type PlainValue } from "@clockwork2/engine"
-import { DIST_DIR, DIST_FILES } from "../build/dist.js"
 import type { GameSource } from "../build/index.js"
 import { type BuiltGame, blobKeys, buildAndAddress } from "./artifacts.js"
 import { pageCsp } from "./csp.js"
+import { readBuiltManifest } from "./dist-manifest.js"
 import { HARNESS_STYLE, harnessPage } from "./page/document.js"
 import { replayInChild } from "./replay.js"
 import {
@@ -160,23 +159,9 @@ export async function startHarness(options: HarnessOptions): Promise<Harness> {
   }
 }
 
-/**
- * The manifest, read from the game's built output rather than imported.
- *
- * Importing the simulation to reach its `MANIFEST` would run a stranger's
- * module in this process. The build writes the manifest beside the artifacts
- * for exactly this reason.
- */
+/** The manifest `vbz build` wrote, as the harness reads it. */
 async function readManifest(root: string): Promise<HarnessManifest> {
-  try {
-    const text = await readFile(
-      join(root, DIST_DIR, DIST_FILES.manifest),
-      "utf8",
-    )
-    return JSON.parse(text) as HarnessManifest
-  } catch {
-    return {}
-  }
+  return (await readBuiltManifest(root)) as HarnessManifest
 }
 
 /**
@@ -244,3 +229,21 @@ export {
   startHostServer,
   type Tls,
 } from "./servers.js"
+export {
+  type RunningSite,
+  SITE_DIR,
+  SITE_ENTRY,
+  type SiteConfig,
+  type SiteOptions,
+  siteFile,
+  startSite,
+} from "./site.js"
+export {
+  LOCAL_PLAYER,
+  type RunningStandIn,
+  STAND_IN_LIMITS,
+  STAND_IN_PAGE_KEY,
+  STAND_IN_VERSION_ID,
+  type StandInOptions,
+  startStandIn,
+} from "./stand-in.js"

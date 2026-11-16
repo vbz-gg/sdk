@@ -270,9 +270,38 @@ describe("before a tick runs", () => {
         phase: RUN_PHASE.FAILED,
         errorCode: "E_RANKED_PAUSED",
         detail: "ranked play is paused",
+        refusalDetail: null,
         result: null,
       },
     ])
+  })
+
+  /** So a page can say when a bar ends, which the sentence alone does not. */
+  test("a refusal's own detail reaches the state, and nothing else's does", () => {
+    const states: RunState[] = []
+    const driver = new Run({
+      client: fakeClient({}).client,
+      onState: (state) => states.push(state),
+    })
+    driver.refuse(
+      new PlatformRefusal(403, {
+        error: "E_PLAYER_BARRED",
+        message: "barred",
+        detail: { until: "2026-11-17T09:00:00.000Z" },
+      }),
+    )
+    expect(states[0]?.errorCode).toBe("E_PLAYER_BARRED")
+    expect(states[0]?.refusalDetail).toEqual({
+      until: "2026-11-17T09:00:00.000Z",
+    })
+
+    const other: RunState[] = []
+    const client = new Run({
+      client: fakeClient({}).client,
+      onState: (state) => other.push(state),
+    })
+    client.refuse(new PlatformClientError("E_UNREACHABLE"))
+    expect(other[0]?.refusalDetail).toBeNull()
   })
 
   test("a client error carries what it was about into the detail", () => {

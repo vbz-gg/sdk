@@ -14,7 +14,10 @@ import type { GameSource } from "../build/index.js"
 import {
   DEFAULT_BUNDLES_PORT,
   DEFAULT_HOST_PORT,
+  HARNESS_GAME_ID,
+  HARNESS_SEED,
   startHarness,
+  startSite,
 } from "../harness/index.js"
 import { DEFAULT_ADDRESS, type Options, parseArgs } from "./args.js"
 import { buildGame, buildLines, writeBuild } from "./build.js"
@@ -49,6 +52,8 @@ const USAGE = `vbz - build and run a game for vbz.gg
   --address <host>   dev: where both listen, and the host their origins name
                      (default ${DEFAULT_ADDRESS}); another machine's needs --https
   --https            dev: serve https, with --cert <file> and --key <file> (PEM)
+  --site             dev: serve the game's site/ against a stand-in for the
+                     platform, which plays one local player and ranks nothing
   --game <id>      publish: the game to upload to
   --api <origin>   publish: the platform    (default ${DEFAULT_API_ORIGIN},
                    or ${API_ORIGIN_VARIABLE})
@@ -79,6 +84,25 @@ async function dev(options: Options): Promise<void> {
   const settings = await devSettings(options)
   // Built next, so the manifest beside the artifacts is this build's.
   await build(options)
+  if (settings.site) {
+    const site = await startSite({
+      source: sourceOf(options),
+      gameId: HARNESS_GAME_ID,
+      seed: HARNESS_SEED,
+      hostPort: settings.hostPort,
+      bundlesPort: settings.bundlesPort,
+      listen: settings.listen,
+      log: (line) => process.stdout.write(`${line}\n`),
+    })
+    process.stdout.write(
+      `\n  site     ${site.siteOrigin}\n` +
+        `  bundles  ${site.bundlesOrigin}\n` +
+        `  api      ${site.apiOrigin}  (a stand-in: one local player, no replay, no ranking)\n` +
+        `  sign-in  ${site.signInOrigin}\n\n` +
+        "  Ctrl-C to stop.\n",
+    )
+    return
+  }
   const harness = await startHarness({
     source: sourceOf(options),
     hostPort: settings.hostPort,

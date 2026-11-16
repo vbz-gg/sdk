@@ -365,6 +365,7 @@ describe("which module plays the run", () => {
         phase: RUN_PHASE.FAILED,
         errorCode: "E_RANKED_PAUSED",
         detail: "ranked play is paused today",
+        refusalDetail: null,
         result: null,
       },
     ])

@@ -74,6 +74,11 @@ export interface RunState {
   readonly errorCode: string | null
   /** For a failure, what the game or the platform said about it. */
   readonly detail: string | null
+  /**
+   * For the platform's refusal, the `detail` it gave, such as when a bar ends
+   * for `E_PLAYER_BARRED`. Null for anything else.
+   */
+  readonly refusalDetail: Readonly<Record<string, unknown>> | null
   /** Once the phase is `done`. */
   readonly result: RunResult | null
 }
@@ -115,6 +120,7 @@ export class Run {
     phase: RUN_PHASE.LOADING,
     errorCode: null,
     detail: null,
+    refusalDetail: null,
     result: null,
   }
 
@@ -382,7 +388,13 @@ export class Run {
 
   private move(phase: RunPhase): void {
     if (this.abort.signal.aborted) return
-    this.state = { phase, errorCode: null, detail: null, result: null }
+    this.state = {
+      phase,
+      errorCode: null,
+      detail: null,
+      refusalDetail: null,
+      result: null,
+    }
     this.options.onState?.(this.state)
   }
 
@@ -392,6 +404,7 @@ export class Run {
       phase: RUN_PHASE.DONE,
       errorCode: null,
       detail: null,
+      refusalDetail: null,
       result,
     }
     this.options.onState?.(this.state)
@@ -403,12 +416,17 @@ export class Run {
    * playing is stopped where it stands, so nobody plays on into a run that
    * can no longer count; what it drew stays, for the page to take down.
    */
-  private fail(code: ClientErrorCode | string, detail: string | null): void {
+  private fail(
+    code: ClientErrorCode | string,
+    detail: string | null,
+    refusalDetail: Readonly<Record<string, unknown>> | null = null,
+  ): void {
     if (this.abort.signal.aborted) return
     this.state = {
       phase: RUN_PHASE.FAILED,
       errorCode: code,
       detail,
+      refusalDetail,
       result: null,
     }
     this.abort.abort()
@@ -423,7 +441,7 @@ export class Run {
    */
   private failWith(error: unknown): void {
     if (error instanceof PlatformRefusal) {
-      this.fail(error.code, error.message)
+      this.fail(error.code, error.message, error.detail ?? null)
       return
     }
     if (error instanceof PlatformClientError) {
