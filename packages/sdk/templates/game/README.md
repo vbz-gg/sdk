@@ -8,6 +8,7 @@ bun install
 bun run dev      # play it, loaded the way a studio's page loads it
 bun run check    # the engine's checks, and the input mapping held to the manifest
 bun run build    # the three files an upload carries
+bun run site     # your page, against a stand-in for the platform
 ```
 
 ## What is where
@@ -20,6 +21,7 @@ src/sim/manifest.ts   what the platform knows without running anything
 src/capture.ts        which keys, fingers and controllers drive which inputs
 src/present/canvas.ts the renderer, which reads and never writes
 src/present.ts        the page module's entry, which a studio's page loads
+site/                 your game's page: sign-in, Play, Practice and the board
 ```
 
 The line that matters is between `src/sim/` and everything else. The
@@ -54,6 +56,37 @@ them.
 Keep the ranges coarse. Every value a finger crosses is an input to record,
 store and replay, and a range of 0 to 16 across the field records a fraction
 of what 0 to 1000 would, for a game that only needs to know which button.
+
+## The page
+
+`site/` is the page players open, and it is yours to deploy wherever you
+host your site. `site/index.html` is the shell, `site/page.ts` wires it up
+with the SDK and `site/messages.ts` holds every sentence it shows. It signs a
+player in through the platform's window, loads the game's page module before
+the Play button is pressed, starts a ranked or a practice run in the click,
+and shows today's board. The platform says which version each run plays; the
+page loads what it is told and never chooses.
+
+On a day when ranked play is paused, because the version the day's runs were
+playing was taken down, the page says "Ranked play is paused; practice is
+open" and reads the game again on every Play, so the first Play after a
+newer patch passes its checks is a ranked run again. A player barred for
+tampered submissions is told when the bar ends.
+
+`bun run site`, which is `vbz dev . --site`, serves it on this machine
+against a stand-in for the platform's page routes and sign-in window, which
+plays as one local player on a fixed seed. The stand-in neither replays nor
+ranks a run: it settles each one with the counters the page sent, and says so
+in the terminal. The page is served under the Content-Security-Policy a
+studio's page should send, which lets scripts come from your page's own
+origin and from your game's own path on the platform's bundles origin, and
+nowhere else.
+
+To deploy it, bundle `site/main.ts` for the browser with whatever builds the
+rest of your site, serve it as `main.js` beside `index.html` and `site.css`,
+and fill in `site/config.json`: the API and sign-in origins vbz.gg gives you,
+and the game's page key from the dashboard. A page key is public, so the file
+can ship as it is. Left empty, the page says which file to fill in.
 
 ## Releasing
 

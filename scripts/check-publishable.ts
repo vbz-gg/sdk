@@ -146,6 +146,8 @@ export const RUNTIME_FILES: readonly string[] = [
   "templates/game/src/sim/index.ts",
   "templates/game/src/present.ts",
   "templates/game/src/capture.ts",
+  "templates/game/site/index.html",
+  "templates/game/site/main.ts",
 ]
 
 /** Reads the package.json a tarball would carry, not the one on disk. */

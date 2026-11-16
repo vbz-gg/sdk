@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "vbz dev .",
+    "site": "vbz dev . --site",
     "check": "vbz check .",
     "build": "vbz build ."
   },

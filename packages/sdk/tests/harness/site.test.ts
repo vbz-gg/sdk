@@ -4,9 +4,11 @@
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test"
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { cp, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { join, resolve } from "node:path"
+import { buildGame, writeBuild } from "../../src/cli/build"
+import { isCopied, TEMPLATE_DIR } from "../../src/cli/new"
 import { HARNESS_GAME_ID, HARNESS_SEED } from "../../src/harness"
 import { type RunningSite, siteFile, startSite } from "../../src/harness/site"
 import { STAND_IN_PAGE_KEY } from "../../src/harness/stand-in"
@@ -161,4 +163,47 @@ describe("which file a path names", () => {
     expect(siteFile("/game/site", "/")).toBeNull()
     expect(siteFile("/game/site", "/%E0%A4%A")).toBeNull()
   })
+})
+
+describe("the template's own site", () => {
+  /**
+   * What `vbz new` hands an author has to bundle and serve as it is: its
+   * script reaches `@vbz-gg/sdk/platform` and `/host` through the game's own
+   * install, as a studio's build would.
+   */
+  test("bundles, and is served with the stand-in's config", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "sdk-site-template-"))
+    try {
+      await cp(TEMPLATE_DIR, dir, {
+        recursive: true,
+        filter: (path) => isCopied(TEMPLATE_DIR, path),
+      })
+      await symlink(resolve("node_modules"), join(dir, "node_modules"))
+      const source = { root: dir, ...SOURCE }
+      await writeBuild(dir, await buildGame(source))
+      const site = await startSite({
+        source,
+        gameId: HARNESS_GAME_ID,
+        seed: HARNESS_SEED,
+        hostPort: 0,
+        bundlesPort: 0,
+      })
+      try {
+        const html = await (await fetch(site.siteOrigin)).text()
+        expect(html).toContain('<script type="module" src="main.js">')
+        const script = await (await fetch(`${site.siteOrigin}/main.js`)).text()
+        expect(script).toContain("Ranked play is paused; practice is open")
+        // The page's SDK is bundled, and no engine with it: the page module
+        // carries its own.
+        expect(script).toContain("E_PAGE_ALTERS_BUILTINS")
+        expect(script).not.toContain("ClockworkError")
+        const css = await fetch(`${site.siteOrigin}/site.css`)
+        expect(css.status).toBe(200)
+      } finally {
+        await site.stop()
+      }
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  }, 120_000)
 })

@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <title>Game</title>
+    <link rel="stylesheet" href="site.css" />
+    <script type="module" src="main.js"></script>
+  </head>
+  <body>
+    <header class="bar">
+      <h1 id="title">Game</h1>
+      <div id="signin"></div>
+    </header>
+    <main>
+      <!-- The element the game fills. Its size is the game's: the playfield
+           is 480 by 720, so it keeps that shape. -->
+      <div id="game" class="game"></div>
+      <p id="message" role="status"></p>
+      <div class="actions">
+        <button id="play" type="button">Play</button>
+        <button id="practice" type="button">Practice</button>
+      </div>
+      <section>
+        <h2>Today's board</h2>
+        <div id="board"></div>
+      </section>
+    </main>
+  </body>
+</html>
