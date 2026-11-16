@@ -2,14 +2,13 @@
  * What the platform knows about this game without running it.
  *
  * Every field here is read before a single tick executes: how fast it runs,
- * how long it may run for, what it counts, how it ranks, and how somebody on
- * a phone steers it.
+ * how long it may run for, what it records, what it counts and how it ranks.
  */
 
 import type { Manifest } from "@clockwork2/engine/manifest"
 
 export const MANIFEST: Manifest = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   /** Immutable. Change it and this is a different game with a new board. */
   id: "lane-runner",
   version: "1.0.0",
@@ -22,38 +21,14 @@ export const MANIFEST: Manifest = {
     maxWallSeconds: 300,
     hasEnding: true,
   },
+  /**
+   * What a recording holds: each input by name, and the whole numbers it
+   * carries. A press is 0 or 1. Which key or finger drives each one is
+   * `src/capture.ts`'s business, not the manifest's.
+   */
   inputs: {
-    map: {
-      left: [
-        { code: "ArrowLeft", device: "key", label: "Left" },
-        { code: "KeyA", device: "key" },
-      ],
-      right: [
-        { code: "ArrowRight", device: "key", label: "Right" },
-        { code: "KeyD", device: "key" },
-      ],
-    },
-    /**
-     * A layout the **page hosting the game** draws, with this game's actions
-     * in its slots.
-     *
-     * Bind the slots you use and leave the rest of the layout empty: this
-     * game moves sideways only, so it sits in a d-pad's left and right
-     * positions and the other two cells stay blank. The SDK's renderer owns
-     * every pixel of those buttons, which is what lets it promise they are
-     * thumb-sized and clear of the notch.
-     *
-     * If your controls are part of your art, declare `{ mode: "custom" }`
-     * instead, paint them in your renderer and hit-test them in `tick`. See
-     * the `paddle` fixture. And if your game needs a keyboard, leave this
-     * field out: a page hosting it can then say so to somebody holding a
-     * phone rather than framing a canvas they cannot steer.
-     */
-    controls: {
-      mode: "scheme",
-      scheme: "dpad",
-      bind: { left: "left", right: "right" },
-    },
+    left: { min: 0, max: 1, label: "Left" },
+    right: { min: 0, max: 1, label: "Right" },
   },
   counters: [
     { name: "motes", direction: "up", monotonic: true, label: "Motes" },

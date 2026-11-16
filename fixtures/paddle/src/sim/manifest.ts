@@ -1,20 +1,17 @@
 /**
  * A game that draws its own controls.
  *
- * `controls: { mode: "custom" }` says the host draws nothing. Everything a
- * player touches is painted by this game's renderer and hit-tested by its
- * simulation, which is the whole point of the fixture: the custom path is
- * the one a game takes when its controls are part of its art, and it is the
- * path that cannot work unless pointer input carries an identity.
- *
- * The bindings are the two fingers the game handles. A third is bound by
- * nobody and its events are dropped, exactly as an unbound key is.
+ * Everything a player touches is painted by this game's renderer and
+ * hit-tested by its simulation: the manifest declares where a finger is and
+ * whether it is down, in the playfield's own units, and `tick` decides what a
+ * touch at that position means. The second finger is what one shared pointer
+ * stream could never express.
  */
 
 import type { Manifest } from "@clockwork2/engine/manifest"
 
 export const MANIFEST: Manifest = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   id: "paddle",
   version: "1.0.0",
   name: "Paddle",
@@ -26,22 +23,18 @@ export const MANIFEST: Manifest = {
     hasEnding: true,
   },
   inputs: {
-    map: {
-      // Where the first finger is, across the playfield. The simulation
-      // decides what that position means, because a renderer may not build
-      // an input and so may not decide what was pressed.
-      aimX: [{ code: "pointer0-x", device: "pointer", label: "Drag" }],
-      aimY: [{ code: "pointer0-y", device: "pointer", label: "Drag" }],
-      touch: [{ code: "pointer0", device: "pointer", label: "Touch" }],
-      // A second finger, held while the first still drags. This pair is what
-      // one shared pointer stream could never express.
-      boostX: [{ code: "pointer1-x", device: "pointer", label: "Boost" }],
-      boost: [{ code: "pointer1", device: "pointer", label: "Boost" }],
-      // A keyboard too, so the fixture is playable on a desktop.
-      left: [{ code: "ArrowLeft", device: "key", label: "Left" }],
-      right: [{ code: "ArrowRight", device: "key", label: "Right" }],
-    },
-    controls: { mode: "custom" },
+    // Where the first finger is, across the playfield. The simulation
+    // decides what that position means, because a renderer may not decide
+    // what was pressed.
+    aimX: { min: 0, max: 1000, label: "Drag" },
+    aimY: { min: 0, max: 1000, label: "Drag" },
+    touch: { min: 0, max: 1, label: "Touch" },
+    // A second finger, held while the first still drags.
+    boostX: { min: 0, max: 1000, label: "Boost" },
+    boost: { min: 0, max: 1, label: "Boost" },
+    // A keyboard too, so the fixture is playable on a desktop.
+    left: { min: 0, max: 1, label: "Left" },
+    right: { min: 0, max: 1, label: "Right" },
   },
   counters: [
     { name: "caught", direction: "up", monotonic: true, label: "Caught" },

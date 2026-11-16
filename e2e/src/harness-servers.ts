@@ -51,20 +51,23 @@ for (const name of Object.keys(SUBJECTS) as SubjectName[]) {
     source: {
       root: dir,
       simEntry: "src/sim/index.ts",
-      frameEntry: "src/frame.ts",
+      presentEntry: "src/present.ts",
+      captureEntry: "src/capture.ts",
     },
     hostPort: subject.hostPort,
-    framePort: subject.framePort,
+    bundlesPort: subject.framePort,
     onRequest: (path) => {
       requests.get(name)?.push(path)
     },
   })
   const keys = blobKeys(harness.built)
+  // The specs still name the bundles origin and the page module by their
+  // frame-era fields; the browser suite's rewrite renames them.
   running.set(name, {
     hostOrigin: harness.hostOrigin,
-    frameOrigin: harness.frameOrigin,
+    frameOrigin: harness.bundlesOrigin,
     sim: `/${keys.sim}`,
-    frame: `/${keys.frame}`,
+    frame: `/${keys.present}`,
   })
 }
 

@@ -9,34 +9,43 @@
  * game. That is the drift worth catching.
  *
  * It builds through the real `buildGameArtifacts`, so a template that stops
- * building, or starts inlining its simulation into its frame, fails here too.
+ * building, or starts inlining its simulation into its page module, fails
+ * here too.
  */
 
 import { describe, expect, test } from "bun:test"
 import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { hashCanonical, type PlainValue } from "@clockwork2/engine"
 import { loadSubject, validate } from "@clockwork2/engine/validate"
 import { buildGameArtifacts } from "../../src/build/build"
+import { SIM_SPECIFIER } from "../../src/build/contract"
 import { readManifestFromSim } from "../../src/cli/manifest"
+import type { PageModule } from "../../src/game/contract"
 
 const ROOT = join(import.meta.dir, "..", "..", "..", "..")
 
 /** Every subject the repository ships, and what each one is for. */
 const SUBJECTS = [
   {
-    name: "the scheme template",
+    name: "the template",
     dir: join(ROOT, "packages", "sdk", "templates", "game"),
   },
   { name: "the paddle fixture", dir: join(ROOT, "fixtures", "paddle") },
 ] as const
 
-async function report(dir: string) {
-  const { sim, frame } = await buildGameArtifacts({
+function built(dir: string) {
+  return buildGameArtifacts({
     root: dir,
     simEntry: "src/sim/index.ts",
-    frameEntry: "src/frame.ts",
+    presentEntry: "src/present.ts",
+    captureEntry: "src/capture.ts",
   })
+}
+
+async function report(dir: string) {
+  const { sim, present } = await built(dir)
   const manifest = await readManifestFromSim(sim)
 
   // The suite wants a directory laid out as `index.js` with `manifest.json`
@@ -50,8 +59,8 @@ async function report(dir: string) {
       JSON.stringify(manifest, null, 2),
     )
     return {
-      built: { sim, frame },
-      manifest: manifest as { inputs?: { controls?: { mode?: string } } },
+      built: { sim, present },
+      manifest,
       result: await validate(await loadSubject(subject), {}),
     }
   } finally {
@@ -76,31 +85,38 @@ describe("what this repository ships as an example", () => {
   }
 
   /**
-   * A platform replays with one checkpoint per second of play. A frame that
-   * wrote them at a fixed count of ticks agrees at the one tick rate that
-   * count was written for and disagrees on every run at any other, so an
-   * author who changes `tickHz` from the template's 60 would see every run
-   * rejected. A browser run at 60 Hz cannot tell the two apart, which is why
-   * this reads the frame an author starts from.
+   * The page module, built as `vbz build` builds it and loaded beside its own
+   * rules code, has to pass its own check: the manifest it was handed is the
+   * rules code's, and its mapping names only inputs the manifest declares.
    */
   for (const subject of SUBJECTS) {
-    test(`${subject.name} writes a checkpoint each second at any tick rate`, async () => {
-      const frame = await Bun.file(join(subject.dir, "src", "frame.ts")).text()
-      const cadence = /checkpointEvery:\s*([^,\n]+)/.exec(frame)
-      expect(cadence?.[1]?.trim()).toBe("MANIFEST.session.tickHz")
-    })
+    test(`${subject.name}'s page module passes its own check`, async () => {
+      const { sim, present } = await built(subject.dir)
+      const manifest = await readManifestFromSim(sim)
+      const dir = await mkdtemp(join(tmpdir(), "sdk-conformance-"))
+      try {
+        await writeFile(join(dir, "sim.js"), sim)
+        // Where the platform points the import at its stored copy, this
+        // points it at the file beside it.
+        await writeFile(
+          join(dir, "present.js"),
+          new TextDecoder()
+            .decode(present)
+            .replaceAll(
+              JSON.stringify(SIM_SPECIFIER),
+              JSON.stringify("./sim.js"),
+            ),
+        )
+        const loaded = (await import(join(dir, "present.js"))) as {
+          default: PageModule
+        }
+        const game = loaded.default
+        expect(game.contract).toBe(1)
+        expect(game.check()).toEqual([])
+        expect(game.manifestHash).toBe(hashCanonical(manifest as PlainValue))
+      } finally {
+        await rm(dir, { recursive: true, force: true })
+      }
+    }, 120_000)
   }
-
-  /**
-   * The two exist to show different answers to the same question, and a
-   * change that made them agree would leave one path with no example at all.
-   */
-  test("between them they cover both ways to have controls", async () => {
-    const modes = []
-    for (const subject of SUBJECTS) {
-      const { manifest } = await report(subject.dir)
-      modes.push(manifest.inputs?.controls?.mode)
-    }
-    expect(modes.sort()).toEqual(["custom", "scheme"])
-  }, 120_000)
 })
