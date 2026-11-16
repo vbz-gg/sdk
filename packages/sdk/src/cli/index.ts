@@ -16,9 +16,10 @@ import {
   DEFAULT_HOST_PORT,
   startHarness,
 } from "../harness/index.js"
-import { type Options, parseArgs } from "./args.js"
+import { DEFAULT_ADDRESS, type Options, parseArgs } from "./args.js"
 import { buildGame, buildLines, writeBuild } from "./build.js"
 import { checkGame, checkLines } from "./check.js"
+import { devSettings } from "./dev.js"
 import { failureLine } from "./failure.js"
 import { createGame } from "./new.js"
 import {
@@ -43,8 +44,11 @@ const USAGE = `vbz - build and run a game for vbz.gg
   --sim <path>       the simulation's entry   (default src/sim/index.ts)
   --present <path>   the page module's entry  (default src/present.ts)
   --capture <path>   the input mapping        (default src/capture.ts)
-  --host <port>      the page that loads it   (default ${DEFAULT_HOST_PORT})
-  --bundles-port <p> the game's code origin   (default ${DEFAULT_BUNDLES_PORT})
+  --host <port>      dev: the page that loads it   (default ${DEFAULT_HOST_PORT})
+  --bundles-port <p> dev: the game's code origin   (default ${DEFAULT_BUNDLES_PORT})
+  --address <host>   dev: where both listen, and the host their origins name
+                     (default ${DEFAULT_ADDRESS}); another machine's needs --https
+  --https            dev: serve https, with --cert <file> and --key <file> (PEM)
   --game <id>      publish: the game to upload to
   --api <origin>   publish: the platform    (default ${DEFAULT_API_ORIGIN},
                    or ${API_ORIGIN_VARIABLE})
@@ -71,12 +75,15 @@ async function build(options: Options): Promise<void> {
 }
 
 async function dev(options: Options): Promise<void> {
-  // Built first, so the manifest beside the artifacts is this build's.
+  // Checked first, so a flag that cannot work stops before anything builds.
+  const settings = await devSettings(options)
+  // Built next, so the manifest beside the artifacts is this build's.
   await build(options)
   const harness = await startHarness({
     source: sourceOf(options),
-    hostPort: options.hostPort,
-    bundlesPort: options.bundlesPort,
+    hostPort: settings.hostPort,
+    bundlesPort: settings.bundlesPort,
+    listen: settings.listen,
   })
   process.stdout.write(
     `\n  play     ${harness.hostOrigin}\n` +

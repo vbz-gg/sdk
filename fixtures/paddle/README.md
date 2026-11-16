@@ -17,3 +17,12 @@ level only when it changes.
 ```bash
 bun run packages/sdk/src/cli/index.ts dev fixtures/paddle
 ```
+
+A phone is another machine, and a browser grants tilt only to a secure page,
+so on a phone it is served over https on the laptop's own address, with a
+certificate the phone trusts for that address:
+
+```bash
+bun run packages/sdk/src/cli/index.ts dev fixtures/paddle \
+  --address 192.168.1.20 --https --cert cert.pem --key key.pem
+```
