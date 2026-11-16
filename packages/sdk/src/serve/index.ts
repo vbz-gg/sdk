@@ -1,10 +1,9 @@
 /**
- * Serving a game the way a platform serves it.
+ * Serving a game's two modules the way the platform's edge serves them.
  *
- * The frame document, its Content-Security-Policy and the routes its two
- * artifacts are fetched from. The harness serves a laptop from this code and
- * the platform serves production from it, so a game meets the same sandbox
- * and the same CSP in both.
+ * The harness serves a laptop from this code, and the platform's development
+ * `bundles` role serves its local folder from it, so a page meets the same
+ * paths and the same headers in both as from the public bucket in production.
  */
 
 export {
@@ -14,9 +13,3 @@ export {
   createBlobServer,
   JS_CONTENT_TYPE,
 } from "./blobs.js"
-export {
-  escapeHtml,
-  type FrameDocumentInput,
-  frameCsp,
-  frameDocument,
-} from "./document.js"
