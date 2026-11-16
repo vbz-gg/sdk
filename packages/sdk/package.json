@@ -2,7 +2,7 @@
   "name": "@vbz-gg/sdk",
   "version": "0.5.1",
   "type": "module",
-  "description": "Build a game that runs on vbz.gg: on-screen controls, the two artifacts, and a harness that frames your game the way production does",
+  "description": "Build a game that runs on vbz.gg: its page module and rules code, a studio page's client, and a harness that loads your game the way a studio's page does",
   "license": "MIT",
   "author": "Ramesh Nair",
   "repository": {
@@ -28,10 +28,10 @@
       "types": "./dist/build/index.d.ts",
       "default": "./dist/build/index.js"
     },
-    "./controls": {
-      "development": "./src/controls/index.ts",
-      "types": "./dist/controls/index.d.ts",
-      "default": "./dist/controls/index.js"
+    "./game": {
+      "development": "./src/game/index.ts",
+      "types": "./dist/game/index.d.ts",
+      "default": "./dist/game/index.js"
     },
     "./harness": {
       "development": "./src/harness/index.ts",
