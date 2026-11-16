@@ -221,9 +221,17 @@ that name as a lifecycle hook of `npm publish`.
 `packages/sdk/skill/vbz-game/` is prose an agent follows literally, so a
 stale sentence is worse than a missing one. It has one subject: everything
 between a conforming simulation and a game the platform can check and replay.
-Determinism belongs to clockwork2's `platform-game`, and this one points at it
-rather than repeating it - two copies of that rulebook is how one of them goes
-quietly out of date.
+Determinism belongs to the engine's guide, `clockwork2`, which the engine
+package ships, and this one points at it rather than repeating it - two copies
+of that rulebook is how one of them goes quietly out of date.
+
+Two sections are the exception, "Replays and randomness" and "Choosing what
+to record". They are the two things a game author gets wrong first, a seed
+taken from somewhere other than `init` and a stream of readings recorded every
+frame, and an author meets both before they think to open a second guide. So
+each says only what an author needs at that point, quotes only what the
+engine exports, and points at the engine guide's reference for the full
+rules. Nothing else in this guide restates a determinism rule.
 
 The guide ships in the package, and its tests sit beside it at
 `packages/sdk/skill/tests/`, outside what ships. `check:publishable` compares
@@ -237,8 +245,11 @@ every one that exists is explained, `references/page.md` explains every
 client code and no other, every prose copy of what a release line fixes (in
 `SKILL.md`, `references/ingest.md` and `docs/sdk.md`) names exactly the
 fields `LINE_RULES` fixes, the commands are the CLI's, the layout it prints is
-the template's, and every reference is linked both ways. Adding a client code
-fails it until `page.md` has a row.
+the template's, and every reference is linked both ways. Every limit it quotes
+is the constant that decides it, every `Prng` method it quotes is on the
+engine's `Prng`, every file of the engine's guide it names is one the
+installed engine ships, and it calls that guide `clockwork2` and nothing
+older. Adding a client code fails it until `page.md` has a row.
 
 ## Tests
 
