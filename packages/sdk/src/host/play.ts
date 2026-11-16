@@ -45,8 +45,11 @@ export interface PlayOptions {
   readonly title?: string
   /** For a test: loads a run's own module. `loadGame` by default. */
   readonly load?: (address: GameAddress) => Promise<LoadedGame>
-  /** For a test: the browser's Web Locks. `navigator.locks` by default. */
-  readonly locks?: RunLocks
+  /**
+   * For a test: the browser's Web Locks, `navigator.locks` by default, or
+   * null for a browser that has none.
+   */
+  readonly locks?: RunLocks | null
   /** For a test: seconds of play between chunks. */
   readonly chunkSeconds?: number
 }
@@ -86,11 +89,19 @@ export function runLockName(sessionId: string): string {
  */
 export function playRun(element: HTMLElement, options: PlayOptions): PlayedRun {
   let game = options.game
+  // A browser that cannot keep a run to one tab starts nothing: two of its
+  // tabs on one run would post chunks that conflict, and the platform counts
+  // that against the player.
+  const locks = options.locks === undefined ? browserLocks() : options.locks
   // First, in the click's own turn, before anything is awaited.
-  const motion = game.needsMotion ? game.requestMotion() : null
-  const starting = options.client.startRun(
-    options.mode === "practice" ? { practice: true } : {},
-  )
+  const motion =
+    locks !== null && game.needsMotion ? game.requestMotion() : null
+  const starting =
+    locks === null
+      ? Promise.reject(new PlatformClientError("E_BROWSER_UNSUPPORTED"))
+      : options.client.startRun(
+          options.mode === "practice" ? { practice: true } : {},
+        )
 
   let release: (() => void) | null = null
   const unlock = () => {
@@ -127,7 +138,7 @@ export function playRun(element: HTMLElement, options: PlayOptions): PlayedRun {
       }
     }
     const held = await holdLock(
-      options.locks ?? browserLocks(),
+      locks as RunLocks,
       runLockName(started.sessionId),
     )
     if (held === null) throw new PlatformClientError("E_RUN_OPEN_ELSEWHERE")
@@ -178,15 +189,7 @@ function focus(element: HTMLElement, title: string | undefined): void {
  * Takes the run's lock if nobody holds it, and hands back what lets it go,
  * or null when another tab or window has it.
  */
-function holdLock(
-  locks: RunLocks | null,
-  name: string,
-): Promise<(() => void) | null> {
-  // A deliberate exception, and the only one: a browser with no Web Locks,
-  // which is one older than Safari 15.4 or a page that is not a secure
-  // context, plays unlocked. Two of its tabs on one run can then send
-  // chunks that conflict, which costs that run and nothing else.
-  if (locks === null) return Promise.resolve(() => {})
+function holdLock(locks: RunLocks, name: string): Promise<(() => void) | null> {
   return new Promise((resolve, reject) => {
     locks
       .request(name, { ifAvailable: true }, (lock) => {

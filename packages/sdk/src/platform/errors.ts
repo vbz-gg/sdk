@@ -69,6 +69,12 @@ export const CLIENT_ERROR = {
   /** The run's own module reads tilt, and the tap that started it did not ask. */
   E_MOTION_NEEDS_TAP:
     "this run's game reads tilt, which a browser grants only from a tap; tap Play again to carry on with the same run",
+  /**
+   * The browser has no Web Locks, so it cannot keep a run to one tab: Safari
+   * before 15.4, or a page that is not https. Nothing was started.
+   */
+  E_BROWSER_UNSUPPORTED:
+    "this browser cannot keep a run to one tab; play on an https page in Safari 15.4 or later, or another current browser",
   /** Another tab or window of this browser is playing the same run. */
   E_RUN_OPEN_ELSEWHERE:
     "this run is already being played in another tab or window",

@@ -99,7 +99,8 @@ wrong:
 - After the submit it waits for the replay, and `done` carries the result:
   what the replay computed, never what the page showed.
 - While a run plays its page holds a Web Lock named after it, so a second
-  tab handed the same run stops with `E_RUN_OPEN_ELSEWHERE`.
+  tab handed the same run stops with `E_RUN_OPEN_ELSEWHERE`. A browser with
+  no Web Locks starts nothing and stops with `E_BROWSER_UNSUPPORTED`.
 
 A run can also fail with one of the engine's own codes, such as
 `E_ARG_INVALID` for a mapping the engine refuses, when the module reports one.
@@ -124,6 +125,7 @@ in `@vbz-gg/sdk/api`. A `PlatformClientError` is the client's:
 | `E_WRONG_GAME` | The page module is another version of the game than the one the run plays. |
 | `E_TICK_RATE_UNSUPPORTED` | The run's tick rate is not 30, 60 or 120. |
 | `E_MOTION_NEEDS_TAP` | The run's own module reads tilt and the click did not ask for it. Call `playRun` again with `played.game` from the next tap. |
+| `E_BROWSER_UNSUPPORTED` | The browser has no Web Locks, so it cannot keep a run to one tab: Safari before 15.4, or a page not on https. Nothing was started. |
 | `E_RUN_OPEN_ELSEWHERE` | Another tab or window of this browser is playing the same run. |
 | `E_NOTHING_TO_WATCH` | The run's replay covers no ticks. |
 | `E_SIM_PACKS` | The manifest declares a data pack the simulation reads. The platform cannot store or replay one yet, and refuses such an upload too. |

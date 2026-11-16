@@ -419,6 +419,22 @@ describe("the page around the run", () => {
     expect(calls.some((call) => call.startsWith("mount"))).toBe(false)
   })
 
+  test("a browser with no Web Locks starts no run, asks for nothing, and says why", async () => {
+    const states: RunState[] = []
+    const game = new FakeGame(PRESENT, "mh-new")
+    playRun(stage, {
+      client: client(),
+      game,
+      mode: "ranked",
+      locks: null,
+      onState: (state) => states.push(state),
+    })
+    await settle()
+    expect(states.at(-1)?.errorCode).toBe("E_BROWSER_UNSUPPORTED")
+    expect(calls.some((call) => call.startsWith("start"))).toBe(false)
+    expect(calls.some((call) => call.startsWith("mount"))).toBe(false)
+  })
+
   test("the lock is let go once the run stops playing", async () => {
     const held = locks()
     const played = playRun(stage, {
@@ -435,23 +451,21 @@ describe("the page around the run", () => {
     expect(calls).toContain("submit")
   })
 
-  test("a browser with no Web Locks plays unlocked", async () => {
-    // happy-dom's navigator has none, as an older browser has none.
+  test("by default the browser's own Web Locks are read, and a browser without them is refused", async () => {
+    // happy-dom's navigator has none, as Safari before 15.4 has none.
     expect(
       (navigator as unknown as { locks?: unknown }).locks ?? null,
     ).toBeNull()
     const states: RunState[] = []
-    const played = playRun(stage, {
+    playRun(stage, {
       client: client(),
       game: new FakeGame(PRESENT, "mh-new"),
       mode: "ranked",
       onState: (state) => states.push(state),
     })
     await settle()
-    expect(states.at(-1)?.phase).toBe(RUN_PHASE.PLAYING)
-    played.end()
-    await settle()
-    expect(states.at(-1)?.phase).toBe(RUN_PHASE.DONE)
+    expect(states.at(-1)?.errorCode).toBe("E_BROWSER_UNSUPPORTED")
+    expect(calls.some((call) => call.startsWith("start"))).toBe(false)
   })
 
   test("a lock request the browser fails fails the run", async () => {
