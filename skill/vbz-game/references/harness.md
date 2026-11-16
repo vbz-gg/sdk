@@ -76,12 +76,14 @@ key, so the file in `site/` is not read. The stand-in:
 - starts a run on the harness seed, and resumes it on a refresh until it has
   committed a chunk;
 - holds chunks and the submit to the manifest the way the platform does:
-  a chunk sent again unchanged, one that conflicts or reaches back, inputs
-  the manifest does not allow, and the byte limits;
+  a chunk sent again unchanged, one that conflicts or reaches back, a
+  checkpoint at a tick an earlier chunk reached, inputs the manifest does
+  not allow, and the byte limits;
 - settles a run at its submit with the counters the page sent, without a
   replay, and says so in the terminal;
-- reads a settled run back for watching, and keeps the local player's last
-  ranked run of the day as the board.
+- reads a settled run back for watching, a run from a day still open to the
+  local player alone, and keeps the local player's last ranked run of the
+  day as the board.
 
 It neither replays nor ranks. A score it shows has not been checked.
 

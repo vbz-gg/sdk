@@ -468,15 +468,16 @@ code from a different site from the studio's page, and two ports on localhost
 are one site. A module import carries no cookies either way, so the gap is
 named rather than closed with an `/etc/hosts` entry.
 
-The page adds what a studio's page does not need. **Start** and **End**
-drive the run; Start asks for tilt first when the game reads it. When the run
-ends, the page sends its recording back, and the harness replays it in a
-process of its own against the built rules code, to the tick it ended, holds
-its inputs to the manifest with the engine's `checkInputs` and the platform's
-budget, and measures it. The page shows three lines: whether the replay
-matches, how many inputs against the budget, and the recording's size in
-bytes. It publishes the recording too, so an author can save the evidence
-the platform would replay.
+The page adds what a studio's page does not need. **Start** and **End** drive
+the run; Start asks for tilt first when the game reads it. When the run ends,
+the page sends its recording back, and the harness replays it against the
+built rules code, to the tick it ended, in a process of its own with an empty
+environment, so a game cannot read a studio's key or a cloud credential from
+the shell `vbz dev` runs in. It holds the run's inputs to the manifest with
+the engine's `checkInputs` and the platform's budget, and measures the
+recording. The page shows three lines: whether the replay matches, how many
+inputs against the budget, and the recording's size in bytes. It publishes the
+recording too, so an author can save the evidence the platform would replay.
 
 The seed is a constant, so a run an author is debugging is the run they had a
 moment ago. The platform's daily seed is a keyed HMAC of the game and the day,
@@ -496,7 +497,9 @@ origins of their own, as one local player, on the harness seed. The harness
 answers the page's `config.json` with the stand-in's origins and page key.
 The stand-in holds chunks and the submit to the manifest the way the
 platform does, and settles a run with the counters its page sent, without a
-replay, which the terminal says each time. It ranks nothing.
+replay, which the terminal says each time. It reads a run from a day still
+open back to its own player alone, as the platform does, because watching
+needs the day's seed. It ranks nothing.
 
 ## Versions and release lines
 

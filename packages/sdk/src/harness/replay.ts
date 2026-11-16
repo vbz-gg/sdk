@@ -10,7 +10,9 @@
  * runs on a submit, budget included. None of it settles or ranks anything.
  *
  * The rules code is somebody's game, so it is run in a process of its own,
- * as the manifest reader runs it, rather than in the harness's.
+ * as the manifest reader runs it, rather than in the harness's, and with an
+ * empty environment: `vbz dev` runs where an author keeps a studio's secret
+ * key and cloud credentials, and a game that read them would have them.
  */
 
 import { existsSync } from "node:fs"
@@ -164,6 +166,11 @@ export function replayChildEntry(dir = import.meta.dir): string {
 /**
  * `replayRecording` in a process of its own, against the built rules code.
  * A child that fails to answer is a failed replay, with what it printed.
+ *
+ * The child is this same Bun, named by its own path because an empty
+ * environment has no `PATH` to find it on, and it needs nothing else: its
+ * entry, the rules code and the engine are found from their own paths, and
+ * what it reads arrives on stdin.
  */
 export async function replayInChild(
   sim: Uint8Array,
@@ -175,7 +182,8 @@ export async function replayInChild(
   try {
     const path = join(dir, "sim.js")
     await writeFile(path, sim)
-    const child = Bun.spawn(["bun", entry, path], {
+    const child = Bun.spawn([process.execPath, entry, path], {
+      env: {},
       stdin: new TextEncoder().encode(
         JSON.stringify({ manifest, recording: text }),
       ),

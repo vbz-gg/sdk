@@ -294,6 +294,9 @@ What only a browser can settle, and what each spec found:
 - A second tab of the game and mode another tab is playing stops at the
   lock having asked the platform for nothing, before and after the first
   has committed a chunk.
+- The harness page keeps a refusal on its status line: a run the module
+  refuses at mount, and a tilt request that fails or throws, which starts no
+  run.
 - Watching an abandoned run stops at its end tick.
 - Tilt through Chromium's orientation override: the first reading is recorded
   as it is, and after that a level only when it changes.

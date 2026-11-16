@@ -323,6 +323,31 @@ describe("replaying in a process of its own", () => {
     expect(answer.bytes).toBeGreaterThan(0)
   })
 
+  /**
+   * The rules code is somebody's game, and `vbz dev` runs where an author
+   * keeps a studio's secret key and cloud credentials in the environment. A
+   * game that reads them at load would have them; the child is given none.
+   */
+  test("the rules code runs with none of the harness's environment", async () => {
+    const reading = new TextEncoder().encode(
+      `throw new Error("environment: " + JSON.stringify(process.env))`,
+    )
+    process.env.VBZ_STUDIO_KEY = "vbz_sk_not_for_a_game"
+    try {
+      const answer = await replayInChild(
+        reading,
+        MANIFEST,
+        JSON.stringify(played()),
+      )
+      expect(answer.replay.kind).toBe("failed")
+      if (answer.replay.kind !== "failed") return
+      expect(answer.replay.message).toContain("environment: {}")
+      expect(answer.replay.message).not.toContain("vbz_sk_not_for_a_game")
+    } finally {
+      delete process.env.VBZ_STUDIO_KEY
+    }
+  })
+
   test("a child that answers with something other than a report is a failed replay", async () => {
     const entry = join(dir, "chatty.ts")
     await writeFile(entry, `process.stdout.write("hello")\n`)

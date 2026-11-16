@@ -14,7 +14,12 @@
  * host origin. It is the only part of the harness that runs in a page.
  */
 
-import type { MountedEnd, MountHandle } from "../../game/contract.js"
+import type { MotionAccess } from "@clockwork2/engine/host"
+import {
+  MOUNT_ERROR,
+  type MountedEnd,
+  type MountHandle,
+} from "../../game/contract.js"
 import { type LoadedGame, loadGame } from "../../host/index.js"
 import type { DevReport } from "../replay.js"
 import { reportLines, reportPasses } from "../report.js"
@@ -52,6 +57,18 @@ function say(message: string): void {
 function refuse(code: string, message: string): void {
   say(`${code}: ${message}`)
   document.body.dataset.refused = code
+}
+
+/** `refuse`, for something thrown: its own code, or `E_UNEXPECTED` without one. */
+function refuseWith(error: unknown): void {
+  const { code, message } = (error ?? {}) as {
+    readonly code?: unknown
+    readonly message?: unknown
+  }
+  refuse(
+    typeof code === "string" ? code : MOUNT_ERROR.UNEXPECTED,
+    typeof message === "string" ? message : String(error),
+  )
 }
 
 /**
@@ -104,6 +121,8 @@ function start(game: LoadedGame): void {
   if (!stage.hasAttribute("tabindex")) stage.tabIndex = 0
   stage.setAttribute("aria-label", config.title)
   stage.focus()
+  // Said before the mount, so a mount refused on the spot says why instead.
+  say("playing")
   playing = game.mount(stage, {
     mode: "play",
     seed: config.seed,
@@ -127,7 +146,6 @@ function start(game: LoadedGame): void {
       onNotice: (notice) => say(`${notice.code}: ${notice.detail}`),
     },
   })
-  say("playing")
 }
 
 loadGame({ presentUrl: config.presentUrl, manifestHash: config.manifestHash })
@@ -135,11 +153,16 @@ loadGame({ presentUrl: config.presentUrl, manifestHash: config.manifestHash })
     say("ready")
     document.getElementById("start")?.addEventListener("click", () => {
       // Asked in the click, as a studio's page asks, before the run starts.
+      // The executor runs at once, so the request is still in the click,
+      // and one that throws is refused like one that fails.
       if (game.needsMotion) {
-        game.requestMotion().then((access) => {
-          if (!access.granted) say(`${access.code}: ${access.detail}`)
-          start(game)
-        })
+        new Promise<MotionAccess>((resolve) => resolve(game.requestMotion()))
+          .then((access) => {
+            if (!access.granted) say(`${access.code}: ${access.detail}`)
+            start(game)
+          })
+          // A request that failed says why, and no run starts.
+          .catch(refuseWith)
         return
       }
       start(game)
@@ -150,7 +173,4 @@ loadGame({ presentUrl: config.presentUrl, manifestHash: config.manifestHash })
       playing?.stop("abandoned")
     })
   })
-  .catch((error: unknown) => {
-    const { code, message } = error as { code?: string; message?: string }
-    refuse(code ?? "refused", message ?? String(error))
-  })
+  .catch(refuseWith)

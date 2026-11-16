@@ -447,7 +447,7 @@ export function startStandIn(options: StandInOptions): RunningStandIn {
       }
       if (request.method === "GET" && part === "") {
         pageKeyOf(request)
-        return watch(id)
+        return watch(id, playerOf(request))
       }
     }
     throw new Refused("E_NOT_FOUND", `no route ${key}`)
@@ -599,6 +599,16 @@ export function startStandIn(options: StandInOptions): RunningStandIn {
         "a chunk reaches back past one already taken",
       )
     }
+    // A tick an earlier chunk reached is committed, checkpoint and all, so a
+    // checkpoint there is a rewrite, as the platform refuses it.
+    for (const checkpoint of sent.checkpoints) {
+      if (checkpoint.tick <= session.throughTick) {
+        throw new Refused(
+          "E_CHUNK_NOT_FORWARD",
+          `chunk ${sent.seq} carries a checkpoint at tick ${checkpoint.tick}, which an earlier chunk already committed`,
+        )
+      }
+    }
     try {
       checkInputSpan(sent.inputs as readonly InputEvent[], manifest.inputs, {
         afterTick: session.throughTick,
@@ -703,12 +713,21 @@ export function startStandIn(options: StandInOptions): RunningStandIn {
     }
   }
 
-  function watch(id: string): WatchedRun {
+  /**
+   * A settled run, to watch. Watching replays the log, which needs the seed,
+   * and the day's seed is everybody's that day, so a run from a day still
+   * open is its own player's alone; to anybody else it is a run that does
+   * not exist, as the platform answers it.
+   */
+  function watch(id: string, asPlayer: boolean): WatchedRun {
     const session = sessions.get(id)
+    const dayOpen =
+      session !== undefined && session.started.day >= dayOf(now()).day
     if (
       session === undefined ||
       session.recording === null ||
-      session.settled === null
+      session.settled === null ||
+      (dayOpen && !asPlayer)
     ) {
       throw new Refused("E_NO_SESSION", "no settled run by that id")
     }

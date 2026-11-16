@@ -14,6 +14,7 @@ import {
 } from "@clockwork2/engine"
 import { ManualScheduler } from "@clockwork2/engine/host"
 import type { RunChunk } from "../../src/api/index"
+import type { MountHandlers } from "../../src/game/contract"
 import { definePageModule } from "../../src/game/define"
 import { LOOPBACK } from "../../src/harness/servers"
 import {
@@ -282,6 +283,67 @@ describe("the game and a run", () => {
     expect(board.rankBy).toEqual(MANIFEST.rankBy)
   })
 
+  /**
+   * A chunk over the cap goes in pieces, and each piece has to carry the
+   * checkpoints of its own ticks: one carried past a piece that already
+   * reached its tick is refused, and the run fails there.
+   */
+  test("a run whose chunks are cut into pieces still settles", async () => {
+    const made = standIn()
+    await signIn(made)
+    const started = await made.client.startRun()
+    const recording = played(started.seed)
+    // Something to cut, and checkpoints on both sides of a cut.
+    expect(recording.inputs.length).toBeGreaterThanOrEqual(4)
+    expect(recording.checkpoints.length).toBeGreaterThanOrEqual(2)
+    const sent: RunChunk[] = []
+    const run = new Run({
+      client: {
+        ...made.client,
+        sendChunk: (to, chunk) => {
+          sent.push(chunk)
+          return made.client.sendChunk(to, chunk)
+        },
+      },
+    })
+    let handlers: MountHandlers | null = null
+    run.play(
+      { ...started, limits: { ...started.limits, chunkBytes: 260 } },
+      (options) => {
+        handlers = options.handlers
+        return {
+          recorded: () => recording.inputs,
+          stop: () => {},
+          destroy: () => {},
+        }
+      },
+    )
+    // The game, having played: its checkpoints, then its end.
+    const game = handlers as MountHandlers | null
+    if (game === null) throw new Error("the run mounted nothing")
+    for (const checkpoint of recording.checkpoints) {
+      game.onCheckpoint(checkpoint)
+    }
+    game.onEnded({
+      tick: recording.endTick,
+      reason: recording.terminal,
+      counters: recording.counters,
+      recording,
+    })
+    for (let i = 0; i < 20 && run.current.phase !== RUN_PHASE.DONE; i += 1) {
+      if (run.current.phase === RUN_PHASE.FAILED) break
+      await settle()
+    }
+    expect(run.current).toMatchObject({
+      phase: RUN_PHASE.DONE,
+      errorCode: null,
+    })
+    expect(sent.length).toBeGreaterThan(1)
+    expect(sent.flatMap((chunk) => chunk.checkpoints)).toEqual([
+      ...recording.checkpoints,
+    ])
+  })
+
   test("a practice run settles and never reaches the board", async () => {
     const lines: string[] = []
     const made = standIn({ log: (line) => lines.push(line) })
@@ -470,6 +532,16 @@ describe("the refusals a page has to handle", () => {
         ],
       }),
     ).toBe("E_RECORDING_MALFORMED")
+    // A checkpoint at or below the tick an earlier chunk reached, as the
+    // platform refuses one: that chunk already committed its tick.
+    expect(
+      await codes({
+        seq: 1,
+        throughTick: 40,
+        checkpoints: [{ tick: 30, hash: "h30" }],
+        inputs: [],
+      }),
+    ).toBe("E_CHUNK_NOT_FORWARD")
     expect(
       await codes({ seq: 1, throughTick: 40 } as unknown as RunChunk),
     ).toBe("E_BAD_REQUEST")
@@ -508,6 +580,7 @@ describe("the refusals a page has to handle", () => {
     await made.client.sendChunk(run, {
       ...chunkOf(recording, 1),
       inputs: recording.inputs.filter((i) => i.tick > 10),
+      checkpoints: recording.checkpoints.filter((c) => c.tick > 10),
     })
     const answer = await made.client.submit(run, recording)
     expect(answer.sessionId).toBe(run.sessionId)
@@ -541,6 +614,44 @@ describe("the refusals a page has to handle", () => {
     }
     expect((await refusalOf(made.client.submit(run, tampered))).code).toBe(
       "E_INPUT_UNDECLARED",
+    )
+  })
+
+  /**
+   * Watching replays the run's log, which needs its seed, and the day's seed
+   * is the same for everybody playing that day. So a run from a day still
+   * open is its own player's to watch, and a reader with the page key alone
+   * gets the answer a missing run gets, as the platform's catalogue answers.
+   */
+  test("a run from a day still open is watched by its own player alone", async () => {
+    let now = new Date("2026-11-16T12:00:00.000Z")
+    const made = standIn({ now: () => now })
+    await signIn(made)
+    const started = await made.client.startRun()
+    const recording = played(started.seed)
+    await made.client.submit(started, recording)
+    expect((await made.client.watch(started.sessionId)).inputs).toEqual(
+      recording.inputs,
+    )
+
+    const stranger = createPlatformClient({
+      apiOrigin: made.started.apiOrigin,
+      signInOrigin: made.started.signInOrigin,
+      pageKey: STAND_IN_PAGE_KEY,
+      environment: pageAt(made.page.origin),
+    })
+    expect(stranger.player()).toBeNull()
+    const refused = await refusalOf(stranger.watch(started.sessionId))
+    expect(refused.code).toBe("E_NO_SESSION")
+    expect(refused.message).toBe(
+      (await refusalOf(stranger.watch("00000000-0000-4000-8000-0000000000ff")))
+        .message,
+    )
+
+    // Once the day has closed, its seed is no longer anybody's advantage.
+    now = new Date("2026-11-17T00:00:01.000Z")
+    expect((await stranger.watch(started.sessionId)).inputs).toEqual(
+      recording.inputs,
     )
   })
 
