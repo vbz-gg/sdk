@@ -424,10 +424,29 @@ on after it has already published the next minor. The same version twice is
 
 Each run is pinned to the exact version it started on. Its replay runs that
 version's rules code, and watching it later draws it with that version's
-drawing code, so a later patch never changes a run already played. When an
-operator takes a patch down, or the platform suspends one, its line plays the
-newest patch it has left; a line with none left has no ranked runs until the
-next day's seed.
+drawing code, so a later patch never changes a run already played.
+
+A studio never takes a version down. It replaces one by publishing a newer
+version, which today's ranked runs reach once it passes its checks. Only a
+vbz operator takes a version down, for abuse, illegal content or harmful
+code. When the newest patch of today's line is taken down, the line does not
+fall back to an older patch: it has no ranked runs until a newer patch passes
+its checks, or until the next day's seed. Practice runs carry on.
+
+### Cheating bars the player
+
+A run whose replay disagrees with what the page reported never reaches the
+board, and that is all that happens to it. A submission the platform refuses
+as tampered is different: inputs the manifest never declared, a value out of
+its range, more inputs than any player makes, or a chunk rewritten or
+reaching back. An honest page cannot send one. Five of them on one game
+within 24 hours bar that player from starting runs of that game for the next
+24 hours, and a start answers `E_PLAYER_BARRED`. The game keeps running for
+everybody else.
+
+Nothing suspends a version automatically. When many different players' runs
+fail the replay on one version, the game itself is the likelier cause, and
+the platform mails the studio's admins and the vbz operators instead.
 
 ## Publishing a version
 

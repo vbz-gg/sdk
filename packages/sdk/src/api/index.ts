@@ -77,6 +77,11 @@ export type PublicRefusalCode =
    * `inputs`, `counters` or `rankBy`. New rules are a new minor or major.
    */
   | "E_PATCH_CHANGES_RULES"
+  /**
+   * The player sent five submissions refused as tampered on this game within
+   * 24 hours, and may not start a run of it until the bar ends.
+   */
+  | "E_PLAYER_BARRED"
   /** The studio's uploads over the last 24 hours, all its games together. */
   | "E_QUOTA_EXCEEDED"
   | "E_MANIFEST_INVALID"

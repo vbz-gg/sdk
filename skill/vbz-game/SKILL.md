@@ -161,6 +161,11 @@ Before bumping, compare the new manifest with the line's first release. If
 same play could now score differently. If it could, it is a minor too: the
 platform cannot see that difference, and the board mixes a line's patches.
 
+A studio cannot take a version down. A broken version is replaced by
+publishing a newer patch, and until that patch passes its checks the broken
+one is what today's ranked runs play, so test a patch with `vbz dev` before
+publishing it.
+
 ## Never
 
 - **Build an input event.** The host builds them. This is why a custom control
