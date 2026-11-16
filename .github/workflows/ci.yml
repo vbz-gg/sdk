@@ -28,7 +28,9 @@ jobs:
 
   browser:
     name: the browser suite
-    runs-on: ubuntu-latest
+    # Playwright 1.56.1 installs no browsers on Ubuntu 26.04, which ubuntu-latest
+    # now is, so a job that drives a browser names the release it supports.
+    runs-on: ubuntu-24.04
 
     env:
       CI: "true"
