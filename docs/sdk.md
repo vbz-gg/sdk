@@ -345,7 +345,9 @@ ticks is `E_NOTHING_TO_WATCH`.
 Two widgets sit beside them. `mountSignIn` is a button that signs a player in
 and out, calling `signIn()` in the click's own turn and showing a failure
 beside itself in the client's own sentence, except a sign-in the player
-closed, which needs no telling. It follows the client through
+closed, which needs no telling. When the box comes down it puts focus back
+on its button, which a keyboard player pressed and the box could not focus
+while the widget still held it disabled. It follows the client through
 `onPlayerChange` and redraws whenever the client's player changes, whoever
 changed it: a sign-out elsewhere on the page, or a token the platform stopped
 honouring, so a page needs no code to keep it true. `mountBoard` is a table of

@@ -107,17 +107,27 @@ export function mountSignIn(
     const signingIn = options.client.signIn()
     busy = true
     update()
+    /**
+     * The button back, and focus on it. The box gives focus back to what
+     * had it, this button, as it comes down, while the button is still
+     * disabled, which a browser refuses, so focus fell to the page's body
+     * and a keyboard player would start again from the top of the page.
+     */
+    const back = () => {
+      busy = false
+      update()
+      const at = document.activeElement
+      if (at === null || at === document.body) button.focus()
+    }
     signingIn.then(
       (player) => {
-        busy = false
-        update()
+        back()
         options.onChange?.(player)
       },
       (error: unknown) => {
-        busy = false
         // The player closed it, which needs no telling.
         status.textContent = isCancelled(error) ? "" : messageOf(error)
-        update()
+        back()
       },
     )
   })
