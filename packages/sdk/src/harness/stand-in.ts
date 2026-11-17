@@ -1,10 +1,11 @@
 /**
- * A stand-in for the platform's page routes and its sign-in window, so a
- * studio's page runs on a laptop before it ever meets the platform.
+ * A stand-in for the platform's page routes and its sign-in, so a studio's
+ * page runs on a laptop before it ever meets the platform.
  *
  * It answers every route a game's page calls, with the shapes `/api`
- * declares, as one local player: sign-in through a window on an origin of
- * its own, a run started on the harness seed, chunks and a submit held to the
+ * declares, as one local player: sign-in through a box on the page, framing
+ * a sign-in on an origin of its own exactly as the platform's is framed
+ * (`stand-in-signin.ts`), a run started on the harness seed, chunks and a submit held to the
  * manifest the way the platform holds them, the result, a run read back to
  * watch, and the board. A page built against it is the page that runs in
  * production, through `@vbz-gg/sdk/platform` and `@vbz-gg/sdk/host`
@@ -51,8 +52,8 @@ import { sha256Hex } from "../build/digest.js"
 import { MAX_CHUNK_BYTES, MAX_RUN_BYTES } from "../build/limits.js"
 import { parseReleaseVersion, releaseLine } from "../build/version.js"
 import { servedOrRefused } from "./config.js"
-import { escapeHtml } from "./page/document.js"
 import { type Listen, originOf, serveOptions } from "./servers.js"
+import { type SignInGrant, signInPages } from "./stand-in-signin.js"
 
 /** The page key the stand-in hands its page, and the only one it takes. */
 export const STAND_IN_PAGE_KEY: PageKey = "vbz_pk_stand_in"
@@ -171,7 +172,7 @@ export interface StandInOptions {
    */
   readonly seed: string
   readonly listen: Listen
-  /** The API's and the sign-in window's ports. Any free one by default. */
+  /** The API's and the sign-in's ports. Any free one by default. */
   readonly apiPort?: number
   readonly signInPort?: number
   /** For a test: ranked play paused, or the player barred until a time. */
@@ -206,11 +207,6 @@ interface Session {
   } | null
 }
 
-interface Grant {
-  readonly challenge: string
-  used: boolean
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
@@ -233,7 +229,7 @@ function dayOf(date: Date): {
 }
 
 /**
- * Starts the stand-in's two origins: the API and the sign-in window. A game
+ * Starts the stand-in's two origins: the API and the sign-in. A game
  * whose manifest declares no `rankBy` and `tiePolicy` cannot be ranked, so it
  * is refused here, as the platform's checks refuse it.
  */
@@ -270,91 +266,23 @@ export function startStandIn(options: StandInOptions): RunningStandIn {
   }
 
   let token: string | null = null
-  const grants = new Map<string, Grant>()
+  const grants = new Map<string, SignInGrant>()
   const sessions = new Map<string, Session>()
   let boardRow: BoardRow | null = null
 
-  // The sign-in window's origin is needed by the API's answers and the API's
-  // by nothing the window serves, so the window is bound first.
+  // The sign-in's origin is needed by the API's answers and the API's by
+  // nothing the sign-in serves, so the sign-in is bound first.
   const signIn = Bun.serve({
     ...serveOptions(options.listen, options.signInPort ?? 0),
-    fetch: (request) => authorize(request),
+    fetch: signInPages({
+      pageKey: STAND_IN_PAGE_KEY,
+      siteOrigin: options.siteOrigin,
+      signInOrigin: () => signInOrigin,
+      player: LOCAL_PLAYER,
+      grants,
+    }),
   })
   const signInOrigin = originOf(options.listen, signIn.port ?? 0)
-
-  function authorize(request: Request): Response {
-    const url = new URL(request.url)
-    const page = (body: string, status = 200) =>
-      new Response(body, {
-        status,
-        headers: {
-          "content-type": "text/html; charset=utf-8",
-          "cache-control": "no-store",
-        },
-      })
-    if (url.pathname !== "/authorize") {
-      return page(
-        "<!doctype html><title>Not here</title><p>Nothing here.</p>",
-        404,
-      )
-    }
-    const query = url.searchParams
-    const redirect = query.get("redirect_uri")
-    const state = query.get("state")
-    const challenge = query.get("code_challenge")
-    // A request it cannot check hands nothing anywhere, as the platform's
-    // window does not.
-    const why =
-      query.get("client_id") !== STAND_IN_PAGE_KEY
-        ? "the page key is not the stand-in's"
-        : redirect !== options.siteOrigin
-          ? `the page asking is not ${options.siteOrigin}`
-          : query.get("code_challenge_method") !== "S256" ||
-              challenge === null ||
-              challenge === ""
-            ? "the request carries no S256 challenge"
-            : state === null || state === ""
-              ? "the request carries no state"
-              : null
-    if (
-      why !== null ||
-      redirect === null ||
-      state === null ||
-      challenge === null
-    ) {
-      return page(
-        `<!doctype html><title>Sign-in refused</title><p>Refused: ${escapeHtml(why ?? "malformed")}.</p>`,
-        400,
-      )
-    }
-    const code = crypto.randomUUID()
-    grants.set(code, { challenge, used: false })
-    const hand = JSON.stringify({
-      origin: redirect,
-      message: { type: "vbz.signin", state, code },
-    }).replaceAll("</", "<\\/")
-    return page(`<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Sign in</title>
-  </head>
-  <body style="font: 16px system-ui, sans-serif; padding: 24px">
-    <p>The vbz platform's sign-in window, stood in for on this machine.</p>
-    <button id="continue" type="button">Sign in as ${escapeHtml(LOCAL_PLAYER.displayName)}</button>
-    <script type="application/json" id="hand">${hand}</script>
-    <script>
-      const hand = JSON.parse(document.getElementById("hand").textContent)
-      document.getElementById("continue").addEventListener("click", () => {
-        window.opener.postMessage(hand.message, hand.origin)
-        window.close()
-      })
-    </script>
-  </body>
-</html>
-`)
-  }
 
   const api = Bun.serve({
     ...serveOptions(options.listen, options.apiPort ?? 0),
@@ -530,7 +458,7 @@ export function startStandIn(options: StandInOptions): RunningStandIn {
   function trade(body: unknown): SignedInPlayer {
     const refused = new Refused(
       "E_SIGNIN_GRANT_INVALID",
-      "the code is not one this window handed this page, or was already traded",
+      "the code is not one this sign-in handed this page, or was already traded",
     )
     if (!isRecord(body)) throw refused
     const grant =

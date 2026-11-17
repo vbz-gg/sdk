@@ -1,9 +1,14 @@
 /**
  * What a spec does with the suite's studio page: open it, sign the local
- * player in through the stand-in's window, and read what the page sent.
+ * player in through the box over it, and read what the page sent.
  */
 
-import { expect, type Page, type Request } from "@playwright/test"
+import {
+  expect,
+  type FrameLocator,
+  type Page,
+  type Request,
+} from "@playwright/test"
 import { CONTROL_ORIGIN, STUDIO_ORIGIN, type SubjectName } from "./env"
 
 export interface StudioModule {
@@ -66,28 +71,25 @@ export async function openModule(
   return (await page.locator("body").getAttribute("data-loaded")) ?? ""
 }
 
-/** Signs the stand-in's one player in, through its window, as a player would. */
+/** The sign-in's frame, in the box `signIn()` puts over the page. */
+export function signInFrame(page: Page): FrameLocator {
+  return page.frameLocator('[role="dialog"] iframe')
+}
+
+/**
+ * Signs the stand-in's one player in, through the box over the page, as a
+ * player would: Sign in, then the sign-in's own button in the box's frame.
+ */
 export async function signIn(page: Page): Promise<void> {
-  const [window] = await Promise.all([
-    page.waitForEvent("popup"),
-    page.getByRole("button", { name: "Sign in" }).click(),
-  ])
-  const closed = window.waitForEvent("close")
-  // The window posts the code and closes itself inside the click, as the
-  // platform's does, and Chromium can close it before it has answered the
-  // click's mouseup. A click that failed with the window still open is a
-  // failure; one that failed because it closed is the click working.
-  await window
+  await page.getByRole("button", { name: "Sign in", exact: true }).click()
+  await signInFrame(page)
     .getByRole("button", { name: /Sign in as/ })
     .click()
-    .catch((error: unknown) => {
-      if (!window.isClosed()) throw error
-    })
-  await closed
   await expect(page.locator("body")).toHaveAttribute(
     "data-player",
     "Local player",
   )
+  await expect(page.getByRole("dialog")).toHaveCount(0)
 }
 
 /** Waits for the run to reach `phase`, and fails at once if it fails instead. */

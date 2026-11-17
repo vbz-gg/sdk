@@ -516,6 +516,40 @@ export interface TokenRequest {
   readonly clientId: string
 }
 
+/**
+ * What the platform's sign-in posts to the page that framed it, by
+ * `postMessage` from its frame to that page's origin alone. A page takes a
+ * message only from the frame it holds, on the sign-in origin, carrying the
+ * `state` it sent in the query it framed `/authorize` with.
+ *
+ * `vbz.signin.ready` is posted by every sign-in page that carries a checked
+ * request, as it loads, so a page can tell a sign-in that works from one
+ * the browser refused to frame: a refused frame still fires `load` on the
+ * page's iframe (measured in Chromium 141 and 153 and Firefox 142), so the
+ * message is the only signal. `vbz.signin` hands the page the one-time code
+ * to trade at `POST /v1/oauth/token`. `vbz.signin.cancel` says the player
+ * closed the sign-in from inside the frame, such as with Escape, which the
+ * page cannot hear while the frame has focus.
+ */
+export interface SignInReady {
+  readonly type: "vbz.signin.ready"
+  readonly state: string
+}
+
+export interface SignInHandoff {
+  readonly type: "vbz.signin"
+  readonly code: string
+  readonly state: string
+}
+
+export interface SignInCancel {
+  readonly type: "vbz.signin.cancel"
+  readonly state: string
+}
+
+/** Every message the sign-in posts to the page that framed it. */
+export type SignInMessage = SignInReady | SignInHandoff | SignInCancel
+
 /** A ranked run reaches the board; a practice run is replayed and never does. */
 export type RunMode = "ranked" | "practice"
 

@@ -94,7 +94,7 @@ describe("the site, served with its stand-in", () => {
     await rm(root, { recursive: true, force: true })
   })
 
-  test("four origins: the site, the game's code, the API and the sign-in window", () => {
+  test("four origins: the site, the game's code, the API and the sign-in", () => {
     const origins = new Set([
       site.siteOrigin,
       site.bundlesOrigin,

@@ -1,6 +1,6 @@
 /**
  * The stand-in for the platform, driven by the page's own client over real
- * HTTP: a player signed in through its window, a run started, committed in
+ * HTTP: a player signed in through its framed sign-in, a run started, committed in
  * chunks, submitted and settled, read back to watch, and the board. And the
  * refusals a page has to handle, each with the code the platform answers it
  * with, so a page built against the stand-in handles what production sends.
@@ -97,26 +97,72 @@ function standIn(extra: Partial<StandInOptions> = {}) {
   return { page, client, started }
 }
 
-/** Signs the local player in through the stand-in's own window. */
+/** What a sign-in page carries for its script, as data. */
+interface SignInRead {
+  readonly origin?: string
+  readonly state?: string
+  readonly handoff?: { readonly type: string; readonly code: string }
+}
+
+function signInRead(html: string): SignInRead {
+  const block =
+    /<script type="application\/json" id="signin">(.*?)<\/script>/s.exec(html)
+  return JSON.parse(block?.[1] ?? "null") as SignInRead
+}
+
+/** The form a sign-in page posts to `/continue`, as its fields. */
+function formOf(html: string): URLSearchParams {
+  const fields = new URLSearchParams()
+  for (const match of html.matchAll(
+    /<input type="hidden" name="([a-z_]+)" value="([^"]*)" \/>/g,
+  )) {
+    fields.set(match[1] as string, match[2] as string)
+  }
+  return fields
+}
+
+/** The form posted back to the sign-in, as its own page in the frame posts it. */
+function continueWith(
+  signInOrigin: string,
+  fields: URLSearchParams,
+  origin: string | null = signInOrigin,
+): Promise<Response> {
+  return fetch(`${signInOrigin}/continue`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/x-www-form-urlencoded",
+      ...(origin === null ? {} : { origin }),
+    },
+    body: fields,
+  })
+}
+
+/**
+ * Signs the local player in through the stand-in's framed sign-in: the page
+ * puts its box up, the frame loads `/authorize` and says it is ready, the
+ * player continues, and the hand-off posts the code from the frame.
+ */
 async function signIn(made: ReturnType<typeof standIn>) {
   const signing = made.client.signIn()
   await settle()
-  const href = made.page.popup?.location.href ?? ""
+  const href = made.page.box?.url ?? ""
   expect(href.startsWith(`${made.started.signInOrigin}/authorize?`)).toBe(true)
-  const html = await (await fetch(href)).text()
-  const hand =
-    /<script type="application\/json" id="hand">(.*?)<\/script>/s.exec(html)
-  const parsed = JSON.parse(hand?.[1] ?? "null") as {
-    origin: string
-    message: unknown
-  }
-  // The window posts to the page that opened it, and to that origin alone.
-  expect(parsed.origin).toBe(made.page.origin)
-  made.page.post({
-    origin: made.started.signInOrigin,
-    source: made.page.popup,
-    data: parsed.message,
-  })
+  const asked = await (await fetch(href)).text()
+  const read = signInRead(asked)
+  // Posted to the page that framed it, and to that origin alone.
+  expect(read.origin).toBe(made.page.origin)
+  const fromFrame = (data: unknown) =>
+    made.page.post({
+      origin: made.started.signInOrigin,
+      source: made.page.box?.frame,
+      data,
+    })
+  fromFrame({ type: "vbz.signin.ready", state: read.state })
+  const handed = signInRead(
+    await (await continueWith(made.started.signInOrigin, formOf(asked))).text(),
+  )
+  expect(handed.origin).toBe(made.page.origin)
+  fromFrame(handed.handoff)
   return await signing
 }
 
@@ -244,7 +290,7 @@ function chunkOf(recording: Recording, seq = 0): RunChunk {
 }
 
 describe("signing in", () => {
-  test("the window hands the page a code, which trades for the local player", async () => {
+  test("the sign-in hands the page a code, which trades for the local player", async () => {
     const made = standIn()
     const player = await signIn(made)
     expect(player).toEqual(LOCAL_PLAYER)
@@ -263,20 +309,233 @@ describe("signing in", () => {
     expect(refused.status).toBe(400)
   })
 
-  test("a window asked by another page, or with no challenge, hands nothing", async () => {
+  /**
+   * Framed exactly as the platform's sign-in is: a page carrying a checked
+   * request for the one origin that asked, with what lets it render in a
+   * page sent with COOP and COEP; every other answer for nobody. Walked as
+   * a table, so a new answer has to say which it is.
+   */
+  test("each answer is framed for the page that asked, or for nobody", async () => {
     const made = standIn()
-    const base = `${made.started.signInOrigin}/authorize?client_id=${STAND_IN_PAGE_KEY}&state=s&code_challenge_method=S256`
-    for (const query of [
-      `${base}&redirect_uri=https://elsewhere.example&code_challenge=c`,
-      `${base}&redirect_uri=${made.page.origin}`,
-      `${made.started.signInOrigin}/authorize?client_id=vbz_pk_other&redirect_uri=${made.page.origin}&state=s&code_challenge=c&code_challenge_method=S256`,
-      `${made.started.signInOrigin}/authorize?client_id=${STAND_IN_PAGE_KEY}&redirect_uri=${made.page.origin}&code_challenge=c&code_challenge_method=S256`,
-    ]) {
-      const response = await fetch(query)
-      expect(response.status).toBe(400)
-      expect(await response.text()).not.toContain('id="hand"')
+    const sign = made.started.signInOrigin
+    const page = made.page.origin
+    const query = (overrides: Record<string, string | null>) => {
+      const fields = new URLSearchParams({
+        client_id: STAND_IN_PAGE_KEY,
+        redirect_uri: page,
+        state: "s",
+        code_challenge: "c",
+        code_challenge_method: "S256",
+      })
+      for (const [name, value] of Object.entries(overrides)) {
+        if (value === null) fields.delete(name)
+        else fields.set(name, value)
+      }
+      return fields
     }
-    expect((await fetch(`${made.started.signInOrigin}/`)).status).toBe(404)
+    const rows: ReadonlyArray<
+      readonly [string, () => Promise<Response>, number, string | null]
+    > = [
+      ["authorize", () => fetch(`${sign}/authorize?${query({})}`), 200, page],
+      [
+        "authorize for another page",
+        () =>
+          fetch(
+            `${sign}/authorize?${query({ redirect_uri: "https://elsewhere.example" })}`,
+          ),
+        400,
+        null,
+      ],
+      [
+        "authorize with no challenge",
+        () => fetch(`${sign}/authorize?${query({ code_challenge: null })}`),
+        400,
+        null,
+      ],
+      [
+        "authorize with another page key",
+        () =>
+          fetch(`${sign}/authorize?${query({ client_id: "vbz_pk_other" })}`),
+        400,
+        null,
+      ],
+      [
+        "authorize with no state",
+        () => fetch(`${sign}/authorize?${query({ state: null })}`),
+        400,
+        null,
+      ],
+      ["continue", () => continueWith(sign, query({})), 200, page],
+      [
+        "continue posted from the page itself",
+        () => continueWith(sign, query({}), page),
+        400,
+        null,
+      ],
+      [
+        "continue with no origin",
+        () => continueWith(sign, query({}), null),
+        400,
+        null,
+      ],
+      [
+        "continue for another page",
+        () =>
+          continueWith(
+            sign,
+            query({ redirect_uri: "https://elsewhere.example" }),
+          ),
+        400,
+        null,
+      ],
+      [
+        "continue with a body that is not a form",
+        () =>
+          fetch(`${sign}/continue`, {
+            method: "POST",
+            headers: { origin: sign, "content-type": "text/plain" },
+            body: "client_id=x",
+          }),
+        400,
+        null,
+      ],
+      ["the script", () => fetch(`${sign}/signin.js`), 200, null],
+      ["the stylesheet", () => fetch(`${sign}/signin.css`), 200, null],
+      ["the root", () => fetch(`${sign}/`), 404, null],
+      [
+        "authorize posted",
+        () => fetch(`${sign}/authorize?${query({})}`, { method: "POST" }),
+        404,
+        null,
+      ],
+    ]
+    for (const [what, ask, status, framedFor] of rows) {
+      const answer = await ask()
+      const headers = Object.fromEntries(answer.headers)
+      const policy = headers["content-security-policy"] ?? ""
+      expect({ what, status: answer.status }).toEqual({ what, status })
+      if (framedFor === null) {
+        expect({ what, policy }).toEqual({
+          what,
+          policy: expect.stringContaining("frame-ancestors 'none'"),
+        })
+        expect({ what, xfo: headers["x-frame-options"] }).toEqual({
+          what,
+          xfo: "DENY",
+        })
+        expect({ what, coep: headers["cross-origin-embedder-policy"] }).toEqual(
+          { what, coep: undefined },
+        )
+      } else {
+        expect({ what, policy }).toEqual({
+          what,
+          policy: expect.stringContaining(`frame-ancestors ${framedFor}`),
+        })
+        expect(policy.split("frame-ancestors")).toHaveLength(2)
+        expect({ what, xfo: headers["x-frame-options"] }).toEqual({
+          what,
+          xfo: undefined,
+        })
+        expect(headers["cross-origin-embedder-policy"]).toBe("require-corp")
+        expect(headers["cross-origin-resource-policy"]).toBe("cross-origin")
+      }
+      expect(headers["cache-control"]).toBe("no-store")
+      expect(headers["set-cookie"]).toBeUndefined()
+      await answer.text()
+    }
+  })
+
+  test("a refused request hands nothing over, and its page runs no script", async () => {
+    const made = standIn()
+    const answer = await fetch(
+      `${made.started.signInOrigin}/authorize?client_id=vbz_pk_other`,
+    )
+    const html = await answer.text()
+    expect(html).toContain("Refused: the page key is not the stand-in&#39;s.")
+    expect(html).not.toContain('id="signin"')
+    expect(html).not.toContain("<script")
+  })
+
+  /**
+   * The script every framed page runs, against a window and a document of
+   * its own: what it posts, and to whom.
+   */
+  describe("the framed page's script", () => {
+    async function run(
+      read: SignInRead,
+      framed: boolean,
+    ): Promise<{
+      posted: Array<readonly [unknown, string]>
+      status: string
+      keys: Array<(event: { key: string }) => void>
+    }> {
+      const made = standIn()
+      const script = await (
+        await fetch(`${made.started.signInOrigin}/signin.js`)
+      ).text()
+      const posted: Array<readonly [unknown, string]> = []
+      const keys: Array<(event: { key: string }) => void> = []
+      const status = { textContent: "" }
+      const parent = {
+        postMessage: (message: unknown, origin: string) =>
+          posted.push([message, origin]),
+      }
+      const page: { parent?: unknown } = {}
+      page.parent = framed ? parent : page
+      const document = {
+        getElementById: (id: string) =>
+          id === "signin" ? { textContent: JSON.stringify(read) } : status,
+        addEventListener: (
+          _: string,
+          listener: (event: { key: string }) => void,
+        ) => keys.push(listener),
+        querySelector: () => ({ focus: () => {} }),
+      }
+      new Function("window", "document", script)(page, document)
+      return { posted, status: status.textContent, keys }
+    }
+
+    test("says it is ready, to the page's origin alone, and Escape closes it", async () => {
+      const ran = await run(
+        { origin: "http://127.0.0.1:4310", state: "s" },
+        true,
+      )
+      expect(ran.posted).toEqual([
+        [{ type: "vbz.signin.ready", state: "s" }, "http://127.0.0.1:4310"],
+      ])
+      for (const listener of ran.keys) listener({ key: "Enter" })
+      expect(ran.posted).toHaveLength(1)
+      for (const listener of ran.keys) listener({ key: "Escape" })
+      expect(ran.posted.at(-1)).toEqual([
+        { type: "vbz.signin.cancel", state: "s" },
+        "http://127.0.0.1:4310",
+      ])
+    })
+
+    test("hands the code to the page's origin alone, after saying it is ready", async () => {
+      const handoff = { type: "vbz.signin", code: "c", state: "s" }
+      const ran = await run(
+        { origin: "http://127.0.0.1:4310", state: "s", handoff },
+        true,
+      )
+      expect(ran.posted).toEqual([
+        [{ type: "vbz.signin.ready", state: "s" }, "http://127.0.0.1:4310"],
+        [handoff, "http://127.0.0.1:4310"],
+      ])
+    })
+
+    test("opened on its own, in no frame, it posts nothing and says where to go", async () => {
+      const ran = await run(
+        {
+          origin: "http://127.0.0.1:4310",
+          state: "s",
+          handoff: { type: "vbz.signin", code: "c" },
+        },
+        false,
+      )
+      expect(ran.posted).toEqual([])
+      expect(ran.status).toContain("Go back to the page you were signing in to")
+    })
   })
 })
 

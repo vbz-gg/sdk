@@ -2,7 +2,7 @@
  * A game page's client for the vbz.gg platform.
  *
  * It holds the protocol `docs/your-game-page.md` in the platform describes:
- * the page key on every request, the sign-in window and the code trade, the
+ * the page key on every request, the sign-in box and the code trade, the
  * player's token kept and renewed, and the run routes. Every request goes
  * through `request`, which is keyed by `PlatformRoutes`, so this file cannot
  * call a route the platform does not declare.
@@ -36,7 +36,7 @@ import {
   storagePlayerStore,
 } from "./kept.js"
 import { createRequester, type Requester } from "./request.js"
-import { requestSignInCode } from "./signin.js"
+import { openSignIn } from "./signin.js"
 
 /**
  * A platform run's recording, as `Run` hands it to `submit`. The brand
@@ -52,7 +52,7 @@ export type RunRecording = Recording & { readonly "vbz:run-recording": true }
 export interface PlatformClientOptions {
   /** Where the platform's API answers: `https://api.vbz.gg`. */
   readonly apiOrigin: string
-  /** Where the platform's sign-in window is: `https://signin.vbz.gg`. */
+  /** Where the platform's sign-in is: `https://signin.vbz.gg`. */
   readonly signInOrigin: string
   /** The game's page key, from the dashboard. */
   readonly pageKey: PageKey
@@ -107,8 +107,20 @@ export interface PlatformClient {
   onPlayerChange(
     listener: (player: SignedInPlayer["player"] | null) => void,
   ): () => void
-  /** Opens the sign-in window. Call it from a click, before anything is awaited. */
+  /**
+   * Puts the sign-in's box over the page, and answers the player once they
+   * signed in and the code was traded. Call it from a click, before
+   * anything is awaited, so focus moves into the box from the click. While
+   * one is open, another call answers the same promise and opens nothing.
+   * Rejects with `E_SIGNIN_CANCELLED` when the box is closed, and
+   * `E_SIGNIN_UNREACHABLE` when the sign-in does not load in it.
+   */
   signIn(): Promise<SignedInPlayer["player"]>
+  /**
+   * Takes the sign-in's box off the page, if one is open: its `signIn()`
+   * rejects with `E_SIGNIN_CANCELLED`. Nothing otherwise.
+   */
+  closeSignIn(): void
   /** Forgets the player on this page. No route signs a player out. */
   signOut(): void
   /** Starts a run, or finds again one that has sent nothing yet. */
@@ -222,6 +234,12 @@ export function createPlatformClient(
     }
   }
 
+  /** The sign-in open over the page, until its promise settles. */
+  let signingIn: {
+    readonly player: Promise<SignedInPlayer["player"]>
+    readonly close: () => void
+  } | null = null
+
   const result = (
     sessionId: string,
     resultOptions: Pick<ResultOptions, "token"> = {},
@@ -248,21 +266,36 @@ export function createPlatformClient(
       }
     },
 
-    async signIn() {
-      const grant = await requestSignInCode({
+    signIn() {
+      if (signingIn !== null) return signingIn.player
+      // The box is on the page when this returns.
+      const asked = openSignIn({
         environment,
         signInOrigin: options.signInOrigin,
         pageKey: options.pageKey,
       })
-      const signedIn = await request("POST /v1/oauth/token", {
-        body: {
-          code: grant.code,
-          codeVerifier: grant.verifier,
-          clientId: options.pageKey,
-        },
+      const player = asked.grant.then(async (grant) => {
+        const signedIn = await request("POST /v1/oauth/token", {
+          body: {
+            code: grant.code,
+            codeVerifier: grant.verifier,
+            clientId: options.pageKey,
+          },
+        })
+        keep(signedIn.token, signedIn.expiresIn, signedIn.player)
+        return signedIn.player
       })
-      keep(signedIn.token, signedIn.expiresIn, signedIn.player)
-      return signedIn.player
+      const open = { player, close: asked.cancel }
+      signingIn = open
+      const done = () => {
+        if (signingIn === open) signingIn = null
+      }
+      player.then(done, done)
+      return player
+    },
+
+    closeSignIn() {
+      signingIn?.close()
     },
 
     signOut: forget,

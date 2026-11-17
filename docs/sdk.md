@@ -15,7 +15,7 @@ nothing about vbz.gg.
 
 The vbz.gg platform is the backend for game studios. It owns studios and their
 keys, player sign-in, the checks on an upload, the daily seed, the server-side
-replay and the board. Its API is `https://api.vbz.gg` and its sign-in window
+replay and the board. Its API is `https://api.vbz.gg` and its sign-in
 `https://signin.vbz.gg`. Once a version passes its checks, the platform copies
 the version's two modules to `https://files.vbz.gg`, a public bucket served
 through Cloudflare's cache, and a game's code reaches players from there and
@@ -342,7 +342,8 @@ ticks is `E_NOTHING_TO_WATCH`.
 
 Two widgets sit beside them. `mountSignIn` is a button that signs a player in
 and out, calling `signIn()` in the click's own turn and showing a failure
-beside itself in the client's own sentence. It follows the client through
+beside itself in the client's own sentence, except a sign-in the player
+closed, which needs no telling. It follows the client through
 `onPlayerChange` and redraws whenever the client's player changes, whoever
 changed it: a sign-out elsewhere on the page, or a token the platform stopped
 honouring, so a page needs no code to keep it true. `mountBoard` is a table of
@@ -365,13 +366,45 @@ dashboard. It reads the browser only when it is made, never when the module
 loads, so a page's bundle may import it during server-side rendering, and a
 test hands it a page of its own through `environment`.
 
-**Signing in** opens the sign-in window before anything is awaited, because a
-browser opens one only in the turn of the click that asked. It sends a PKCE
-challenge and a state, takes a message only from that window, on the sign-in
-origin, of type `vbz.signin`, carrying that state, and trades the code at
-`POST /v1/oauth/token`. A window closed with no code fails after 500 ms of
-grace, because the window closes itself right after posting and a browser can
-report the close first.
+**Signing in** happens in a box over the page: a backdrop, a box holding the
+platform's sign-in in an iframe, and a Cancel button, plain DOM with every
+colour a `--gb-widget-*` custom property, set through CSSOM so a policy of
+`style-src 'self'` admits it. `signIn()` puts the box up before anything is
+awaited, in the click's own turn, with focus in the frame, so a phone opens
+its keyboard when the sign-in focuses its first field. Then it makes a PKCE
+challenge and a state and points the frame at `/authorize`, naming the page's
+own origin as `redirect_uri`. The sign-in frames only for that exact origin:
+it sends `frame-ancestors` naming it, so a browser refuses to show it under
+any other page, or under a page that is itself framed by another site, since
+every ancestor is checked.
+
+The client takes a message only from the frame it holds, on the sign-in
+origin, carrying the state it sent, and the platform posts three, declared in
+`/api` as `SignInMessage`. `vbz.signin.ready` comes as each sign-in page
+loads. A browser that refuses the frame still fires `load` on the iframe
+(measured in Chromium 141 and 153, and in Firefox 142 for a `frame-ancestors`
+refusal), so the ready message is the only sign the box works, and with none
+within `SIGN_IN_READY_MS`, 15 seconds, an estimate nobody measured on a slow
+network, `signIn()` rejects with `E_SIGNIN_UNREACHABLE` and the box comes
+down. `vbz.signin` carries the code, which the client trades at
+`POST /v1/oauth/token`. `vbz.signin.cancel` is Escape inside the frame,
+which the page cannot hear while the frame has focus. The Cancel button,
+Escape in the page, the sign-in's cancel and the page's own `closeSignIn()`
+reject with `E_SIGNIN_CANCELLED` and take the box down. A second `signIn()`
+while one is open answers the first's promise and opens nothing.
+
+The box makes three things true that a window did not. A player's remembered
+sign-in is kept per site that framed it, because a cookie set in a frame on
+another site is kept for that site alone (`SameSite=None; Partitioned`), so a
+player who signed in on one studio's site types a code again on another's,
+and Safari may ask for one more often. A framed sign-in shows no address bar.
+And a page framed by another site, a portal, cannot show the box. A page
+sent with `Cross-Origin-Opener-Policy: same-origin` and
+`Cross-Origin-Embedder-Policy`, for a game that needs threads, shows the box
+and stays cross-origin isolated (measured in Chromium and Firefox), because
+the sign-in sends `Cross-Origin-Embedder-Policy: require-corp` and
+`Cross-Origin-Resource-Policy: cross-origin` on every page it lets be
+framed.
 
 **The player's token** is kept in `localStorage`, one entry per page key,
 because a token is good only beside a page key of its own studio. Every run
@@ -446,9 +479,10 @@ static import of its rules code, and refuses another game's path on the same
 origin before a request leaves. It needs no `unsafe-eval` and no inline
 script. A page with more of its own adds to it.
 
-`frame-src` names the platform's sign-in, so the page can frame it.
+`frame-src` names the platform's sign-in, which `signIn()` frames in its box.
 Measured in Chromium and Firefox: under `default-src 'none'` with no
-`frame-src`, a frame on the sign-in origin is never requested. `pageCsp`
+`frame-src`, a frame on the sign-in origin is never requested, and the box
+stays empty until `signIn()` gives up with `E_SIGNIN_UNREACHABLE`. `pageCsp`
 takes the sign-in origin, `signInOrigin`, and a page that signs nobody in
 names `null` and frames nothing.
 
@@ -816,7 +850,7 @@ Played locally, the build is served beside the page as `/game/`, under
 `localPageCsp`, and nothing else runs. Ranked, the page is served under the
 harness page's policy with the API added and the sign-in in `frame-src`,
 against a stand-in for the platform shipped in the package: the page routes
-and the sign-in window on origins of their own, as one local player, on the
+and the sign-in on origins of their own, as one local player, on the
 harness seed and the served config, at the platform's limits from `/build`,
 and the harness answers the page's `config.json` with the mode, the
 stand-in's origins and its page key. In either mode an inline script the
@@ -825,6 +859,16 @@ text, and what the game's `package.json` says it needs of a page's policy,
 `"vbz": { "needs": { "wasm": true, "workers": true } }`, is added to the
 harness page's policy and the site's, with the game's path in
 `connect-src` whenever the build's folder lists a file.
+The stand-in's sign-in is framed exactly as the platform's is: each page
+carrying a checked request is sent with `frame-ancestors` naming the site's
+exact origin, `Cross-Origin-Embedder-Policy: require-corp` and
+`Cross-Origin-Resource-Policy: cross-origin`, and every other answer with
+`frame-ancestors 'none'` and `X-Frame-Options: DENY`. Each framed page posts
+`vbz.signin.ready` to the site's origin as it loads, a Continue button posts
+a form back to the sign-in's own origin, refused when its `Origin` is any
+other, and the answer hands the code over with `vbz.signin`, from the frame
+to that origin alone. It signs one local player in with that click, so it
+remembers nobody and sets no cookie.
 The stand-in holds chunks and the submit to the manifest the way the
 platform does, and settles a run with the counters its page sent, without a
 replay, which the terminal says each time. It reads a run from a day still

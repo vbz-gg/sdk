@@ -216,7 +216,9 @@ it is not the one you did.
 
 Your page's Content-Security-Policy has to let the game in and keep every
 other game out. Name your game's own path on the platform's file origin, the
-API, and the sign-in in `frame-src`:
+API, and the sign-in in `frame-src`: `signIn()` puts a box over your page
+holding the platform's sign-in in a frame, which frames only for your page's
+exact origin, and without `frame-src` the box stays empty:
 
 ```
 script-src 'self' https://files.vbz.gg/g/<game id>/; connect-src 'self' https://api.vbz.gg;
@@ -230,8 +232,8 @@ recommended policy and what each of these needs.
 
 The player's token is kept in `localStorage` and renewed at every run start.
 A failure is a `PlatformRefusal`, carrying the platform's code, or a
-`PlatformClientError`, carrying the client's, such as `E_POPUP_BLOCKED` or
-`E_GAME_UNLOADABLE`. Switch on `code`. The platform's page guide has every
+`PlatformClientError`, carrying the client's, such as `E_SIGNIN_UNREACHABLE`
+or `E_GAME_UNLOADABLE`. Switch on `code`. The platform's page guide has every
 route, and the `page.md` reference in the skill has every client code. The
 template's `site/` is a whole page built this way, which `vbz dev --site`
 runs on your laptop. A new game's page plays locally until its

@@ -23,9 +23,19 @@ const page = await platform.game() // today's round, or null
 signInButton.onclick = () => platform.signIn() // from the click, nothing awaited first
 ```
 
-- `signIn()` opens the sign-in window before it awaits anything, because a
-  browser opens one only in the click's own turn. Call it straight from the
-  handler.
+- `signIn()` puts a box over the page holding the platform's sign-in in a
+  frame, before it awaits anything, so focus moves into the frame from the
+  click, which is when a phone opens its keyboard. Call it straight from the
+  handler. A second call while the box is up answers the same promise.
+  The player closes the box with its Cancel button or Escape, and
+  `closeSignIn()` closes it from the page; each rejects with
+  `E_SIGNIN_CANCELLED`. The sign-in frames only for your page's exact origin,
+  so the page's policy names it in `frame-src`, and a page that is itself
+  framed by another site cannot show it: either way the box stays empty and
+  `signIn()` rejects with `E_SIGNIN_UNREACHABLE` after 15 seconds.
+- A player stays signed in to the sign-in on your site alone: signing in on
+  another studio's site asks for a code again. Safari may ask for one more
+  often.
 - The player's token is kept in `localStorage`, one entry per page key, and
   in memory, so a browser that keeps nothing still plays this visit. Every run
   start renews it. A token the platform stops honouring is dropped, and
@@ -35,14 +45,14 @@ signInButton.onclick = () => platform.signIn() // from the click, nothing awaite
   function that stops it. `mountSignIn` follows it, so the box never shows a
   player the client has let go, and the page needs no code for that.
 - `signOut()` forgets the player on this page. No route signs a player out;
-  the sign-in window's own page does that.
+  the sign-in's own page does that.
 
 ## A run
 
 ```ts
 import { loadGame, mountBoard, mountSignIn, playRun } from "@vbz-gg/sdk/host"
 
-mountSignIn(signInSlot, { client: platform }) // opens the window in the click
+mountSignIn(signInSlot, { client: platform }) // puts the box up in the click
 const board = mountBoard(boardSlot, { client: platform, period: "day" })
 await board.refresh()
 
@@ -110,7 +120,7 @@ ended the pause.
 The page's Content-Security-Policy has to let the game's code in and keep
 every other game's out. Name your game's own path on the platform's bundles
 origin, never the whole origin, the API in `connect-src`, and the sign-in in
-`frame-src`:
+`frame-src`, without which the sign-in's box stays empty:
 
 ```
 script-src 'self' https://files.vbz.gg/g/<game id>/; connect-src 'self' https://api.vbz.gg;
@@ -179,8 +189,8 @@ in `@vbz-gg/sdk/api`. A `PlatformClientError` is the client's:
 
 | Code | What it means |
 |---|---|
-| `E_POPUP_BLOCKED` | The browser blocked the sign-in window: `signIn()` ran outside a click, or after an await. |
-| `E_SIGNIN_CLOSED` | The window closed without handing a code over. If it closed by itself at once, the page sends `Cross-Origin-Opener-Policy: same-origin`, which cuts it off from the window. |
+| `E_SIGNIN_CANCELLED` | The sign-in's box was closed before a player signed in: its Cancel button, Escape, or the page's `closeSignIn()`. `mountSignIn` shows nothing for it. |
+| `E_SIGNIN_UNREACHABLE` | The sign-in did not say it loaded in its box within 15 seconds. The browser refused to frame it, which it shows as an empty box and tells the page nothing of: the page's policy has no `frame-src` naming the sign-in origin, the page is framed by another site, or the page's origin is not one the game allows. |
 | `E_NOT_SIGNED_IN` | A run route, and no player is signed in on this page. Nothing was sent. |
 | `E_UNREACHABLE` | No answer. The request may or may not have arrived; a run write can be sent again. |
 | `E_ANSWER_UNREADABLE` | An answer that is not JSON, or a failure without a code. |

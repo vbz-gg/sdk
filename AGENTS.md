@@ -68,9 +68,17 @@ through `PageEnvironment` when a client is made, so a page may import the
 subpath while rendering on a server, and `check:publishable` imports it under
 plain node.
 
-**`signIn()` opens the window before it awaits anything.** Anything awaited
-first, even a resolved promise, moves the open out of the click's turn and the
-browser blocks it.
+**The sign-in's box is made before anything is awaited.** `signIn()` puts
+the backdrop, the box, its empty frame and Cancel on the page, with focus in
+the frame, in the click's own turn; only then is the challenge made and the
+frame pointed at the sign-in. Anything awaited first, even a resolved
+promise, moves the focus out of the click's turn, and a phone opens its
+keyboard only from a gesture. A message is taken only from the frame the box
+holds, on the sign-in origin, carrying the state sent. **The sign-in's ready
+message is the only sign the box works**: a frame the browser refused still
+fires `load`, so no `vbz.signin.ready` within `SIGN_IN_READY_MS` is
+`E_SIGNIN_UNREACHABLE`, never a fallback to a window. Nothing calls
+`requestStorageAccess`.
 
 **Every read and write of the kept player goes through `kept`, `keep` and
 `forget` in `client.ts`**, which tell `onPlayerChange`'s listeners when the
@@ -123,7 +131,7 @@ so a failure spends no run. A new check goes into that order with a code of
 its own in `CLIENT_ERROR`.
 
 **`playRun` asks for motion before it awaits anything**, when the game reads
-tilt, for the reason `signIn()` opens its window first: iOS grants it only in
+tilt, for the reason `signIn()` makes its box first: iOS grants it only in
 the click's own turn. **Anything but a grant starts no run**: the run fails
 with the engine's refusal code, a client code with a sentence for the player,
 before the platform is asked for one, and the lock is let go. Never add a
@@ -425,11 +433,6 @@ One thing about the tools themselves, measured rather than read:
   down, although the protocol describes `touchPoints` as "active touch
   points". With two fingers down, ending with the point that is still down
   releases that one. `e2e/src/fingers.ts` has the sequence that measured it.
-- **A window that closes itself inside a click can close before Chromium
-  answers the click's `mouseup`**, and Playwright then reports the click as
-  failed with the page closed. The stand-in's sign-in window does exactly
-  that, as the platform's does, so `signIn` in `e2e/src/studio.ts` takes a
-  click that failed because the window closed as the click working.
 
 Until engine 0.7.1 a spec could not import `@clockwork2/engine` at all, because
 its built output imported its own files without extensions and Playwright's

@@ -13,7 +13,7 @@
  * for a page playing its own game, `localPageCsp`.
  *
  * Ranked, `{ "mode": "ranked", ... }`, `/config.json` answers with where the
- * stand-in's API and sign-in window are and the page key it takes, so the
+ * stand-in's API and sign-in are and the page key it takes, so the
  * page reads them the same way in production from a file of its own. The
  * game is built and served from a bundles origin exactly as `vbz dev` serves
  * it, the stand-in hands that build out as the version every run plays, on

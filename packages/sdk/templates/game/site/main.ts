@@ -6,7 +6,7 @@
  * `vbz dev --site` bundles it with bun and serves it as `main.js`. Played
  * locally, `{ "mode": "local" }`, the page loads the build `vbz build` wrote,
  * served beside it as `game/`, and talks to nobody. Ranked, the file names
- * the platform's API and sign-in window and your game's page key from the
+ * the platform's API and sign-in and your game's page key from the
  * dashboard, and `vbz dev --site` answers it with a stand-in for the platform
  * on this machine.
  */

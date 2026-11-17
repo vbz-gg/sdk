@@ -1,6 +1,6 @@
 /**
- * The two widgets, against a document: the sign-in button opens the window
- * in the click, says why when it did not work, and follows the client's
+ * The two widgets, against a document: the sign-in button opens the box in
+ * the click, says why when it did not work, and follows the client's
  * player, and the board table shows the board the platform answered, the
  * reader's own row included.
  */
@@ -20,7 +20,11 @@ import {
   type BoardOptions,
   createPlatformClient,
 } from "../../src/platform/client"
-import { PlatformClientError, PlatformRefusal } from "../../src/platform/errors"
+import {
+  CLIENT_ERROR,
+  PlatformClientError,
+  PlatformRefusal,
+} from "../../src/platform/errors"
 import { FakePage, settle as settlePage } from "../platform/fake-page"
 
 beforeAll(() => {
@@ -85,10 +89,21 @@ function signInClient(start: Player | null = null) {
 }
 
 const button = () => place.querySelector("button") as HTMLButtonElement
+
+/** The sign-in, from the box's frame: loaded, then handing over a code. */
+function handOff(page: FakePage, signInOrigin: string): void {
+  const state = new URL(page.box?.url ?? "").searchParams.get("state")
+  for (const data of [
+    { type: "vbz.signin.ready", state },
+    { type: "vbz.signin", code: "c", state },
+  ]) {
+    page.post({ origin: signInOrigin, source: page.box?.frame, data })
+  }
+}
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
 
 describe("the sign-in button", () => {
-  test("opens the window in the click, and shows the player once signed in", async () => {
+  test("opens the box in the click, and shows the player once signed in", async () => {
     const fake = signInClient()
     const changes: Array<Player | null> = []
     mountSignIn(place, {
@@ -110,14 +125,14 @@ describe("the sign-in button", () => {
     expect(changes).toEqual([{ id: "p-1", displayName: "Ada" }])
   })
 
-  test("says why when the window did not work, in the client's own words", async () => {
+  test("says why when the sign-in did not work, in the client's own words", async () => {
     const fake = signInClient()
     mountSignIn(place, { client: fake.client })
     button().click()
-    fake.fail(new PlatformClientError("E_POPUP_BLOCKED"))
+    fake.fail(new PlatformClientError("E_SIGNIN_UNREACHABLE"))
     await settle()
-    expect(place.querySelector('[role="status"]')?.textContent).toContain(
-      "the browser blocked the sign-in window",
+    expect(place.querySelector('[role="status"]')?.textContent).toBe(
+      CLIENT_ERROR.E_SIGNIN_UNREACHABLE,
     )
     expect(button().textContent).toBe("Sign in")
     expect(button().disabled).toBe(false)
@@ -130,6 +145,21 @@ describe("the sign-in button", () => {
     expect(place.querySelector('[role="status"]')?.textContent).toBe(
       "a string, not an error",
     )
+  })
+
+  /** The player closed the box: there is nothing to tell them. */
+  test("a sign-in the player closed shows nothing, and the button is back", async () => {
+    const fake = signInClient()
+    mountSignIn(place, { client: fake.client })
+    button().click()
+    fake.fail(new PlatformClientError("E_SIGNIN_UNREACHABLE"))
+    await settle()
+    button().click()
+    fake.fail(new PlatformClientError("E_SIGNIN_CANCELLED"))
+    await settle()
+    expect(place.querySelector('[role="status"]')?.textContent).toBe("")
+    expect(button().textContent).toBe("Sign in")
+    expect(button().disabled).toBe(false)
   })
 
   test("signs a signed-in player out, and redraws when told", () => {
@@ -179,16 +209,7 @@ describe("the sign-in button", () => {
     })
     button().click()
     await settlePage()
-    const href = new URL(page.popup?.location.href ?? "")
-    page.post({
-      origin: SIGN_IN,
-      source: page.popup,
-      data: {
-        type: "vbz.signin",
-        code: "c",
-        state: href.searchParams.get("state"),
-      },
-    })
+    handOff(page, SIGN_IN)
     await settlePage()
     expect(button().textContent).toBe("Sign out")
     expect(place.querySelector(".gb-signin-name")?.textContent).toBe("Ada")
@@ -214,17 +235,7 @@ describe("the sign-in button", () => {
     })
     button().click()
     await settlePage()
-    page.post({
-      origin: SIGN_IN,
-      source: page.popup,
-      data: {
-        type: "vbz.signin",
-        code: "c",
-        state: new URL(page.popup?.location.href ?? "").searchParams.get(
-          "state",
-        ),
-      },
-    })
+    handOff(page, SIGN_IN)
     await settlePage()
     expect(button().textContent).toBe("Sign out")
     client.signOut()

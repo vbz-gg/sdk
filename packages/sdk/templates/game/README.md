@@ -82,9 +82,9 @@ exact text.
 
 **Ranked**, `{ "mode": "ranked", "apiOrigin": "https://api.vbz.gg",
 "signInOrigin": "https://signin.vbz.gg", "pageKey": "vbz_pk_..." }`, the page
-signs a player in through the platform's window, loads the game's page module
-before the Play button is pressed, starts a ranked or a practice run in the
-click, and shows today's board. The platform says which version each run
+signs a player in through a box over the page holding the platform's
+sign-in, loads the game's page module before the Play button is pressed,
+starts a ranked or a practice run in the click, and shows today's board. The platform says which version each run
 plays; the page loads what it is told and never chooses. The build is the
 same one; opting in is this file and `vbz publish`. A page key is public, so
 the file can ship as it is; without one, the page says which file to fill
@@ -99,14 +99,14 @@ tampered submissions is told when the bar ends.
 `bun run site`, which is `vbz dev . --site`, serves it on this machine in
 the mode `site/config.json` names. Played locally, the build is served beside
 the page as `/game/`. Ranked, the page talks to a stand-in for the platform's
-page routes and sign-in window, which plays as one local player on a fixed
-seed, and `bun run site` answers the page's `config.json` with the
-stand-in's API, sign-in window and page key. The stand-in neither replays nor
-ranks a run: it settles each one with the counters the page sent, and says so
-in the terminal. The page is served under the Content-Security-Policy a
-studio's page should send, which lets scripts come from your page's own
-origin and, ranked, from your game's own path on the platform's bundles
-origin, and nowhere else. In production that path is
+page routes and sign-in, which plays as one local player on a fixed seed,
+and `bun run site` answers the page's `config.json` with the stand-in's API,
+sign-in and page key. The stand-in neither replays nor ranks a run: it
+settles each one with the counters the page sent, and says so in the
+terminal. The page is served under the Content-Security-Policy a studio's
+page should send, which lets scripts come from your page's own origin and,
+ranked, from your game's own path on the platform's bundles origin, and
+nowhere else, and lets the page frame the sign-in. In production that path is
 `https://files.vbz.gg/g/<game id>/`.
 
 To deploy it, bundle `site/main.ts` for the browser with whatever builds the

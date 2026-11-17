@@ -1,6 +1,6 @@
 /**
  * The values a sign-in sends: a verifier the page keeps, the S256 challenge
- * the window sees, and a state that ties the answer to this request (RFC 7636).
+ * the sign-in sees, and a state that ties the answer to this request (RFC 7636).
  */
 
 export function base64url(bytes: Uint8Array): string {
