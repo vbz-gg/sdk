@@ -172,6 +172,13 @@ export interface StandInOptions {
    */
   readonly seed: string
   readonly listen: Listen
+  /**
+   * For a test: the host the sign-in's origin is written with, beside the
+   * address it listens on, such as `localhost` for a page on `127.0.0.1`,
+   * which is another site, as the platform's sign-in is to a studio's page.
+   * The listening address's own by default.
+   */
+  readonly signInHost?: string
   /** The API's and the sign-in's ports. Any free one by default. */
   readonly apiPort?: number
   readonly signInPort?: number
@@ -283,7 +290,12 @@ export function startStandIn(options: StandInOptions): RunningStandIn {
       log,
     }),
   })
-  const signInOrigin = originOf(options.listen, signIn.port ?? 0)
+  const signInOrigin = originOf(
+    options.signInHost === undefined
+      ? options.listen
+      : { ...options.listen, hostname: options.signInHost },
+    signIn.port ?? 0,
+  )
 
   const api = Bun.serve({
     ...serveOptions(options.listen, options.apiPort ?? 0),

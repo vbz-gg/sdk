@@ -14,7 +14,7 @@
  */
 
 import { expect, type Page, test } from "@playwright/test"
-import { PORTAL_ORIGIN } from "../src/env"
+import { PORTAL_ORIGIN, SIGN_IN_HOST } from "../src/env"
 import { openRuns, signIn, signInFrame } from "../src/studio"
 
 /**
@@ -104,13 +104,69 @@ test("the player closes the box with Cancel, or with Escape inside the sign-in, 
 /**
  * A page whose game needs threads is sent with COOP same-origin and COEP.
  * The sign-in sends COEP and CORP on every page it lets be framed, so the
- * box renders and the page stays cross-origin isolated.
+ * box renders and the page stays cross-origin isolated. The sign-in is on
+ * another site from the page, `localhost` against `127.0.0.1`, as the
+ * platform's is from a studio's page.
+ *
+ * Whether it rendered is read from the page's side: the sign-in's own
+ * ready message reaching the page, from the sign-in's origin. That much
+ * every engine is measured on. Playwright 1.56.1 cannot drive the frame in
+ * Firefox 142 here: it lists the frame as `about:blank` and its clicks do
+ * not reach it, measured on this suite while the same frame posted its
+ * ready and the page stayed isolated, as signin-frame's findings measured
+ * on other origins. So signing the player in through it is measured in the
+ * other engines.
  */
-test("a page sent with COOP and COEP signs a player in, and stays isolated", async ({
+async function hearMessages(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    const heard: string[] = []
+    ;(globalThis as unknown as { vbzHeard: string[] }).vbzHeard = heard
+    window.addEventListener("message", (event) => {
+      const data = event.data as { type?: unknown } | null
+      heard.push(`${event.origin} ${String(data?.type)}`)
+    })
+  })
+}
+
+async function heard(page: Page): Promise<string[]> {
+  return await page.evaluate(
+    () => (globalThis as unknown as { vbzHeard: string[] }).vbzHeard,
+  )
+}
+
+test("under COOP and COEP, the sign-in from another site renders in the box, and the page stays isolated", async ({
   page,
 }) => {
+  await hearMessages(page)
   await openRuns(page, "template", { isolate: "1" })
   expect(await page.evaluate(() => globalThis.crossOriginIsolated)).toBe(true)
+  await page.getByRole("button", { name: "Sign in", exact: true }).click()
+  await expect(page.getByRole("dialog", { name: "Sign in" })).toBeVisible()
+  // Two sites: the page on 127.0.0.1, the sign-in on localhost.
+  expect(new URL(page.url()).hostname).toBe("127.0.0.1")
+  const fromTheSignIn = (line: string) =>
+    line.endsWith(" vbz.signin.ready") &&
+    new URL(line.split(" ")[0] ?? "").hostname === SIGN_IN_HOST
+  await expect
+    .poll(async () => (await heard(page)).some(fromTheSignIn))
+    .toBe(true)
+  expect(await page.evaluate(() => globalThis.crossOriginIsolated)).toBe(true)
+  await page.getByRole("dialog").getByRole("button", { name: "Cancel" }).click()
+  await expect(page.locator("body")).toHaveAttribute(
+    "data-signin",
+    "E_SIGNIN_CANCELLED",
+  )
+})
+
+test("under COOP and COEP, a player signs in through the sign-in from another site", async ({
+  page,
+  browserName,
+}) => {
+  test.skip(
+    browserName === "firefox",
+    "Playwright 1.56.1 cannot reach a cross-origin frame in Firefox 142 under COOP and COEP: it lists it as about:blank and its clicks do not reach it, measured while that frame rendered and posted its ready",
+  )
+  await openRuns(page, "template", { isolate: "1" })
   await signIn(page)
   expect(await page.evaluate(() => globalThis.crossOriginIsolated)).toBe(true)
 })

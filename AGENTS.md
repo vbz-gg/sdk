@@ -401,7 +401,12 @@ What only a browser can settle, and what each spec found:
   framed as the platform's is, with focus in the frame from the click and on
   the sign-in's button once it loads, no window opened and nothing calling
   `requestStorageAccess`; and on a page sent with COOP same-origin and COEP
-  require-corp, which stays `crossOriginIsolated` with the frame in it.
+  require-corp, which stays `crossOriginIsolated` with the frame in it. The
+  sign-in is on another site from the page, `localhost` against
+  `127.0.0.1`, as the platform's is. Under COOP and COEP, Firefox 142
+  renders it and its ready reaches the page, but Playwright 1.56.1 cannot
+  reach into that frame there, so signing in through it is measured in the
+  other engines.
   Cancel, and Escape pressed inside the frame, close the box with
   `E_SIGNIN_CANCELLED`. A page whose policy has no `frame-src` never asks
   for the frame, reports a `frame-src` violation and gets

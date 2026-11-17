@@ -71,6 +71,7 @@ import {
   CONTROL_PORT,
   PORTAL_ORIGIN,
   PORTAL_PORT,
+  SIGN_IN_HOST,
   STUDIO_BUNDLES_PORT,
   STUDIO_ORIGIN,
   STUDIO_PORT,
@@ -384,6 +385,9 @@ for (const name of Object.keys(SUBJECTS) as SubjectName[]) {
       siteOrigin: STUDIO_ORIGIN,
       seed: HARNESS_SEED,
       listen: LOOPBACK,
+      // Another site from the studio's page, as the platform's sign-in is
+      // from every studio's: localhost and 127.0.0.1 are two sites.
+      signInHost: SIGN_IN_HOST,
     }),
   )
 }

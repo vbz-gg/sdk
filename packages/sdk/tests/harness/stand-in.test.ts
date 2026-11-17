@@ -455,6 +455,21 @@ describe("signing in", () => {
     }
   })
 
+  /**
+   * A studio's page and the platform's sign-in are two sites, and the
+   * browser suite puts the stand-in's on another one too: listening where
+   * the rest does, written with another name for this machine.
+   */
+  test("can be reached by another name for this machine, on another site from the page", async () => {
+    const made = standIn({ signInHost: "localhost" })
+    const sign = made.started.signInOrigin
+    expect(new URL(sign).hostname).toBe("localhost")
+    expect(new URL(made.started.apiOrigin).hostname).toBe("127.0.0.1")
+    const answer = await fetch(`${sign}/signin.css`)
+    expect(answer.status).toBe(200)
+    await answer.text()
+  })
+
   test("a refused request hands nothing over, and its page runs no script", async () => {
     const made = standIn()
     const answer = await fetch(
