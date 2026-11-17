@@ -77,9 +77,9 @@ export const MAX_CHUNK_BYTES = 1024 * 1024
 /**
  * The CPU time one replay may spend on the platform's replay service, where
  * every ranked and practice run is replayed and where the platform's checks
- * replay a version's bot log once before it publishes: 5 minutes, the most
- * Cloudflare lets a Worker spend on one request on its paid plan. The
- * platform takes its replays' budget from here.
+ * run a version's rules code for a few steps before it publishes: 5
+ * minutes, the most Cloudflare lets a Worker spend on one request on its
+ * paid plan. The platform takes its replays' budget from here.
  */
 export const REPLAY_CPU_BUDGET_MS = 5 * 60_000
 
@@ -107,9 +107,12 @@ export const REPLAY_ANSWER_MARGIN_MS = 10_000
 
 /**
  * How long the platform waits for one checks container to answer: 12
- * minutes, which covers the checks child's two minutes, two for each of the
+ * minutes, sized when the checks ran the cross-engine sweep and played the
+ * page module, to cover the checks child's two minutes, two for each of the
  * sweep's three engines and two for the page-module check's browser running
- * out, a cold start and two bundle builds. The platform takes its wait from
- * here and keeps its container's own deadline under it.
+ * out, a cold start and two bundle builds. The checks do neither now, and
+ * the wait stays until the platform has measured what they take. The
+ * platform takes its wait from here and keeps its container's own deadline
+ * under it.
  */
 export const CHECKS_CONTAINER_WAIT_MS = 12 * 60_000

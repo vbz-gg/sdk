@@ -109,11 +109,12 @@ export function checkWaitOf(parts: readonly number[]): number {
  * How long to wait for the checks' verdict before giving up on the answer,
  * from the upload's answer: the queue's allowance; the checks container, for
  * as long as the platform waits for one (`CHECKS_CONTAINER_WAIT_MS`); the
- * replay-service check's one replay of the bot's log, for its whole
- * `REPLAY_WALL_BUDGET_MS` and the `REPLAY_ANSWER_MARGIN_MS` the platform
- * waits past it for the answer; the copy to the public store; and the
- * headroom, rounded up to whole minutes. The platform takes those waits and
- * that budget from `/build`, so a change to any of them moves this.
+ * replay-service check's one replay, which runs the rules code for a few
+ * steps, for its whole `REPLAY_WALL_BUDGET_MS` and the
+ * `REPLAY_ANSWER_MARGIN_MS` the platform waits past it for the answer; the
+ * copy to the public store; and the headroom, rounded up to whole minutes.
+ * The platform takes those waits and that budget from `/build`, so a change
+ * to any of them moves this.
  *
  * It covers one attempt. When the replay service gives no answer the
  * platform holds the replay to its whole wall budget and its margin, then

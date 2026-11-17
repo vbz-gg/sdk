@@ -67,6 +67,9 @@ vbz publish <dir> --game <id>   upload dist/ and wait for the verdict
 `build` refuses a version that is not plain `MAJOR.MINOR.PATCH`. `check`
 also prints the version, its release line and the line's contract hash, so
 you can tell before an upload whether a patch keeps what its line fixes.
+`check --ranked` is how to test that a recording replays to the state it
+recorded before you publish: the platform runs only part of those checks on
+an upload, and none of the ones that test record and replay.
 
 `dev` is your game's page on your laptop. The game's two modules and its
 files folder are served on one port at the paths and with the headers

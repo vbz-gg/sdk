@@ -80,74 +80,88 @@ The code's copy wins: a simulation that exports no `MANIFEST` is refused
 (`E_SIM_NO_MANIFEST`), and so is a submission whose JSON says something the
 simulation does not (`E_MANIFEST_MISMATCH`), rather than believed.
 
-Then the engine's `ranked` set from `@clockwork2/engine/validate`, run
-against the built simulation laid out as a subject directory with its data
-packs beside it, playing the config a run is served: every declared setting
-at its default. The set is every check the engine runs on any game, the subject of
-the engine's guide, clockwork2 (determinism, banned APIs, no async, restore,
-counters, headless, assets and the rest), and two that only a ranked or
-practice run needs. Each check plays its logs to the game's own end or to a
-fixed window; no run has a step limit.
+Then part of the engine's `ranked` set from `@clockwork2/engine/validate`,
+run against the built simulation laid out as a subject directory with its
+data packs beside it, under the config a run is served: every declared
+setting at its default. The engine's guide, clockwork2, explains each check.
 
+- **What the code and the manifest say**: no banned API named anywhere in
+  the rules code, no asynchronous work, every file the manifest declares
+  present and inside its budget, a valid manifest, a config the platform can
+  serve, and a ranking (`E_RANK_UNDECLARED`), which the upload already held
+  it to in section 1.
+- **Headless**: `init` and 600 steps with nothing pressed, and no browser
+  present.
 - **Seed sensitivity**: two different seeds on the same input log must pass
   through different states (`E_SEED_IGNORED`). A game that ignores its seed
-  passes every other check - determinism compares same-seed runs to each
-  other, so a seed-blind generator is perfectly deterministic - and turns a
-  daily board into an all-time board.
-- **Ranking**: the manifest declares `rankBy` and `tiePolicy`
-  (`E_RANK_UNDECLARED`), which the upload already held it to in section 1.
+  passes every other check the engine has - determinism compares same-seed
+  runs to each other, so a seed-blind generator is perfectly deterministic -
+  and turns a daily board into an all-time board.
 
-## 4. The cross-engine sweep
+The platform does not run the engine's determinism, restore, counters,
+replay or performance checks, and nothing at upload holds a version to
+replaying a recording to the state it recorded. `vbz check --ranked` runs
+all of them, and it is how to test record and replay before you publish. A
+game that is not deterministic now passes the upload and fails its players
+instead: their runs do not replay to what they saw, and never rank.
 
-The candidate's own logs replayed under JavaScriptCore and SpiderMonkey as
-well as V8, once per version rather than per play. Engines that reach
-different states refuse the version with `E_ENGINE_DIVERGED`.
+## 4. The page module
 
-This is the real admission boundary. `banned-apis` is a static scan and a
-static scan is evadable: `Math["si"+"n"]` walks past it and straight into
-here, where the engines disagree. Measured in clockwork2: 32.6% of inputs
-differ for `Math.hypot` between JavaScriptCore and V8, 10.3% for `Math.exp`,
-9.0% for `Math.pow`, 3.2% for `Math.cos`.
+The page module is loaded in a headless browser, Firefox, and mounted until
+it is ready, the way a studio's page readies it before a run. One that will
+not load (`E_PAGE_MODULE_UNLOADABLE`), is not one a page plays or refuses to
+be mounted (`E_PAGE_MODULE_INVALID`), or fails while it is mounted or
+getting ready (`E_PAGE_MODULE_THREW`) is refused before any player meets
+it. The checks' browser has no WebGL and no WebGPU, and a game it cannot
+draw is not refused for that.
 
-## 5. The page module
+The page module is not played: the checks press nothing and compare nothing.
+`E_PAGE_MODULE_DIVERGED`, a page module that played the bot's log to another
+state than the platform's replay of it, is no longer reached. A page module
+that plays a run to another state than its replay reaches is found in the
+harness, which replays every run you play (`references/harness.md`), or by
+its players' runs failing the replay.
 
-The page module is loaded in a headless browser and played for a short run
-with the bot's inputs, so one that will not load (`E_PAGE_MODULE_UNLOADABLE`),
-is not one a page plays or will not mount (`E_PAGE_MODULE_INVALID`), fails as
-it plays (`E_PAGE_MODULE_THREW`), or plays the log to another state than the
-replay of it (`E_PAGE_MODULE_DIVERGED`) is refused before any player meets
-it. The checks' browser has no
-WebGL and no WebGPU, so a game drawn with them cannot get ready there; a
-watched run's `draw: false` is the SDK's way to play a page module without
-its presentation, so its checkpoints can still be compared with the
-replay's.
-
-## 6. One replay on the replay service
+## 5. The rules code on the replay service
 
 The checks above run on a machine of their own, which is not where a run is
-replayed and has more memory than a replay gets. So before the version
-publishes, the platform replays the bot's log the checks play once more, on
-the replay service that replays every ranked and practice run. One replay
-there has 5 minutes of CPU, 7.5 minutes of wall time and 128 MB of memory,
-the platform's figures for its replay service on Cloudflare, and a version
-whose replay runs out of its CPU time, its wall time or its memory is
-refused with `E_REPLAY_OVER_BUDGET`, before any player's run fails the same
-way. A replay that fails for another reason is refused under the code the
-replay service gave, which every player's run would meet too: the rules code
-threw (`E_REPLAY_THREW`), reached for something the service's isolate does
-not have, such as the network (`E_REPLAY_REACHED_OUT`), or the service
-could not take the replay, a log that would not decode under the version's
-manifest or a request over the size it takes (`E_REPLAY_MALFORMED`). The
-replay holds the log to the manifest's inputs first, as every run's does, so
-the check can also refuse under the engine's own `E_INPUT_UNDECLARED`,
-`E_INPUT_RANGE` or `E_INPUT_BUDGET`, which the engine's guide explains in
-`clockwork2/references/failure-modes.md`. Each is the game's to fix. A
-replay service that gives no answer is the platform's: the check is tried
-again, and the version stays pending.
+replayed. So before the version publishes, the platform loads the rules code
+with the data packs the manifest declares on the replay service that
+replays every ranked and practice run, and runs a few steps with nothing
+pressed. The service is Cloudflare Workers. One replay there has 5 minutes
+of CPU, 7.5 minutes of wall time and 128 MB of memory, the platform's
+figures for its replay service on Cloudflare, and the rules code as loaded,
+its data packs and the game's state share the memory.
 
-Passing says the bot's run fits, and a player's run can be longer. Every
-run's replay starts the rules code afresh, holds the data packs the manifest
-declares, and plays every step the run took, so:
+A version whose rules code will not load there, or whose replay dies while
+it loads the rules code or its data packs, is refused with
+`E_REPLAY_MODULE`, and the first failure's message carries the service's
+own error text. Cloudflare refuses some work while a module loads, which its
+documentation puts as "Asynchronous I/O (ex: fetch() or connect()), setting
+a timeout, and generating random values are not allowed within global
+scope." Global scope is a module's top-level code, which runs as it is
+imported, so the rules code's top level does none of those, and nor does the
+top level of any library it bundles. Keep the rules code and its data packs well inside the
+memory, since the game's state needs room beside them.
+
+Once the replay is running, one that runs out of its CPU time, its wall
+time or its memory in those steps is refused with `E_REPLAY_OVER_BUDGET`,
+such as a game whose `init` builds more data than fits. One that fails for
+another reason is refused under the code the replay service gave, which
+every player's run would meet too: the rules code threw (`E_REPLAY_THREW`)
+or reached for something the service's isolate does not have, such as the
+network (`E_REPLAY_REACHED_OUT`). Each is the game's to fix. A replay
+service that gives no answer is the platform's: the check is tried again,
+and the version stays pending.
+
+`E_REPLAY_MALFORMED`, a replay the service could not take, is no longer
+reached: the check sends no inputs, so there is no log for the service to
+refuse.
+
+Passing says the rules code loads and runs there, and nothing about a
+player's run, which is longer than a few steps. Every run's replay starts
+the rules code afresh, holds the data packs the manifest declares, and plays
+every step the run took, so:
 
 - **Make a step cheaper.** At 60 steps a second an hour of play is 216,000
   steps, and 5 minutes of CPU leaves about 1.4 ms for each. A ranked run
@@ -157,7 +171,7 @@ declares, and plays every step the run took, so:
   game's state share the 128 MB of memory. Keep level data in packs rather
   than in the rules code, and let the state drop what no later step reads.
 
-## 7. Published
+## 6. Published
 
 Nobody reviews in between: a version that passes every check is published.
 Its two modules are copied to `https://files.vbz.gg/g/<game id>/`, and its
@@ -202,6 +216,18 @@ alert the platform mails a studio's admins and the operators when many
 players' runs fail the replay on one version, and watching a new game's score
 distribution against its peers.
 
+Nothing at upload plays a game in more than one engine any more, and
+`E_ENGINE_DIVERGED`, two engines reaching different states from the same
+bytes, is no longer reached. A simulation that computes differently on
+JavaScriptCore, V8 and SpiderMonkey publishes, and its players' runs fail
+the replay. The banned-APIs check is a static scan, and a static scan is
+evadable: `Math["si"+"n"]` walks past it. Measured in clockwork2: 32.6% of
+inputs differ for `Math.hypot` between JavaScriptCore and V8, 10.3% for
+`Math.exp`, 9.0% for `Math.pow`, 3.2% for `Math.cos`. Play the game in the
+harness in more than one browser before you publish: a run there is computed
+by the browser's engine and replayed under bun, which is JavaScriptCore, so a
+run whose replay matches says the two agreed (`references/harness.md`).
+
 A verified score means the server recomputed it from your own inputs. It does
 not mean the game is fair, and the platform should never be read as saying
 otherwise.
@@ -209,6 +235,7 @@ otherwise.
 ## Source is never asked for
 
 A submission is a built bundle. Every property that matters is behavioural -
-two seeds reach different states, the same log replays identically, three
-engines agree, the isolate has no network - so source would add nothing to the
-checking and cost an author their code.
+two seeds reach different states, the rules code loads and runs in an
+isolate with no network, a player's run replays to what their page
+reported - so source would add nothing to the checking and cost an author
+their code.

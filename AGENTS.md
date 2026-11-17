@@ -408,12 +408,14 @@ exists is explained; every code the guide's refusal list and
 or the engine names, the two unions read from their declarations with
 TypeScript's parser and `VersionCheckCode`'s compared with a list the
 compiler holds exhaustive, and every code `VersionCheckCode` names is
-explained in both; a manifest with no ranking goes by one name everywhere, the
-engine's `E_RANK_UNDECLARED`; every figure the guide and `docs/sdk.md`
-quote for one replay, and what follows from it, is `/build`'s `REPLAY_`
-budget, and the publish wait `docs/sdk.md` states is `CHECK_WAIT_MS` and its
-parts; `references/page.md` explains every client code and no other; every
-prose copy of what a release line fixes (in `SKILL.md`,
+explained in both, a code its doc comment says is "No longer reached" as
+no longer reached and no other; a manifest with no ranking goes by one name
+everywhere, the engine's `E_RANK_UNDECLARED`; every figure the guide and
+`docs/sdk.md` quote for one replay, and what follows from it, is `/build`'s
+`REPLAY_` budget, and the publish wait `docs/sdk.md` states is
+`CHECK_WAIT_MS` and its parts; `references/page.md` explains
+every client code and no other; every prose copy of what a release line
+fixes (in `SKILL.md`,
 `references/ingest.md` and `docs/sdk.md`) names exactly the fields
 `LINE_RULES` fixes; every need the prose shows a `package.json` naming is
 one `vbz` takes; the policy the null3d recipe and `docs/sdk.md` print for a

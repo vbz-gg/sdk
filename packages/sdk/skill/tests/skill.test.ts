@@ -108,35 +108,51 @@ function section(markdown: string, heading: string): string {
   return markdown.slice(start, end === -1 ? undefined : end)
 }
 
+/** One union `/api` declares, as its source writes it. */
+interface ApiUnion {
+  /** Every string literal it names. */
+  readonly literals: ReadonlySet<string>
+  /** Those whose own doc comment says "No longer reached". */
+  readonly retired: ReadonlySet<string>
+}
+
+/** What a member's doc comment says when nothing reaches the code any more. */
+const RETIRED = "No longer reached"
+
 /**
- * The string literals of every union `/api` declares, by the union's name,
- * read from its source with TypeScript's parser. `/api` is types only, so a
- * union there has no value to import, and a copy of one here would drift
- * from it with nothing failing.
+ * Every union `/api` declares, by the union's name, read from its source
+ * with TypeScript's parser. `/api` is types only, so a union there has no
+ * value to import, and a copy of one here would drift from it with nothing
+ * failing.
  */
-async function apiUnions(): Promise<ReadonlyMap<string, ReadonlySet<string>>> {
+async function apiUnions(): Promise<ReadonlyMap<string, ApiUnion>> {
   const path = join(PACKAGE, "src", "api", "index.ts")
-  const source = ts.createSourceFile(
-    path,
-    await readFile(path, "utf8"),
-    ts.ScriptTarget.Latest,
-  )
-  const unions = new Map<string, ReadonlySet<string>>()
+  const text = await readFile(path, "utf8")
+  const source = ts.createSourceFile(path, text, ts.ScriptTarget.Latest)
+  const unions = new Map<string, ApiUnion>()
   for (const statement of source.statements) {
     if (
       ts.isTypeAliasDeclaration(statement) &&
       ts.isUnionTypeNode(statement.type)
     ) {
       const literals = new Set<string>()
+      const retired = new Set<string>()
+      // A member's doc comment sits before the `|` that opens it, so it is
+      // whatever lies between the member before it and this one.
+      let after = statement.type.pos
       for (const member of statement.type.types) {
         if (
           ts.isLiteralTypeNode(member) &&
           ts.isStringLiteral(member.literal)
         ) {
           literals.add(member.literal.text)
+          if (text.slice(after, member.getStart(source)).includes(RETIRED)) {
+            retired.add(member.literal.text)
+          }
         }
+        after = member.end
       }
-      unions.set(statement.name.text, literals)
+      unions.set(statement.name.text, { literals, retired })
     }
   }
   return unions
@@ -144,13 +160,14 @@ async function apiUnions(): Promise<ReadonlyMap<string, ReadonlySet<string>>> {
 
 /** `/api`'s unions and the guide's refusal list, each read once a run. */
 const API_UNIONS = await apiUnions()
-function apiUnion(name: string): ReadonlySet<string> {
-  const literals = API_UNIONS.get(name)
-  if (literals === undefined) throw new Error(`/api declares no union ${name}`)
-  return literals
+function apiUnion(name: string): ApiUnion {
+  const union = API_UNIONS.get(name)
+  if (union === undefined) throw new Error(`/api declares no union ${name}`)
+  return union
 }
-const PUBLIC_REFUSALS = apiUnion("PublicRefusalCode")
-const CHECK_CODES = apiUnion("VersionCheckCode")
+const PUBLIC_REFUSALS = apiUnion("PublicRefusalCode").literals
+const CHECK_CODES = apiUnion("VersionCheckCode").literals
+const RETIRED_CHECK_CODES = apiUnion("VersionCheckCode").retired
 const REFUSAL_LIST = section(await read("SKILL.md"), "When ingest refuses")
 
 describe("the guide's front matter", () => {
@@ -342,6 +359,7 @@ const EVERY_CHECK_CODE = {
   E_PAGE_MODULE_INVALID: true,
   E_PAGE_MODULE_THREW: true,
   E_PAGE_MODULE_DIVERGED: true,
+  E_REPLAY_MODULE: true,
   E_REPLAY_OVER_BUDGET: true,
   E_REPLAY_THREW: true,
   E_REPLAY_REACHED_OUT: true,
@@ -401,6 +419,32 @@ describe("the platform's refusals of a version", () => {
         `${code}: true`,
       )
       expect(`${code}: ${ingest.includes(`\`${code}\``)}`).toBe(`${code}: true`)
+    }
+  })
+
+  /**
+   * A code no check reaches any more stays in the union, so nothing that
+   * switches on it breaks, and the guide says it is no longer reached, so an
+   * author does not look for a failure that cannot happen. A code still
+   * reached is never explained as one that is not.
+   */
+  test("a code no check reaches any more is explained as no longer reached, and only such a code", async () => {
+    expect(RETIRED_CHECK_CODES.size).toBeGreaterThan(0)
+    const retired = /no\s+longer\s+reached/i
+    for (const item of REFUSAL_LIST.split(/\n(?=- )/)) {
+      for (const code of item.match(/E_[A-Z0-9_]+/g) ?? []) {
+        if (!CHECK_CODES.has(code)) continue
+        expect(`${code}: ${retired.test(item)}`).toBe(
+          `${code}: ${RETIRED_CHECK_CODES.has(code)}`,
+        )
+      }
+    }
+    const ingest = await read("references", "ingest.md")
+    for (const paragraph of ingest.split(/\n\n/)) {
+      for (const code of RETIRED_CHECK_CODES) {
+        if (!paragraph.includes(`\`${code}\``)) continue
+        expect(`${code}: ${retired.test(paragraph)}`).toBe(`${code}: true`)
+      }
     }
   })
 

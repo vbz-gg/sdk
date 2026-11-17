@@ -598,7 +598,7 @@ describe("waiting for the checks", () => {
       },
       () => json({ error: "E_INTERNAL", message: "internal" }, 503),
       () => new Response("Bad gateway", { status: 502 }),
-      () => json(status("rejected", { rejectedCode: "E_DETERMINISM" })),
+      () => json(status("rejected", { rejectedCode: "E_SEED_IGNORED" })),
     ])
     const decided = await publish(settings(), net.deps)
     expect(decided.state).toBe("rejected")
@@ -768,21 +768,28 @@ describe("the verdict a build log shows", () => {
     expect(verdict.lines[0]).toContain("taken it down")
   })
 
+  /**
+   * A rules code the replay service will not load is refused with the
+   * service's own error text, which is the only place an author reads what
+   * it refused, so the log prints the first failure whole.
+   */
   test("rejected exits 1 and names the code and the first failure", () => {
+    const refused =
+      "Disallowed operation called within global scope. Asynchronous I/O (ex: fetch() or connect()), setting a timeout, and generating random values are not allowed within global scope."
     const verdict = verdictOf(
       status("rejected", {
-        rejectedCode: "E_DETERMINISM",
+        rejectedCode: "E_REPLAY_MODULE",
         firstFailure: {
-          check: "determinism",
-          code: "E_DETERMINISM",
-          message: "two runs of one seed disagreed at tick 412",
+          check: "replay-service",
+          code: "E_REPLAY_MODULE",
+          message: `the rules code did not load on the replay service: ${refused}`,
         },
       }),
     )
     expect(verdict.exitCode).toBe(1)
     expect(verdict.lines).toEqual([
-      "rejected version 1.2.0: E_DETERMINISM",
-      "first failure: determinism, E_DETERMINISM: two runs of one seed disagreed at tick 412",
+      "rejected version 1.2.0: E_REPLAY_MODULE",
+      `first failure: replay-service, E_REPLAY_MODULE: the rules code did not load on the replay service: ${refused}`,
     ])
   })
 
@@ -1481,8 +1488,8 @@ describe("a version's answer is checked in every field the verdict reads", () =>
   test("a rejection whose first failure is malformed is not printed half-read", async () => {
     expect(
       await readBack({
-        ...status("rejected", { rejectedCode: "E_DETERMINISM" }),
-        firstFailure: { check: "determinism" },
+        ...status("rejected", { rejectedCode: "E_SEED_IGNORED" }),
+        firstFailure: { check: "seed-sensitivity" },
       }),
     ).toBe(PUBLISH_ERROR.ANSWER_UNREADABLE)
     expect(
