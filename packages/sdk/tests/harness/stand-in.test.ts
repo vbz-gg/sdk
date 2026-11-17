@@ -179,7 +179,12 @@ async function signIn(made: ReturnType<typeof standIn>) {
       source: made.page.box?.frame,
       data,
     })
-  fromFrame({ type: "vbz.signin.ready", state: read.state })
+  // The page asks the page its frame loaded, and the sign-in answers.
+  made.page.box?.loaded()
+  const pinged = made.page.box?.posted.at(-1)?.message as
+    | { readonly load?: unknown }
+    | undefined
+  fromFrame({ type: "vbz.signin.ready", state: read.state, load: pinged?.load })
   const handed = signInRead(
     await (await continueWith(made.started.signInOrigin, formOf(asked))).text(),
   )
@@ -530,6 +535,13 @@ describe("signing in", () => {
    * its own: what it posts, and to whom.
    */
   describe("the framed page's script", () => {
+    /** A message to the page's window, as the browser delivers one. */
+    interface Delivered {
+      readonly source: unknown
+      readonly origin: string
+      readonly data: unknown
+    }
+
     async function run(
       read: SignInRead,
       framed: boolean,
@@ -537,6 +549,11 @@ describe("signing in", () => {
       posted: Array<readonly [unknown, string]>
       status: string
       keys: Array<(event: { key: string }) => void>
+      /** A message reaching the sign-in's page, from whoever sends it. */
+      deliver: (message: Delivered) => void
+      /** The parent's window, the one source a ping is taken from. */
+      parent: unknown
+      load: () => void
     }> {
       const made = standIn()
       const script = await (
@@ -550,12 +567,17 @@ describe("signing in", () => {
           posted.push([message, origin]),
       }
       const onLoad: Array<() => void> = []
+      const onMessage: Array<(event: Delivered) => void> = []
       const page: {
         parent?: unknown
-        addEventListener?: (type: string, listener: () => void) => void
+        addEventListener?: (
+          type: string,
+          listener: (event: Delivered) => void,
+        ) => void
       } = {
         addEventListener: (type, listener) => {
-          if (type === "load") onLoad.push(listener)
+          if (type === "load") onLoad.push(() => listener({} as Delivered))
+          if (type === "message") onMessage.push(listener)
         },
       }
       page.parent = framed ? parent : page
@@ -569,39 +591,69 @@ describe("signing in", () => {
         querySelector: () => ({ focus: () => {} }),
       }
       new Function("window", "document", script)(page, document)
-      // Nothing is posted before the page has loaded, and one ready after.
-      const before = posted.length
-      for (const listener of onLoad) listener()
-      if (before !== 0) throw new Error("posted before the page loaded")
-      return { posted, status: status.textContent, keys }
+      // Nothing is posted before the page has loaded and been asked.
+      if (posted.length !== 0) throw new Error("posted before anything")
+      return {
+        posted,
+        status: status.textContent,
+        keys,
+        parent,
+        deliver: (message) => {
+          for (const listener of onMessage) listener(message)
+        },
+        load: () => {
+          for (const listener of onLoad) listener()
+        },
+      }
     }
 
-    test("says it is ready, to the page's origin alone, and Escape closes it", async () => {
-      const ran = await run(
-        { origin: "http://127.0.0.1:4310", state: "s" },
-        true,
-      )
+    const PAGE = "http://127.0.0.1:4310"
+    const ping = (load: unknown, state = "s") => ({
+      type: "vbz.signin.ping",
+      state,
+      load,
+    })
+
+    /**
+     * It answers the ping for the load the page is asking about, echoing
+     * it, and only a ping from its parent, on the page's origin, for its
+     * state: a ready nobody asked for would say nothing to the page.
+     */
+    test("answers its parent's ping, echoing the load, to the page's origin alone, and Escape closes it", async () => {
+      const ran = await run({ origin: PAGE, state: "s" }, true)
+      ran.load()
+      expect(ran.posted).toEqual([])
+      ran.deliver({ source: {}, origin: PAGE, data: ping(1) })
+      ran.deliver({
+        source: ran.parent,
+        origin: "https://elsewhere.example",
+        data: ping(1),
+      })
+      ran.deliver({ source: ran.parent, origin: PAGE, data: ping(1, "other") })
+      ran.deliver({ source: ran.parent, origin: PAGE, data: ping("1") })
+      ran.deliver({ source: ran.parent, origin: PAGE, data: null })
+      expect(ran.posted).toEqual([])
+      ran.deliver({ source: ran.parent, origin: PAGE, data: ping(3) })
       expect(ran.posted).toEqual([
-        [{ type: "vbz.signin.ready", state: "s" }, "http://127.0.0.1:4310"],
+        [{ type: "vbz.signin.ready", state: "s", load: 3 }, PAGE],
       ])
       for (const listener of ran.keys) listener({ key: "Enter" })
       expect(ran.posted).toHaveLength(1)
       for (const listener of ran.keys) listener({ key: "Escape" })
       expect(ran.posted.at(-1)).toEqual([
         { type: "vbz.signin.cancel", state: "s" },
-        "http://127.0.0.1:4310",
+        PAGE,
       ])
     })
 
-    test("hands the code to the page's origin alone, after saying it is ready", async () => {
+    test("hands the code to the page's origin alone on load, and answers a ping too", async () => {
       const handoff = { type: "vbz.signin", code: "c", state: "s" }
-      const ran = await run(
-        { origin: "http://127.0.0.1:4310", state: "s", handoff },
-        true,
-      )
+      const ran = await run({ origin: PAGE, state: "s", handoff }, true)
+      ran.load()
+      ran.deliver({ source: ran.parent, origin: PAGE, data: ping(2) })
       expect(ran.posted).toEqual([
-        [{ type: "vbz.signin.ready", state: "s" }, "http://127.0.0.1:4310"],
-        [handoff, "http://127.0.0.1:4310"],
+        [handoff, PAGE],
+        [{ type: "vbz.signin.ready", state: "s", load: 2 }, PAGE],
       ])
     })
 

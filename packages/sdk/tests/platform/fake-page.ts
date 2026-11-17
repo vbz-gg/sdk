@@ -31,6 +31,9 @@ export class FakeBox implements SignInBox {
   readonly frame = { name: "the sign-in's frame" }
   url: string | null = null
   removed = false
+  /** Every message posted to the page the frame holds, with its target origin. */
+  readonly posted: Array<{ readonly message: unknown; readonly to: string }> =
+    []
 
   constructor(private readonly handlers: SignInBoxHandlers) {}
 
@@ -46,6 +49,10 @@ export class FakeBox implements SignInBox {
 
   load(url: string): void {
     this.url = url
+  }
+
+  post(message: unknown, targetOrigin: string): void {
+    this.posted.push({ message, to: targetOrigin })
   }
 
   remove(): void {

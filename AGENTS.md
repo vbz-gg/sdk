@@ -80,10 +80,15 @@ promise, moves the focus out of the click's turn, and a phone opens its
 keyboard only from a gesture. A message is taken only from the frame the box
 holds, on the sign-in origin, carrying the state sent. **The sign-in's ready
 message is the only sign the box works**, for every page the frame shows: a
-frame the browser refused still fires `load`, so each page the frame loads
-owes one `vbz.signin.ready`, and one still owed the ready time after its
-load, `signInReadyMs` or `SIGN_IN_READY_MS`, is `E_SIGNIN_UNREACHABLE`, never a fallback to a window. Nothing calls
-`requestStorageAccess`.
+frame the browser refused still fires `load`, so each load is pinged,
+`vbz.signin.ping` numbered by the load and aimed at the sign-in origin
+alone, and only a `vbz.signin.ready` echoing that number clears it. Never
+count readies against loads or take a ready nobody asked for: a page's own
+message can arrive before the iframe's `load` (Firefox under COOP and COEP,
+measured), and an extra one would leave a later refused page unowed. A
+page still unanswered the ready time after its load, `signInReadyMs` or
+`SIGN_IN_READY_MS`, is `E_SIGNIN_UNREACHABLE`, never a fallback to a window.
+Nothing calls `requestStorageAccess`.
 
 **Every read and write of the kept player goes through `kept`, `keep` and
 `forget` in `client.ts`**, which tell `onPlayerChange`'s listeners when the

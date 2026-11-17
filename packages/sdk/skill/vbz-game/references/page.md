@@ -105,8 +105,9 @@ signInButton.onclick = () => platform.signIn() // from the click, nothing awaite
   origin is not its own, the same site's included, cannot show it. Either
   way the box stays empty, and `signIn()` rejects with
   `E_SIGNIN_UNREACHABLE` after 15 seconds, or the `signInReadyMs` the client
-  was made with. Each page of the sign-in says it loaded, so a later step the
-  browser refuses gives up the same way.
+  was made with. The client asks each page of the sign-in its frame loads
+  whether it works, so a later step the browser refuses gives up the same
+  way.
 - A player stays signed in to the sign-in on your site alone: signing in on
   another studio's site asks for a code again. Safari may ask for one more
   often.

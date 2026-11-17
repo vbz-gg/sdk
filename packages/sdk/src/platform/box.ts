@@ -157,6 +157,9 @@ export function mountSignInBox(
       pointed = true
       frame.src = url
     },
+    post(message, targetOrigin) {
+      frame.contentWindow?.postMessage(message, targetOrigin)
+    },
     remove() {
       if (removed) return
       removed = true

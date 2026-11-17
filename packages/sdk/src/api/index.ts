@@ -522,18 +522,35 @@ export interface TokenRequest {
  * message only from the frame it holds, on the sign-in origin, carrying the
  * `state` it sent in the query it framed `/authorize` with.
  *
- * `vbz.signin.ready` is posted by every sign-in page that carries a checked
- * request, as it loads, so a page can tell a sign-in that works from one
- * the browser refused to frame: a refused frame still fires `load` on the
- * page's iframe (measured in Chromium 141 and 153 and Firefox 142), so the
- * message is the only signal. `vbz.signin` hands the page the one-time code
- * to trade at `POST /v1/oauth/token`. `vbz.signin.cancel` says the player
- * closed the sign-in from inside the frame, such as with Escape, which the
- * page cannot hear while the frame has focus.
+ * `vbz.signin.ready` answers a page's `vbz.signin.ping`, echoing its `load`,
+ * so a page can tell a sign-in page that works from one the browser refused
+ * to frame: a refused frame still fires `load` on the page's iframe
+ * (measured in Chromium 141 and 153 and Firefox 142), so the answer is the
+ * only signal, and it has to name the page it answers, because a page's
+ * own message can reach the page before the iframe's `load` (measured in
+ * Firefox 142 under COOP and COEP). `vbz.signin` hands the page the one-time
+ * code to trade at `POST /v1/oauth/token`. `vbz.signin.cancel` says the
+ * player closed the sign-in from inside the frame, such as with Escape,
+ * which the page cannot hear while the frame has focus.
  */
 export interface SignInReady {
   readonly type: "vbz.signin.ready"
   readonly state: string
+  /** The `load` of the ping it answers. */
+  readonly load: number
+}
+
+/**
+ * What a page posts to the sign-in in its frame, to the sign-in's origin
+ * alone, each time the frame finishes loading a page: the `load`-th. Every
+ * sign-in page that carries a checked request answers it with
+ * `vbz.signin.ready` echoing `load`, and a page the browser refused cannot,
+ * so a page still waiting for that answer knows its box is empty.
+ */
+export interface SignInPing {
+  readonly type: "vbz.signin.ping"
+  readonly state: string
+  readonly load: number
 }
 
 export interface SignInHandoff {

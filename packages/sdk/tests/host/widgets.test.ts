@@ -207,6 +207,7 @@ describe("the sign-in button", () => {
         load: (url) => {
           pointed = url
         },
+        post: (message, to) => box.post(message, to),
         remove: () => box.remove(),
       }
     }

@@ -17,6 +17,12 @@ export interface SignInBox {
   readonly frame: unknown
   /** Points the frame at the sign-in. */
   load(url: string): void
+  /**
+   * Posts `message` to the page the frame holds now, to `targetOrigin`
+   * alone: a page of another origin, such as the one a browser shows for a
+   * refused frame, never receives it.
+   */
+  post(message: unknown, targetOrigin: string): void
   /** Takes the box off the page. */
   remove(): void
 }

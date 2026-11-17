@@ -11,20 +11,23 @@
  * A browser that refused the frame, because the page's policy names no
  * `frame-src` for the sign-in, or the page is shown inside another page
  * whose origin is not the one that asked, or the sign-in would not frame
- * for this page, still fires `load` on the
- * iframe (measured in Chromium 141 and 153, and Firefox 142 for a
- * `frame-ancestors` refusal), so the only sign of a sign-in that works is
- * the `vbz.signin.ready` message it posts as it loads.
+ * for this page, still fires `load` on the iframe (measured in Chromium 141
+ * and 153, and Firefox 142 for a `frame-ancestors` refusal), so the only
+ * sign of a sign-in page that works is its own word.
  *
  * That holds for every page the frame shows, not only the first: a form
  * step the sign-in answers with a page the browser will not frame leaves
- * the box as empty as a refused first page does. Each page of the sign-in
- * posts one ready as it loads, and the box counts both: while fewer readies
- * have come than pages have loaded, or none at all, the page waits
- * the ready time, `SIGN_IN_READY_MS` unless the page names another, from
- * the last load for the one still owed. A page's
- * ready and its `load` reach the page in either order, which counting
- * leaves alone.
+ * the box as empty as a refused first page does. So each time the frame
+ * finishes loading a page, the page asks that page, `vbz.signin.ping` with
+ * the load's number, and waits the ready time, `SIGN_IN_READY_MS` unless the
+ * page names another, for `vbz.signin.ready` echoing it. A ready for an
+ * earlier load, a second one, or one nobody asked for changes nothing, so a
+ * page that posts more than one cannot leave a later refused page unowed.
+ * The page cannot simply wait for a ready after each `load`: in Firefox 142
+ * under COOP and COEP a sign-in page's own message arrived before the
+ * iframe's `load`, measured, so only an answer to a ping sent after the
+ * load says which page it is about. A refused page is another origin's, so
+ * the ping, aimed at the sign-in origin alone, never reaches it.
  */
 
 import type {
@@ -32,6 +35,7 @@ import type {
   SignInCancel,
   SignInHandoff,
   SignInMessage,
+  SignInPing,
   SignInReady,
 } from "../api/index.js"
 import type { MessageLike, PageEnvironment } from "./environment.js"
@@ -50,6 +54,7 @@ export const SIGN_IN_READY_MS = 15_000
 const READY: SignInReady["type"] = "vbz.signin.ready"
 const HANDOFF: SignInHandoff["type"] = "vbz.signin"
 const CANCEL: SignInCancel["type"] = "vbz.signin.cancel"
+const PING: SignInPing["type"] = "vbz.signin.ping"
 
 /** What the sign-in hands back: a code to trade, and the verifier that answers it. */
 export interface SignInGrant {
@@ -101,9 +106,8 @@ export function openSignIn(options: {
   let pkce: Awaited<ReturnType<typeof makePkce>> | null = null
   /** The wait for a ready still owed, while there is one. */
   let waiting: unknown
-  /** Pages the frame finished loading, and readies their sign-in posted. */
+  /** Pages the frame finished loading: the last one is the one asked. */
   let loads = 0
-  let readies = 0
   const stopWaiting = () => {
     if (waiting !== undefined) environment.clearTimeout(waiting)
     waiting = undefined
@@ -116,8 +120,6 @@ export function openSignIn(options: {
       options.readyMs,
     )
   }
-  /** Whether a page has loaded, or is loading, that has not said it is ready. */
-  const owed = () => readies < Math.max(loads, 1)
   const finish = (): boolean => {
     if (settled) return false
     settled = true
@@ -144,8 +146,11 @@ export function openSignIn(options: {
     if (data?.state !== pkce.state) return
     const type = data.type as SignInMessage["type"] | undefined
     if (type === READY) {
-      readies += 1
-      if (!owed()) stopWaiting()
+      // Only the answer for the page the frame holds now: an earlier page's,
+      // a second one, or one nobody asked for says nothing about this page.
+      const answered = (data as Partial<Record<keyof SignInReady, unknown>>)
+        .load
+      if (loads > 0 && answered === loads) stopWaiting()
     } else if (type === CANCEL) {
       failWith("E_SIGNIN_CANCELLED")
     } else if (type === HANDOFF && typeof data.code === "string") {
@@ -161,11 +166,13 @@ export function openSignIn(options: {
     box = environment.mountSignInBox({
       onCancel: () => failWith("E_SIGNIN_CANCELLED"),
       // Every page the frame shows owes a ready, whether or not the browser
-      // let it render, so each load waits afresh for the one it owes.
+      // let it render: asked now, it answers for this load and no other.
       onFrameLoad: () => {
-        if (settled) return
+        if (settled || pkce === null) return
         loads += 1
-        if (owed()) waitForReady()
+        waitForReady()
+        const ping: SignInPing = { type: PING, state: pkce.state, load: loads }
+        box.post(ping, signInOrigin)
       },
     })
   } catch (error) {

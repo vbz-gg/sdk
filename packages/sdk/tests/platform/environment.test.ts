@@ -185,6 +185,35 @@ describe("in a page", () => {
     })
 
     /**
+     * The ping goes to the page the frame holds, aimed at one origin, so a
+     * page of any other origin, such as the one a browser shows for a
+     * refused frame, never receives it.
+     */
+    test("posts to the page its frame holds, to the origin it is given alone", () => {
+      const box = mount()
+      const frame = document.querySelector("iframe") as HTMLIFrameElement
+      const posted: unknown[] = []
+      const window = frame.contentWindow as Window
+      window.postMessage = ((message: unknown, origin: string) => {
+        posted.push([message, origin])
+      }) as Window["postMessage"]
+      box.post(
+        { type: "vbz.signin.ping", load: 1 },
+        "https://signin.vbz.example",
+      )
+      expect(posted).toEqual([
+        [{ type: "vbz.signin.ping", load: 1 }, "https://signin.vbz.example"],
+      ])
+      box.remove()
+      // Off the page, the frame holds no page to post to.
+      box.post(
+        { type: "vbz.signin.ping", load: 2 },
+        "https://signin.vbz.example",
+      )
+      expect(posted).toHaveLength(1)
+    })
+
+    /**
      * Each page the frame finishes once it is pointed at the sign-in is
      * told, and the blank document it starts with is not, even when that
      * one's `load` comes late: counted, it would be a page owing a ready

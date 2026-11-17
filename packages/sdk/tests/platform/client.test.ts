@@ -56,10 +56,44 @@ function fromFrame(page: FakePage, data: unknown): void {
   page.post({ origin: SIGN_IN, source: page.box?.frame, data })
 }
 
+/** The ping the page last posted to its frame, and where it aimed it. */
+function lastPing(page: FakePage): {
+  readonly message: { type?: unknown; state?: unknown; load?: unknown }
+  readonly to: string
+} {
+  const sent = page.box?.posted.at(-1)
+  if (sent === undefined) throw new Error("the page pinged nothing")
+  return {
+    message: sent.message as {
+      type?: unknown
+      state?: unknown
+      load?: unknown
+    },
+    to: sent.to,
+  }
+}
+
+/**
+ * A page of the sign-in finishing its load in the box, and answering the
+ * ping the page sent it, if the page sent one: a box already down asks
+ * nothing.
+ */
+function pageReady(page: FakePage): void {
+  page.box?.loaded()
+  const sent = page.box?.posted.at(-1)
+  if (sent === undefined) return
+  const asked = sent.message as { state?: unknown; load?: unknown }
+  fromFrame(page, {
+    type: "vbz.signin.ready",
+    state: asked.state,
+    load: asked.load,
+  })
+}
+
 /** The sign-in loading in its box, and then handing the page a code. */
 function signedInThroughBox(page: FakePage, code = "code-1"): void {
   const state = authorizeQuery(page).get("state")
-  fromFrame(page, { type: "vbz.signin.ready", state })
+  pageReady(page)
   fromFrame(page, { type: "vbz.signin", code, state })
 }
 
@@ -279,7 +313,7 @@ describe("signing a player in", () => {
     const seen = outcome(platform.signIn())
     await settle()
     const state = authorizeQuery(page).get("state")
-    fromFrame(page, { type: "vbz.signin.ready", state })
+    pageReady(page)
     page.advance(SIGN_IN_READY_MS * 20)
     await settle()
     expect(seen).toEqual({})
@@ -294,25 +328,27 @@ describe("signing a player in", () => {
    * step answered with a page the browser will not frame, a 404 the
    * sign-in frames for nobody, or one sent without the headers a page under
    * COOP and COEP needs, leaves the box as empty as a refused first page,
-   * and fires `load` all the same.
+   * and fires `load` all the same. Each load is pinged, to the sign-in's
+   * origin alone, and only the answer echoing that load clears it.
    */
-  test("a later page that never says it is ready rejects E_SIGNIN_UNREACHABLE too", async () => {
+  test("each page the frame loads is asked, and a later one that never answers is E_SIGNIN_UNREACHABLE", async () => {
     const { page, client: platform } = client()
     const seen = outcome(platform.signIn())
     await settle()
     const state = authorizeQuery(page).get("state")
-    // The first page: its load and its ready, in either order.
-    page.box?.loaded()
-    fromFrame(page, { type: "vbz.signin.ready", state })
+    pageReady(page)
+    expect(lastPing(page)).toEqual({
+      message: { type: "vbz.signin.ping", state, load: 1 },
+      to: SIGN_IN,
+    })
     page.advance(SIGN_IN_READY_MS * 4)
     expect(page.pendingTimers).toBe(0)
-    // A second page, whose ready comes before its load: still accounted for.
-    fromFrame(page, { type: "vbz.signin.ready", state })
-    page.box?.loaded()
+    pageReady(page)
+    expect(lastPing(page).message.load).toBe(2)
     page.advance(SIGN_IN_READY_MS * 4)
     await settle()
     expect(seen).toEqual({})
-    // A third, the browser refused to show: it loads and says nothing.
+    // A third, the browser refused to show: it loads and answers nothing.
     page.box?.loaded()
     page.advance(SIGN_IN_READY_MS - 1)
     await settle()
@@ -324,25 +360,59 @@ describe("signing a player in", () => {
     expect(page.listening).toBe(0)
   })
 
-  /** A load says a page came; the wait for its ready starts there. */
-  test("each page's wait for its ready starts at its load", async () => {
+  /**
+   * A page that says it is ready more than once, on `load` and again on
+   * `pageshow`, or twice by mistake, or before the iframe's `load` reaches
+   * the page (measured in Firefox 142 under COOP and COEP), must not leave
+   * a later refused page unowed: a ready counts only as the answer for the
+   * load the frame holds now.
+   */
+  test("extra readies, unasked or for an earlier load, change nothing", async () => {
     const { page, client: platform } = client()
     const seen = outcome(platform.signIn())
     await settle()
     const state = authorizeQuery(page).get("state")
+    // Unasked, before any load: the wait from asking for the first goes on.
+    fromFrame(page, { type: "vbz.signin.ready", state })
+    fromFrame(page, { type: "vbz.signin.ready", state, load: 1 })
+    expect(page.pendingTimers).toBe(1)
+    pageReady(page)
+    // Two more for the first page, then a second page the browser refused.
+    fromFrame(page, { type: "vbz.signin.ready", state, load: 1 })
+    fromFrame(page, { type: "vbz.signin.ready", state })
+    page.box?.loaded()
+    fromFrame(page, { type: "vbz.signin.ready", state, load: 1 })
+    fromFrame(page, { type: "vbz.signin.ready", state, load: "2" })
+    page.advance(SIGN_IN_READY_MS)
+    await settle()
+    expect(seen.code).toBe("E_SIGNIN_UNREACHABLE")
+  })
+
+  /** A load says a page came; the wait for its answer starts there. */
+  test("each page's wait for its ready starts at its load", async () => {
+    const { page, client: platform } = client()
+    const seen = outcome(platform.signIn())
+    await settle()
     page.advance(SIGN_IN_READY_MS - 10)
     page.box?.loaded()
     page.advance(SIGN_IN_READY_MS - 10)
     await settle()
     expect(seen).toEqual({})
-    fromFrame(page, { type: "vbz.signin.ready", state })
+    const { message } = lastPing(page)
+    fromFrame(page, {
+      type: "vbz.signin.ready",
+      state: message.state,
+      load: message.load,
+    })
     expect(page.pendingTimers).toBe(0)
     page.box?.cancel()
     await settle()
     expect(seen.code).toBe("E_SIGNIN_CANCELLED")
-    // A load after the box came down waits for nothing.
+    // A load after the box came down asks nothing and waits for nothing.
+    const asked = page.box?.posted.length
     page.box?.loaded()
     expect(page.pendingTimers).toBe(0)
+    expect(page.box?.posted.length).toBe(asked)
   })
 
   /**

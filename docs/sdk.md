@@ -460,20 +460,26 @@ another origin on the same site is refused too.
 
 The client takes a message only from the frame it holds, on the sign-in
 origin, carrying the state it sent, and the platform posts three, declared in
-`/api` as `SignInMessage`. `vbz.signin.ready` comes once from each sign-in
-page, on its `load`. A browser that refuses the frame still fires `load` on
-the iframe (measured in Chromium 141 and 153, and in Firefox 142 for a
-`frame-ancestors` refusal), so the ready message is the only sign the box
-works, and that holds for every page the frame shows, not only the first: a
-form step answered with a page the browser will not frame leaves the box as
-empty as a refused first page. So the client counts the pages its frame
-loads and the readies their sign-in posted, in whichever order the two
-arrive, and while a page owes one, it waits the ready time from that
-page's load, or from asking for the first: `SIGN_IN_READY_MS`, 15 seconds,
-an estimate nobody measured on a slow network, unless the page gives
-`createPlatformClient` a `signInReadyMs` of its own, as the browser suite
-does with 3 seconds. With none, `signIn()` rejects with
-`E_SIGNIN_UNREACHABLE` and the box comes down.
+`/api` as `SignInMessage`. A browser that refuses the frame still fires
+`load` on the iframe (measured in Chromium 141 and 153, and in Firefox 142
+for a `frame-ancestors` refusal), so the sign-in's own word is the only
+sign the box works, and that holds for every page the frame shows, not only
+the first: a form step answered with a page the browser will not frame
+leaves the box as empty as a refused first page. So each time the frame
+finishes loading a page, the client posts that page `vbz.signin.ping`,
+`SignInPing` in `/api`, numbered by the load and aimed at the sign-in origin
+alone, which a refused page, being another origin's, never receives. The
+sign-in answers `vbz.signin.ready` echoing the number, and only that
+answer clears the page: a ready for an earlier load, a second one, or one
+nobody asked for changes nothing. A ready the sign-in posted of its own
+accord would not do, because it can reach the page before the iframe's
+`load` (measured in Firefox 142 under COOP and COEP), and then nothing says
+which page it was about. While a page is unanswered, the client waits the
+ready time from its load, or from asking for the first page:
+`SIGN_IN_READY_MS`, 15 seconds, an estimate nobody measured on a slow
+network, unless the page gives `createPlatformClient` a `signInReadyMs` of
+its own, as the browser suite does with 3 seconds. With no answer,
+`signIn()` rejects with `E_SIGNIN_UNREACHABLE` and the box comes down.
 
 `vbz.signin` carries the code, which the client trades at
 `POST /v1/oauth/token`. `vbz.signin.cancel` is Escape inside the frame,
@@ -1094,8 +1100,9 @@ The stand-in's sign-in is framed exactly as the platform's is: each page
 carrying a checked request is sent with `frame-ancestors` naming the site's
 exact origin, `Cross-Origin-Embedder-Policy: require-corp` and
 `Cross-Origin-Resource-Policy: cross-origin`, and every other answer with
-`frame-ancestors 'none'` and `X-Frame-Options: DENY`. Each framed page posts
-`vbz.signin.ready` to the site's origin as it loads, a Continue button posts
+`frame-ancestors 'none'` and `X-Frame-Options: DENY`. Each framed page
+answers the site's `vbz.signin.ping` with `vbz.signin.ready`, echoing its
+number, to the site's origin alone, a Continue button posts
 a form back to the sign-in's own origin, refused when its `Origin` is any
 other, and the answer hands the code over with `vbz.signin`, from the frame
 to that origin alone. It signs one local player in with that click, so it

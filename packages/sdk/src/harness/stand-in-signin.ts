@@ -15,12 +15,13 @@
  *   anything not found, is sent with `frame-ancestors 'none'` and
  *   `X-Frame-Options: DENY`, so a request the sign-in cannot check frames
  *   for nobody, and the page's box reports `E_SIGNIN_UNREACHABLE`;
- * - each framed page posts `vbz.signin.ready` to its parent once, on its
- *   `load`, and the hand-off then posts `vbz.signin` with the code, each to
- *   the page's exact origin and nowhere else; Escape inside the frame posts
- *   `vbz.signin.cancel`. The page's box counts a ready for every page its
- *   frame loads, so a page that posted none, or two, would leave it waiting
- *   for the wrong page;
+ * - each framed page answers its parent's `vbz.signin.ping` with
+ *   `vbz.signin.ready` echoing the ping's `load`, and the hand-off posts
+ *   `vbz.signin` with the code on its `load`, each to the page's exact
+ *   origin and nowhere else; Escape inside the frame posts
+ *   `vbz.signin.cancel`. The page pings each page its frame loads and waits
+ *   for that page's answer alone, so a ready nobody asked for would say
+ *   nothing;
  * - the form posts `Continue` back to the sign-in's own origin, and a post
  *   whose `Origin` is not the sign-in's is refused, as the platform's are.
  *
@@ -33,6 +34,7 @@ import type {
   SignedInPlayer,
   SignInCancel,
   SignInHandoff,
+  SignInPing,
   SignInReady,
 } from "../api/index.js"
 import { assertOrigin } from "./csp.js"
@@ -105,10 +107,12 @@ const REQUEST_FIELDS = [
 ] as const
 
 /**
- * Posts `vbz.signin.ready` to the page that framed it once, on `load`, then
- * the hand-off if the page carries one, each to that page's origin alone;
- * and `vbz.signin.cancel` on Escape. Opened in a window of its own rather
- * than in a frame, it posts nothing and says where to go back to.
+ * Answers the framing page's ping with `vbz.signin.ready`, echoing the
+ * ping's `load`, and takes a ping only from its parent, on the page's
+ * origin, for its state; posts the hand-off, if the page carries one, on
+ * `load`; and `vbz.signin.cancel` on Escape. Everything goes to the page's
+ * origin alone. Opened in a window of its own rather than in a frame, it
+ * posts nothing and says where to go back to.
  */
 const SCRIPT = `"use strict";
 (() => {
@@ -119,11 +123,16 @@ const SCRIPT = `"use strict";
     return;
   }
   const post = (message) => window.parent.postMessage(message, data.origin);
-  window.addEventListener("load", () => {
-    post({ type: ${JSON.stringify("vbz.signin.ready" satisfies SignInReady["type"])}, state: data.state });
-    if (data.handoff) post(data.handoff);
-  }, { once: true });
-  if (data.handoff) return;
+  window.addEventListener("message", (event) => {
+    if (event.source !== window.parent || event.origin !== data.origin) return;
+    const asked = event.data;
+    if (!asked || asked.type !== ${JSON.stringify("vbz.signin.ping" satisfies SignInPing["type"])} || asked.state !== data.state || typeof asked.load !== "number") return;
+    post({ type: ${JSON.stringify("vbz.signin.ready" satisfies SignInReady["type"])}, state: data.state, load: asked.load });
+  });
+  if (data.handoff) {
+    window.addEventListener("load", () => post(data.handoff), { once: true });
+    return;
+  }
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") post({ type: ${JSON.stringify("vbz.signin.cancel" satisfies SignInCancel["type"])}, state: data.state });
   });
