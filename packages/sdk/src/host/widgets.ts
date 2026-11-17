@@ -36,13 +36,19 @@ function styleButton(button: HTMLButtonElement): void {
 }
 
 export interface SignInOptions {
-  readonly client: Pick<PlatformClient, "player" | "signIn" | "signOut">
+  readonly client: Pick<
+    PlatformClient,
+    "player" | "signIn" | "signOut" | "onPlayerChange"
+  >
   /** Told when a player signs in or out through the widget. */
   readonly onChange?: (player: ReturnType<PlatformClient["player"]>) => void
 }
 
 export interface MountedSignIn extends MountedWidget {
-  /** Redraws from the client: after a sign-out the page made itself. */
+  /**
+   * Draws the widget again from `client.player()`. It already redraws itself
+   * whenever the client's player changes, so a page has no need to.
+   */
   update(): void
 }
 
@@ -52,6 +58,10 @@ export interface MountedSignIn extends MountedWidget {
  * The sign-in window opens in the click itself, before anything is awaited,
  * because a browser opens one only in the turn of the click that asked. A
  * failure, the window blocked or closed early, is shown beside the button.
+ *
+ * It follows the client through `onPlayerChange`, so it never shows a
+ * player the client has let go: one signed out elsewhere on the page, or
+ * whose token the platform stopped honouring.
  */
 export function mountSignIn(
   element: HTMLElement,
@@ -113,9 +123,13 @@ export function mountSignIn(
   })
 
   update()
+  const unfollow = options.client.onPlayerChange(update)
   return {
     update,
-    destroy: () => root.remove(),
+    destroy() {
+      unfollow()
+      root.remove()
+    },
   }
 }
 

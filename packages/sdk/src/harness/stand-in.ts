@@ -79,11 +79,13 @@ export const STAND_IN_LIMITS: RunLimits = {
 const TOKEN_SECONDS = 3600
 
 /**
- * The status each refusal arrives with. A page switches on the code, never
- * the status; what the status decides is whether a request is worth sending
- * again, and none of these is.
+ * Every refusal the stand-in answers, with the status the platform answers
+ * it with, so a code arrives here as it does in production. A page switches
+ * on the code, never the status; what the status decides is whether a
+ * request is worth sending again, and none of these is. A code missing from
+ * this table cannot be thrown, so none arrives with a guessed status.
  */
-const STATUS: Readonly<Partial<Record<PublicRefusalCode, number>>> = {
+export const STAND_IN_STATUS = {
   E_BAD_REQUEST: 400,
   E_SIGNIN_GRANT_INVALID: 400,
   E_UNAUTHORIZED: 401,
@@ -95,26 +97,33 @@ const STATUS: Readonly<Partial<Record<PublicRefusalCode, number>>> = {
   E_RANKED_PAUSED: 409,
   E_SESSION_CLOSED: 409,
   E_CHUNK_CONFLICT: 409,
-  E_CHUNK_NOT_FORWARD: 409,
-  E_CHUNKS_INCOMPLETE: 409,
+  E_CHUNK_NOT_FORWARD: 400,
+  E_CHUNKS_INCOMPLETE: 400,
   E_BODY_TOO_LARGE: 413,
   E_RUN_TOO_LARGE: 413,
-  E_INPUT_UNDECLARED: 422,
-  E_INPUT_RANGE: 422,
-  E_INPUT_BUDGET: 422,
-  E_RECORDING_MALFORMED: 422,
-}
+  E_INPUT_UNDECLARED: 400,
+  E_INPUT_RANGE: 400,
+  E_INPUT_BUDGET: 400,
+  E_RECORDING_MALFORMED: 400,
+} as const satisfies Partial<Record<PublicRefusalCode, number>>
+
+/** A code the stand-in answers. */
+type StandInRefusal = keyof typeof STAND_IN_STATUS
 
 /** The input refusals a server passes through by their own code. */
-const INPUT_CODES: ReadonlySet<string> = new Set([
+const INPUT_CODES = [
   "E_INPUT_UNDECLARED",
   "E_INPUT_RANGE",
   "E_INPUT_BUDGET",
-])
+] as const satisfies readonly StandInRefusal[]
+
+function isInputCode(code: string): code is (typeof INPUT_CODES)[number] {
+  return INPUT_CODES.some((input) => input === code)
+}
 
 class Refused extends Error {
   constructor(
-    readonly code: PublicRefusalCode,
+    readonly code: StandInRefusal,
     message: string,
     readonly detail?: Readonly<Record<string, unknown>>,
   ) {
@@ -133,8 +142,8 @@ function nothingThere(): Refused {
 
 /** An engine refusal of a log, as the platform answers it. */
 function inputRefusal(error: unknown): Refused {
-  if (isClockworkError(error) && INPUT_CODES.has(error.code)) {
-    return new Refused(error.code as PublicRefusalCode, error.message)
+  if (isClockworkError(error) && isInputCode(error.code)) {
+    return new Refused(error.code, error.message)
   }
   return new Refused(
     "E_RECORDING_MALFORMED",
@@ -364,7 +373,7 @@ export function startStandIn(options: StandInOptions): RunningStandIn {
         ...(refused.detail === undefined ? {} : { detail: refused.detail }),
       }
       return Response.json(body, {
-        status: STATUS[refused.code] ?? 400,
+        status: STAND_IN_STATUS[refused.code],
         headers: cors(request),
       })
     }

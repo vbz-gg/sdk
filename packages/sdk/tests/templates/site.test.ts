@@ -309,6 +309,9 @@ function rig(answers: {
   }> = []
   const loads: string[] = []
   let signedIn = answers.signedIn !== false
+  const following = new Set<
+    (player: { id: string; displayName: string } | null) => void
+  >()
   const client = {
     pageKey: "vbz_pk_1" as const,
     game: async () => {
@@ -318,6 +321,14 @@ function rig(answers: {
       return next
     },
     player: () => (signedIn ? { id: "p-1", displayName: "Ann" } : null),
+    onPlayerChange: (
+      listener: (player: { id: string; displayName: string } | null) => void,
+    ) => {
+      following.add(listener)
+      return () => {
+        following.delete(listener)
+      }
+    },
     signIn: async () => ({ id: "p-1", displayName: "Ann" }),
     signOut: () => {},
     board: async () => {
@@ -373,9 +384,13 @@ function rig(answers: {
   const message = () => document.getElementById("message")?.textContent ?? ""
   return {
     site,
-    /** The client forgetting the player, as it does when a token stops working. */
+    /**
+     * The client forgetting the player, as it does when the platform stops
+     * honouring a token, and telling whoever follows it.
+     */
     forgetPlayer: () => {
       signedIn = false
+      for (const listener of [...following]) listener(null)
     },
     plays,
     loads,
@@ -444,15 +459,18 @@ describe("the page", () => {
       document.querySelector("#signin button")?.textContent ?? ""
     expect(signInButton()).toBe("Sign out")
     page.click("play")
+    // The run's start is refused and the client forgets the player: the box
+    // follows the client, before the page hears the run failed.
     page.forgetPlayer()
+    expect(signInButton()).toBe("Sign in")
+    expect(
+      document.querySelector(".gb-signin-name")?.hasAttribute("hidden"),
+    ).toBe(true)
     page.plays[0]?.options.onState?.(
       state({ errorCode: "E_SIGN_IN_REQUIRED", detail: "sign in first" }),
     )
     expect(page.message()).toBe(SIGN_IN_FIRST)
     expect(signInButton()).toBe("Sign in")
-    expect(
-      document.querySelector(".gb-signin-name")?.hasAttribute("hidden"),
-    ).toBe(true)
   })
 
   test("on a paused day it says so, and Play still asks, reading the game again", async () => {
@@ -553,9 +571,10 @@ describe("the page", () => {
 
   /**
    * The page with the SDK's own `playRun`, a game steered by tilt, and a
-   * player who would not allow it, as on an iPad after "Don't Allow". The
-   * page says why in the client's own sentence, and nothing is asked of the
-   * platform, so no ranked run is spent on a game nobody can steer.
+   * player who would not allow it, as on an iPad after "Cancel" on its motion
+   * prompt (the button's name, measured on iPadOS 26.7). The page says why
+   * in the client's own sentence, and nothing is asked of the platform, so
+   * no ranked run is spent on a game nobody can steer.
    */
   test("a refusal of tilt is said in the client's sentence, and starts no run", async () => {
     const page = rig({
@@ -666,6 +685,7 @@ describe("the page", () => {
           throw new Error("the platform did not answer")
         },
         player: () => null,
+        onPlayerChange: () => () => {},
         signIn: async () => ({ id: "p", displayName: "p" }),
         signOut: () => {},
         board: async () => EMPTY_BOARD,

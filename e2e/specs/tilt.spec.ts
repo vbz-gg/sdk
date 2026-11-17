@@ -51,7 +51,8 @@ test("a lean is recorded as a level when it changes, and replays", async ({
 })
 
 /**
- * iOS after "Don't Allow": every later request is answered with a refusal,
+ * iOS once the player taps "Cancel" on its motion prompt (the button's name,
+ * measured on iPadOS 26.7): every later request is answered with a refusal,
  * at once and without a prompt. The page asked once, inside the tap, and
  * then asked the platform for nothing.
  */

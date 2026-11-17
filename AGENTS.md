@@ -72,6 +72,12 @@ plain node.
 first, even a resolved promise, moves the open out of the click's turn and the
 browser blocks it.
 
+**Every read and write of the kept player goes through `kept`, `keep` and
+`forget` in `client.ts`**, which tell `onPlayerChange`'s listeners when the
+player moved. A `store.read()` or `store.clear()` anywhere else changes the
+player without telling, and `mountSignIn`, which follows it, then shows a
+player the client has let go.
+
 **The client's codes and the platform's never share a name.** `CLIENT_ERROR`
 in `errors.ts` is the client's table, a compile-time check keeps it apart from
 `PublicRefusalCode`, and the guide's `references/page.md` explains every entry,
@@ -229,7 +235,8 @@ names another, and the key is sent only over https or to this machine.
 **It prints what the platform decided, in the platform's terms**: the release
 line the version joined, a refusal's `detail` (the fields a patch changed and
 the minor to publish instead, or the versions an upload had to be above), and
-once the checks pass, which runs the version serves.
+once the checks pass, which runs the version serves and how many of its
+line's recent ranked runs end differently under it.
 
 **Its exit code is the verdict.** 0 means the version passed its checks and
 is published, and the command has printed which runs it serves. Anything
@@ -356,7 +363,8 @@ What only a browser can settle, and what each spec found:
   refuses at mount, and a tilt request that is refused, fails or throws,
   which starts no run.
 - A tilt game on a studio's page starts no run without tilt, and asks the
-  platform for nothing: a refusal as iOS gives it after "Don't Allow",
+  platform for nothing: a refusal as iOS gives it once the player taps
+  "Cancel" on its motion prompt (the button's name, measured on iPadOS 26.7),
   answered by a stand-in for `requestPermission` because Chromium has none,
   and a laptop's Chromium, which has orientation events and no sensor.
 - Watching an abandoned run stops at its end tick.

@@ -286,7 +286,8 @@ newer patch passes, and practice carries on.
 - `vbz publish <dir> --game <id>` - upload `dist/` and wait for the
   platform's verdict. The studio's secret key comes from `VBZ_STUDIO_KEY`,
   never a flag. It exits 0 when the version passed its checks and is
-  published, and prints the release line it joined and which runs it serves.
+  published, and prints the release line it joined, which runs it serves,
+  and how many of the line's recent ranked runs end differently under it.
   Anything else exits 1, a version an operator took down included: a
   rejection prints the first check that failed, and a refusal the
   platform's detail.

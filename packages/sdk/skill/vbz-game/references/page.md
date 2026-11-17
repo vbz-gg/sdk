@@ -29,9 +29,11 @@ signInButton.onclick = () => platform.signIn() // from the click, nothing awaite
 - The player's token is kept in `localStorage`, one entry per page key, and
   in memory, so a browser that keeps nothing still plays this visit. Every run
   start renews it. A token the platform stops honouring is dropped, and
-  `onSignedOut` is told. `mountSignIn`'s box does not notice by itself: call
-  its `update()` then, or after any failed run, as the template's page does,
-  or it keeps showing a player who has gone.
+  `onSignedOut` is told.
+- `onPlayerChange(listener)` is told each time the player changes: a
+  sign-in, a sign-out, a token refused or found expired. It returns a
+  function that stops it. `mountSignIn` follows it, so the box never shows a
+  player the client has let go, and the page needs no code for that.
 - `signOut()` forgets the player on this page. No route signs a player out;
   the sign-in window's own page does that.
 

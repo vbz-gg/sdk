@@ -123,6 +123,9 @@ describe("the harness over https", () => {
   beforeAll(async () => {
     dir = await mkdtemp(join(tmpdir(), "sdk-https-"))
     // A throwaway certificate for this machine, made for this test alone.
+    // The curve is written by name. Left to the default, OpenSSL 3 names it
+    // and LibreSSL 3.3.6, which macOS ships as `openssl`, spells out its
+    // parameters, which Bun's TLS refuses as an EC decode error.
     const made = Bun.spawnSync([
       "openssl",
       "req",
@@ -131,6 +134,8 @@ describe("the harness over https", () => {
       "ec",
       "-pkeyopt",
       "ec_paramgen_curve:prime256v1",
+      "-pkeyopt",
+      "ec_param_enc:named_curve",
       "-nodes",
       "-days",
       "1",

@@ -45,9 +45,10 @@ export interface TiltAsked {
 /**
  * iOS's `DeviceOrientationEvent.requestPermission` on every page `page`
  * opens, answering `answer` the way iOS answers once a player has tapped
- * "Don't Allow": at once, and without asking again. Chromium has none of
- * its own and cannot produce that refusal, and the engine calls the method
- * wherever the browser has it. Each call is kept for `tiltAsked`.
+ * "Cancel" on its motion prompt (the button's name, measured on iPadOS 26.7):
+ * at once, and without asking again. Chromium has none of its own and cannot
+ * produce that refusal, and the engine calls the method wherever the browser
+ * has it. Each call is kept for `tiltAsked`.
  */
 export async function answerTilt(page: Page, answer: string): Promise<void> {
   await page.addInitScript((said) => {

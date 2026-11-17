@@ -88,7 +88,9 @@ key, so the file in `site/` is not read. The stand-in:
 - reads a settled run back for watching, a run from a day still open to the
   local player alone, and answers a run the reader may not have, or one that
   does not exist, with the platform's `E_NOT_FOUND`;
-- keeps the local player's last ranked run of the day as the board.
+- keeps the local player's last ranked run of the day as the board;
+- answers every refusal with the platform's code and the platform's status
+  for it.
 
 It neither replays nor ranks. A score it shows has not been checked.
 

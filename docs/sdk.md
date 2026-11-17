@@ -268,11 +268,11 @@ ticks is `E_NOTHING_TO_WATCH`.
 
 Two widgets sit beside them. `mountSignIn` is a button that signs a player in
 and out, calling `signIn()` in the click's own turn and showing a failure
-beside itself in the client's own sentence. It redraws itself only after its
-own clicks: when the client drops a player whose token stopped working, call
-its `update()`, from `onSignedOut` or after any failed run, as the template's
-page does. `mountBoard` is a table of a
-board: rank, name and each counter the game ranks by, in the manifest's
+beside itself in the client's own sentence. It follows the client through
+`onPlayerChange` and redraws whenever the client's player changes, whoever
+changed it: a sign-out elsewhere on the page, or a token the platform stopped
+honouring, so a page needs no code to keep it true. `mountBoard` is a table of
+a board: rank, name and each counter the game ranks by, in the manifest's
 order, with the reader's own row marked `aria-current` and shown after the
 page when it is not on it. Both are plain DOM and take every colour from a
 `--gb-widget-*` custom property with a fallback.
@@ -307,6 +307,16 @@ an older run's token refused after the player signed in again says nothing
 about the new one. The page also holds the player in memory and reads that
 copy once it has one, so a browser that keeps nothing (a private window, a
 blocked or full store) still plays this visit, and signs in again on the next.
+
+**`onPlayerChange(listener)`** tells a page each time the client's player
+changes: a sign-in, a sign-out, a token the platform stopped honouring, or one
+the client finds expired when it next reads it. A renewed token for the same
+player is no change. The listener runs inside the call that found the change,
+never for the player there already was when it subscribed, and the function it
+returns stops it. Every read and write of the kept player goes through the one
+place that compares it with the last player seen, so nothing changes the
+player without telling. `onSignedOut`, given when the client is made, hears
+only the platform refusing the token.
 
 A run's own writes and its result are sent with the token from its own start,
 not with whatever player is kept by then.
@@ -597,7 +607,9 @@ platform does, and settles a run with the counters its page sent, without a
 replay, which the terminal says each time. It reads a run from a day still
 open back to its own player alone, as the platform does, because watching
 needs the day's seed, and answers anybody else with the platform's
-`E_NOT_FOUND`, the answer a run that does not exist gets. It ranks nothing.
+`E_NOT_FOUND`, the answer a run that does not exist gets. Every refusal it
+answers carries the platform's code and the platform's status for that code.
+It ranks nothing.
 
 ## Versions and release lines
 
@@ -691,6 +703,11 @@ command needs only the game's id. It waits up to 15 minutes, because the
 checks run the game in three engines, and a version still pending after that
 is reported as still being checked rather than as failed.
 
+Each of the three goes as a file part carrying the file's bytes as they are
+on disk. A text part would not arrive that way: an encoder that follows the
+HTML standard rewrites every line feed in one as CRLF, and Bun 1.4.3's and
+Node 22's both do, where Bun 1.3.11's did not.
+
 It is built for a studio's build system, so its exit code is the verdict: 0
 when the version passed its checks and is published, with the release line
 it joined and which runs it serves printed. A version that serves no run yet,
@@ -699,6 +716,18 @@ rejection, a version an operator has taken down, a refusal and a platform
 that does not answer all exit 1 with a code that names which, and a refusal
 prints its `detail`: the fields a patch changed and the minor to publish
 instead, or the versions an upload had to be above.
+
+A published version also comes back with `patchScores`. As a version
+publishes, the platform replays up to 50 of its line's most recent settled
+ranked runs, played on the line's other versions, under the new rules code,
+and counts the runs whose end tick, terminal or counters come out different.
+That is the part of a patch's promise a manifest cannot show: a fix that
+changes what the same play scores. The count decides nothing, and the
+command prints it as the platform measured it, such as
+`patch check: 3 of 50 recent ranked runs on line 1.2 end differently under
+this version`. A line's first version has no runs of its line to replay, and
+the command says so. While the platform has not measured a version,
+`patchScores` is null and nothing is printed.
 
 The studio's secret key comes from `VBZ_STUDIO_KEY` and nowhere else. A flag
 would put it in shell history and in the process list. The request carries
