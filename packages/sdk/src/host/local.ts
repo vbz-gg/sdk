@@ -252,18 +252,17 @@ export function playLocal(
   motion?.catch(() => {})
 
   let handle: MountHandle | null = null
-  /** Ended or taken down: nothing more is mounted or reported. */
+  /**
+   * Set by `end()` and by `destroy()`. Read after every await: once it is
+   * set, the element may belong to the next run, so nothing more is
+   * mounted, focused or reported from an answer that arrives late.
+   */
   let stopped = false
+  /** Set by `destroy()` alone: then even a mounted run reports nothing. */
   let destroyed = false
   const failed = (error: LocalError) => {
     if (!destroyed) options.onError?.(error)
   }
-  /**
-   * Whether the page ended the run while the tilt prompt was answered. Asked
-   * after every await, because the element may by then belong to the next
-   * run, and a run that never started has nothing to report.
-   */
-  const left = (): boolean => stopped
 
   const start = (): void => {
     focusGame(element, options.title)
@@ -306,7 +305,7 @@ export function playLocal(
   else {
     motion.then(
       (access) => {
-        if (left()) return
+        if (stopped) return
         // A game steered by tilt is not played without it.
         const refused = motionRefusal(access)
         if (refused !== null) {
@@ -316,7 +315,7 @@ export function playLocal(
         start()
       },
       (error: unknown) => {
-        if (left()) return
+        if (stopped) return
         failed({
           code: "E_UNEXPECTED",
           message: error instanceof Error ? error.message : String(error),
