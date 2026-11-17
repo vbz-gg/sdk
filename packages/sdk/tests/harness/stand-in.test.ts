@@ -22,6 +22,7 @@ import {
   type RunningStandIn,
   STAND_IN_LIMITS,
   STAND_IN_PAGE_KEY,
+  STAND_IN_STATUS,
   type StandInOptions,
   startStandIn,
 } from "../../src/harness/stand-in"
@@ -112,14 +113,64 @@ async function signIn(made: ReturnType<typeof standIn>) {
   return await signing
 }
 
+/**
+ * The status the platform answers each code the stand-in answers, as
+ * vbz-gg/platform's `apps/api/src/errors.ts` has them: its
+ * `SESSION_REFUSAL_STATUS` for a run's refusals, and for the rest the status
+ * its routes throw them with (a malformed body, a missing or unknown key, no
+ * such route, a body over its cap, a page key from a page its game does not
+ * allow, and a sign-in that cannot be traded).
+ */
+const PLATFORM_STATUS: Readonly<Record<string, number>> = {
+  E_BAD_REQUEST: 400,
+  E_SIGNIN_GRANT_INVALID: 400,
+  E_UNAUTHORIZED: 401,
+  E_SIGN_IN_REQUIRED: 401,
+  E_ORIGIN_NOT_ALLOWED: 403,
+  E_PLAYER_BARRED: 403,
+  E_NOT_FOUND: 404,
+  E_NO_SESSION: 404,
+  E_RANKED_PAUSED: 409,
+  E_SESSION_CLOSED: 409,
+  E_CHUNK_CONFLICT: 409,
+  E_CHUNK_NOT_FORWARD: 400,
+  E_CHUNKS_INCOMPLETE: 400,
+  E_BODY_TOO_LARGE: 413,
+  E_RUN_TOO_LARGE: 413,
+  E_INPUT_UNDECLARED: 400,
+  E_INPUT_RANGE: 400,
+  E_INPUT_BUDGET: 400,
+  E_RECORDING_MALFORMED: 400,
+}
+
+/** Holds a refusal's status to the platform's for its code. */
+function expectPlatformStatus(code: string, status: number): void {
+  const platform = PLATFORM_STATUS[code]
+  if (platform === undefined) {
+    throw new Error(`${code} is not a code the platform answers a page with`)
+  }
+  expect(`${code} ${status}`).toBe(`${code} ${platform}`)
+}
+
+/** A refusal, which arrives with the platform's status for its code. */
 async function refusalOf(work: Promise<unknown>): Promise<PlatformRefusal> {
   try {
     await work
   } catch (error) {
-    if (error instanceof PlatformRefusal) return error
+    if (error instanceof PlatformRefusal) {
+      expectPlatformStatus(error.code, error.status)
+      return error
+    }
     throw error
   }
   throw new Error("expected a refusal")
+}
+
+/** A refusal read off the wire, held to the platform's status for its code. */
+async function refusedCode(response: Response): Promise<string> {
+  const { error } = (await response.json()) as { error: string }
+  expectPlatformStatus(error, response.status)
+  return error
 }
 
 /** A run of the probe game with two presses, as its page records it. */
@@ -400,6 +451,12 @@ describe("the game and a run", () => {
 })
 
 describe("the refusals a page has to handle", () => {
+  test("every refusal the stand-in answers carries the platform's status, and it answers no other", () => {
+    expect<Readonly<Record<string, number>>>(STAND_IN_STATUS).toEqual(
+      PLATFORM_STATUS,
+    )
+  })
+
   test("a ranked start on a paused day is E_RANKED_PAUSED, and practice still starts", async () => {
     const made = standIn({ ranked: "paused" })
     await signIn(made)
@@ -434,24 +491,18 @@ describe("the refusals a page has to handle", () => {
       origin: made.page.origin,
       "x-vbz-key": "vbz_pk_other",
     })
-    expect(((await wrongKey.json()) as { error: string }).error).toBe(
-      "E_UNAUTHORIZED",
-    )
+    expect(await refusedCode(wrongKey)).toBe("E_UNAUTHORIZED")
     const elsewhere = await call({
       origin: "https://elsewhere.example",
       "x-vbz-key": STAND_IN_PAGE_KEY,
     })
-    expect(((await elsewhere.json()) as { error: string }).error).toBe(
-      "E_ORIGIN_NOT_ALLOWED",
-    )
+    expect(await refusedCode(elsewhere)).toBe("E_ORIGIN_NOT_ALLOWED")
     // Another page gets no CORS answer, so its browser reads nothing.
     expect(elsewhere.headers.get("access-control-allow-origin")).toBeNull()
     const missing = await fetch(`${made.started.apiOrigin}/v1/nowhere`, {
       headers: { origin: made.page.origin },
     })
-    expect(((await missing.json()) as { error: string }).error).toBe(
-      "E_NOT_FOUND",
-    )
+    expect(await refusedCode(missing)).toBe("E_NOT_FOUND")
   })
 
   test("a preflight from the site is answered, naming the headers a page sends", async () => {
