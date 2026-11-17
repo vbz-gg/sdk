@@ -479,7 +479,7 @@ describe("following the player", () => {
     await made.client.startRun()
     expect(told).toEqual([PLAYER])
 
-    // The same player under a name changed in the sign-in window is a change.
+    // The same player under a name changed on the sign-in's own page is a change.
     const renamed = { ...PLAYER, displayName: "Ann" }
     await signInAs(made, renamed)
     expect(told).toEqual([PLAYER, renamed])
