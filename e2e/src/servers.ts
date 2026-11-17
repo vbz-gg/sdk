@@ -69,6 +69,8 @@ import { readBuiltManifest } from "../../packages/sdk/src/harness/dist-manifest"
 import { createBlobServer, JS_CONTENT_TYPE } from "../../packages/sdk/src/serve"
 import {
   CONTROL_PORT,
+  PORTAL_ORIGIN,
+  PORTAL_PORT,
   STUDIO_BUNDLES_PORT,
   STUDIO_ORIGIN,
   STUDIO_PORT,
@@ -408,6 +410,17 @@ function subjectOf(url: URL): SubjectName | null {
 
 const NO_STORE = { "cache-control": "no-store" }
 
+/**
+ * The policy, letting the portal frame the page when `?portal=1` says it
+ * is: a studio's page embedded in another site, which the recommended
+ * policy's `frame-ancestors 'none'` would refuse outright.
+ */
+function framedBy(url: URL, csp: string): string {
+  return url.searchParams.get("portal") === "1"
+    ? csp.replace("frame-ancestors 'none'", `frame-ancestors ${PORTAL_ORIGIN}`)
+    : csp
+}
+
 /** Cross-origin isolation, which a game that shares memory between threads needs. */
 const ISOLATED = {
   "cross-origin-opener-policy": "same-origin",
@@ -432,15 +445,18 @@ Bun.serve({
           // The policy the SDK recommends a studio's page sends, naming the
           // one game this page plays; or, `?frames=none`, the same with no
           // frame-src, which a page that forgot the sign-in sends.
-          "content-security-policy": pageCsp({
-            bundlesOrigin: studioBundlesOrigin,
-            gameId: SUBJECTS[name].gameId,
-            connect: [standIn.apiOrigin],
-            signInOrigin:
-              url.searchParams.get("frames") === "none"
-                ? null
-                : standIn.signInOrigin,
-          }),
+          "content-security-policy": framedBy(
+            url,
+            pageCsp({
+              bundlesOrigin: studioBundlesOrigin,
+              gameId: SUBJECTS[name].gameId,
+              connect: [standIn.apiOrigin],
+              signInOrigin:
+                url.searchParams.get("frames") === "none"
+                  ? null
+                  : standIn.signInOrigin,
+            }),
+          ),
           // `?isolate=1`: what a page sends when its game needs threads.
           ...(url.searchParams.get("isolate") === "1" ? ISOLATED : {}),
         },
@@ -469,6 +485,30 @@ Bun.serve({
       )
     }
     return new Response("not found", { status: 404 })
+  },
+})
+
+// The portal: one page, framing the studio's page for one game.
+Bun.serve({
+  port: PORTAL_PORT,
+  hostname: LOOPBACK.hostname,
+  fetch: (request) => {
+    const url = new URL(request.url)
+    if (url.pathname !== "/") return new Response("not found", { status: 404 })
+    const framed = new URLSearchParams({
+      game: url.searchParams.get("game") ?? "template",
+      portal: "1",
+    })
+    return new Response(
+      `<!doctype html><title>A portal</title><iframe title="The game" src="${STUDIO_ORIGIN}/?${framed}" style="width: 900px; height: 900px; border: 0"></iframe>`,
+      {
+        headers: {
+          ...NO_STORE,
+          "content-type": "text/html; charset=utf-8",
+          "content-security-policy": `default-src 'none'; style-src 'unsafe-inline'; frame-src ${STUDIO_ORIGIN}`,
+        },
+      },
+    )
   },
 })
 

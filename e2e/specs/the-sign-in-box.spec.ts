@@ -14,6 +14,7 @@
  */
 
 import { expect, type Page, test } from "@playwright/test"
+import { PORTAL_ORIGIN } from "../src/env"
 import { openRuns, signIn, signInFrame } from "../src/studio"
 
 /**
@@ -176,4 +177,36 @@ test("a page whose policy has no frame-src gets E_SIGNIN_UNREACHABLE, and asks t
   expect(violations.map((violation) => violation.directive)).toContain(
     "frame-src",
   )
+})
+
+/**
+ * The sign-in frames for the exact origin that asked, and a browser holds
+ * every ancestor to `frame-ancestors`, not only the parent. A studio's page
+ * embedded in a portal on another origin asks for the sign-in, gets it, and
+ * the browser refuses to show it, so the box gives up as it does for a page
+ * that names no `frame-src`. That is a cost of the exact-origin rule, and
+ * this is it measured.
+ */
+test("a studio's page framed by another site cannot show the sign-in, and says so", async ({
+  page,
+}) => {
+  test.setTimeout(60_000)
+  const asked: string[] = []
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname === "/authorize")
+      asked.push(request.url())
+  })
+  await page.goto(`${PORTAL_ORIGIN}/?game=template`)
+  const studio = page.frameLocator('iframe[title="The game"]')
+  await expect(studio.locator("body")).toHaveAttribute("data-loaded", "ready")
+  await studio.getByRole("button", { name: "Sign in", exact: true }).click()
+  await expect(studio.locator("body")).toHaveAttribute(
+    "data-signin",
+    "E_SIGNIN_UNREACHABLE",
+    { timeout: 20_000 },
+  )
+  // Asked for, and refused by the browser: the portal is not the origin the
+  // sign-in frames for.
+  expect(asked).toHaveLength(1)
+  await expect(studio.locator("body")).toHaveAttribute("data-player", "")
 })

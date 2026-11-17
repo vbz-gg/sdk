@@ -405,8 +405,11 @@ What only a browser can settle, and what each spec found:
   `E_SIGNIN_CANCELLED`. A page whose policy has no `frame-src` never asks
   for the frame, reports a `frame-src` violation and gets
   `E_SIGNIN_UNREACHABLE` once the ready time runs out; the refused frame
-  fired `load` in Chromium and `error` in Firefox. Chromium and Firefox,
-  measured; WebKit is in the project and unmeasured here.
+  fired `load` in Chromium and `error` in Firefox. A studio's page framed by
+  a portal on another origin asks for the sign-in and the browser refuses to
+  show it, since every ancestor is held to `frame-ancestors`, so it too gets
+  `E_SIGNIN_UNREACHABLE`. Chromium and Firefox, measured; WebKit is in the
+  project and unmeasured here.
 - Watching an abandoned run stops at its end tick.
 - Tilt through Chromium's orientation override: the first reading is recorded
   as it is, and after that a level only when it changes. A spec that plays

@@ -44,8 +44,15 @@ export type SubjectName = keyof typeof SUBJECTS
 export const STUDIO_PORT = 4324
 export const STUDIO_BUNDLES_PORT = 4325
 
+/**
+ * A page on another origin that frames the studio's page, standing in for a
+ * portal a studio's game is embedded in.
+ */
+export const PORTAL_PORT = 4326
+
 export const CONTROL_ORIGIN = `http://127.0.0.1:${CONTROL_PORT}`
 export const STUDIO_ORIGIN = `http://127.0.0.1:${STUDIO_PORT}`
+export const PORTAL_ORIGIN = `http://127.0.0.1:${PORTAL_PORT}`
 
 export function hostOrigin(name: SubjectName): string {
   return `http://127.0.0.1:${SUBJECTS[name].hostPort}`
