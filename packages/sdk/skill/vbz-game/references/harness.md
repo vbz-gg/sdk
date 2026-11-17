@@ -3,7 +3,8 @@
 `vbz dev ./my-game` is your game's page on a laptop. It builds the two real
 artifacts, serves them on one port at the paths and with the headers the
 platform's edge uses, and serves a page on another that loads the page module
-from there with `loadGame` and plays it through the module's own `mount`.
+from there with `loadGame` and plays it with `playLocal`, through the
+module's own `mount`.
 
 ```
 http://127.0.0.1:4310   the page that loads the game
@@ -44,8 +45,8 @@ from the page's own origin and the game's own path and nowhere else, and no
 - **A status line** carrying what the game is saying: `ready`, the tick
   count, how the run ended and what it scored.
 
-The seed is a constant, so the run you are debugging is the run you had a
-moment ago. The platform's daily seed is a keyed HMAC of the game and the day,
+The seed is a constant, `local:harness`, so the run you are debugging is the
+run you had a moment ago. The platform's daily seed is a keyed HMAC of the game and the day,
 which does the same job for everybody at once. The config is what the
 platform serves a run: every setting the manifest declares, at its default. A
 run has no step limit, and the game's files folder is served beside its two

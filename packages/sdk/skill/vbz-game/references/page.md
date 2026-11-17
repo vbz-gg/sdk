@@ -119,6 +119,15 @@ No `unsafe-eval` is needed, and none should be added. `vbz dev --site`
 serves a game's own page under that policy, against a stand-in for the
 platform; `references/harness.md` says what the stand-in does.
 
+`playLocal(stage, { game, scripted: "ignore", onEnded })` plays the same
+module with no platform at all: no client, no page key, no sign-in and no
+request. It plays a fresh seed and the module's served config unless the page
+gives others, asks for tilt in the click as `playRun` does, and hands
+`onEnded` the recording. Its seed always starts `local:`, so the platform
+refuses its recording as one played on a seed no run was issued
+(`E_PINNED_MISMATCH`), and the client's `submit` does not take its
+`LocalRecording`.
+
 `watchRun(stage, { client: platform, runId })` reads a settled run, loads its
 own version's module and replays it to where the platform's replay stopped.
 A run from a day still open can be watched only by its own player. To anybody
@@ -184,5 +193,7 @@ in `@vbz-gg/sdk/api`. A `PlatformClientError` is the client's:
 | `E_BROWSER_UNSUPPORTED` | The browser has no Web Locks, so it cannot keep a run to one tab: Safari before 15.4, or a page not on https. Nothing was started. |
 | `E_RUN_OPEN_ELSEWHERE` | Another tab or window of this browser is playing this game in this mode. Nothing was started. |
 | `E_NOTHING_TO_WATCH` | The run's replay covers no ticks. |
+| `E_LOCAL_PLAY_UNSUPPORTED` | `playLocal` was handed a module built by a release from before local play, which cannot say its tick rate or its config and stops every run at its manifest's step limit. Build the game again. |
+| `E_CONFIG_REQUIRED` | `playLocal` was given no config, and the game declares a setting that is required and has no default, so there is none to serve. Give it one. |
 | `E_PRESENTATION_FAILED` | The engine's code for a game that cannot draw on this device, such as a renderer that finds no GPU it can use. The game gets ready before a run is asked for, so no run was started. |
 | `E_UNEXPECTED` | An error the client has no code for, or a game error without a code. It is a bug; report the `detail`. |

@@ -48,7 +48,7 @@ import {
   splitChunk,
   throughTickFor,
 } from "./chunks.js"
-import type { PlatformClient } from "./client.js"
+import type { PlatformClient, RunRecording } from "./client.js"
 import {
   type ClientErrorCode,
   PlatformClientError,
@@ -356,7 +356,8 @@ export class Run {
         break
       } else {
         try {
-          await this.options.client.submit(run, recording)
+          // This run's own recording, which is the one kind a submit takes.
+          await this.options.client.submit(run, recording as RunRecording)
           break
         } catch (error) {
           failure = error

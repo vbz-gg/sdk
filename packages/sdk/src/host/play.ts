@@ -25,6 +25,7 @@ import {
   type RunPhase,
   type RunState,
 } from "../platform/run.js"
+import { focusGame } from "./focus.js"
 import { type GameAddress, type LoadedGame, loadGame } from "./load.js"
 import { motionRefusal } from "./motion.js"
 
@@ -212,7 +213,7 @@ export function playRun(element: HTMLElement, options: PlayOptions): PlayedRun {
       unlock()
       return
     }
-    focus(element, options.title)
+    focusGame(element, options.title)
     const own = game
     const ready = prepared
     prepared = null
@@ -262,16 +263,6 @@ function unreadyError(failure: MountError): PlatformClientError | MountError {
         cause: failure.message,
       })
     : failure
-}
-
-/**
- * Makes the game element the one that has focus, so a key the game maps
- * reaches it rather than the Play button a player just pressed.
- */
-function focus(element: HTMLElement, title: string | undefined): void {
-  if (!element.hasAttribute("tabindex")) element.tabIndex = 0
-  if (title !== undefined) element.setAttribute("aria-label", title)
-  element.focus()
 }
 
 /**

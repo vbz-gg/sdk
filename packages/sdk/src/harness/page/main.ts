@@ -4,7 +4,7 @@
  * Full viewport and one floating mark. The game's page module is loaded from
  * the bundles origin with `loadGame`, the code a studio's page loads one
  * with, so a module a page would refuse is refused here first, and it is
- * played through the module's own `mount`. What it adds, which a studio's
+ * played with `playLocal`, through the module's own `mount`. What it adds, which a studio's
  * page does not need, is Start and End buttons, the recording of the run,
  * published into the page for the browser suite and saved for the author,
  * and the harness's report on it: whether it replays, whether its inputs
@@ -14,14 +14,14 @@
  * host origin. It is the only part of the harness that runs in a page.
  */
 
-import type { MotionAccess } from "@clockwork2/engine/host"
+import { MOUNT_ERROR } from "../../game/contract.js"
 import {
-  MOUNT_ERROR,
-  type MountedEnd,
-  type MountHandle,
-} from "../../game/contract.js"
-import { type LoadedGame, loadGame } from "../../host/index.js"
-import { motionRefusal } from "../../host/motion.js"
+  type LoadedGame,
+  type LocalEnd,
+  type LocalRun,
+  loadGame,
+  playLocal,
+} from "../../host/index.js"
 import type { DevReport } from "../replay.js"
 import { reportLines, reportPasses } from "../report.js"
 
@@ -76,7 +76,7 @@ function refuseWith(error: unknown): void {
  * The run's result, its recording and the harness's report, published once
  * the run has ended and the report has come back.
  */
-async function publish(ended: MountedEnd): Promise<void> {
+async function publish(ended: LocalEnd): Promise<void> {
   const recording = JSON.stringify(ended.recording)
   save.href = URL.createObjectURL(
     new Blob([recording], { type: "application/json" }),
@@ -111,42 +111,40 @@ async function publish(ended: MountedEnd): Promise<void> {
   document.body.dataset.run = "recorded"
 }
 
-let playing: MountHandle | null = null
+let playing: LocalRun | null = null
 
+/**
+ * A local run, through `playLocal`, as a game played on its own page plays
+ * one: called in the Start click, so a game that reads tilt asks for it
+ * there, and starts nothing without it.
+ */
 function start(game: LoadedGame): void {
   playing?.destroy()
   stage.replaceChildren()
   reportBlock.textContent = ""
   delete reportBlock.dataset.passes
   delete document.body.dataset.run
-  if (!stage.hasAttribute("tabindex")) stage.tabIndex = 0
-  stage.setAttribute("aria-label", config.title)
-  stage.focus()
-  // Said before the mount, so a mount refused on the spot says why instead.
+  // Said before the run, so a refusal on the spot says why instead.
   say("playing")
-  playing = game.mount(stage, {
-    mode: "play",
+  playing = playLocal(stage, {
+    game,
     seed: config.seed,
     config: config.config,
-    tickHz: config.tickHz,
     // As a ranked or practice run takes them: from the player's devices.
     scripted: "ignore",
-    expect: { manifestHash: config.manifestHash },
-    handlers: {
-      onCheckpoint: () => {},
-      onFrame: (frame) => say(`tick ${frame.tick}`),
-      onEnded: (ended) => {
-        const counters = Object.entries(ended.counters)
-          .map(([name, value]) => `${name} ${value}`)
-          .join(", ")
-        say(
-          `${ended.reason} at tick ${ended.tick}${counters === "" ? "" : ` - ${counters}`}`,
-        )
-        void publish(ended)
-      },
-      onError: (error) => refuse(error.code, error.message),
-      onNotice: (notice) => say(`${notice.code}: ${notice.detail}`),
+    title: config.title,
+    onFrame: (frame) => say(`tick ${frame.tick}`),
+    onEnded: (ended) => {
+      const counters = Object.entries(ended.counters)
+        .map(([name, value]) => `${name} ${value}`)
+        .join(", ")
+      say(
+        `${ended.reason} at tick ${ended.tick}${counters === "" ? "" : ` - ${counters}`}`,
+      )
+      void publish(ended)
     },
+    onError: (error) => refuse(error.code, error.message),
+    onNotice: (notice) => say(`${notice.code}: ${notice.detail}`),
   })
 }
 
@@ -158,28 +156,19 @@ loadGame({
   .then((game) => {
     say("ready")
     document.getElementById("start")?.addEventListener("click", () => {
-      // Asked in the click, as a studio's page asks, before the run starts.
-      // The executor runs at once, so the request is still in the click,
-      // and one that throws is refused like one that fails.
-      if (game.needsMotion) {
-        new Promise<MotionAccess>((resolve) => resolve(game.requestMotion()))
-          .then((access) => {
-            // Read as `playRun` reads it: a game steered by tilt starts no
-            // run without it, and the status line keeps the sentence why.
-            const refused = motionRefusal(access)
-            if (refused === null) start(game)
-            else refuseWith(refused)
-          })
-          // A request that failed says why, and no run starts.
-          .catch(refuseWith)
-        return
+      // `playLocal` asks for tilt in the click, before the run starts, and
+      // a refusal arrives at its `onError`. A request that throws outright
+      // is refused like one that fails.
+      try {
+        start(game)
+      } catch (error) {
+        refuseWith(error)
       }
-      start(game)
     })
     // Ends the run where it stands, which is how an author gets a recording
     // out of a game they do not intend to lose at.
     document.getElementById("end")?.addEventListener("click", () => {
-      playing?.stop("abandoned")
+      playing?.end()
     })
   })
   .catch(refuseWith)

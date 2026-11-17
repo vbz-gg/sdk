@@ -1,6 +1,7 @@
 /**
  * Putting a game on a studio's page: loading its page module, a platform run
- * through it, a settled run replayed, and the two widgets a game's page needs.
+ * through it, a local run that asks nothing of the platform, a settled run
+ * replayed, and the two widgets a game's page needs.
  *
  * Plain modules with no DOM at load time, like `/platform`, so a page may
  * import this while rendering on a server. It holds no engine: a game's page
@@ -17,6 +18,16 @@ export {
   type PagePrepareOptions,
   SIMULATION_BUILTINS,
 } from "./load.js"
+export {
+  LOCAL_SEED_PREFIX,
+  type LocalEnd,
+  type LocalError,
+  type LocalPlayOptions,
+  type LocalRecording,
+  type LocalRun,
+  localSeed,
+  playLocal,
+} from "./local.js"
 export {
   type PlayedRun,
   type PlayOptions,

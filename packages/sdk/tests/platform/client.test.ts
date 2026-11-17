@@ -5,7 +5,11 @@
  */
 
 import { describe, expect, test } from "bun:test"
-import { createPlatformClient, isFinalResult } from "../../src/platform/client"
+import {
+  createPlatformClient,
+  isFinalResult,
+  type RunRecording,
+} from "../../src/platform/client"
 import type {
   PlatformClientError,
   PlatformRefusal,
@@ -333,7 +337,7 @@ describe("runs", () => {
       checkpoints: [],
       inputs: [],
     })
-    await platform.submit(run, { version: 1 })
+    await platform.submit(run, { version: 1 } as unknown as RunRecording)
     expect(
       page.sent.slice(-2).map((s) => [s.url.pathname, s.headers.authorization]),
     ).toEqual([

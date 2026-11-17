@@ -112,6 +112,18 @@ export const CLIENT_ERROR = {
   /** The run's replay covers no ticks, so there is nothing to show. */
   E_NOTHING_TO_WATCH: "the run has nothing to replay",
   /**
+   * `playLocal` was handed a contract-1 module, which cannot say its tick
+   * rate or its config, and stops every run at its manifest's step limit.
+   */
+  E_LOCAL_PLAY_UNSUPPORTED:
+    "the game's page module was built by a release of @vbz-gg/sdk from before local play; build it again with a current one",
+  /**
+   * `playLocal` was given no config, and the game declares a setting that is
+   * required and has no default, so there is none to serve.
+   */
+  E_CONFIG_REQUIRED:
+    "the game declares a setting with no default, so a local run needs the page to give it a config",
+  /**
    * The engine's code for a presentation that cannot get ready to draw on
    * this device, such as a renderer that finds no GPU it can use. A page
    * gets the game ready before it asks for a run, so nothing was started.

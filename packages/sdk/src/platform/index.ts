@@ -22,6 +22,7 @@ export {
   type PlatformClientOptions,
   RESULT_INTERVAL_MS,
   type ResultOptions,
+  type RunRecording,
 } from "./client.js"
 export {
   browserEnvironment,

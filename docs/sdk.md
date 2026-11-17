@@ -36,7 +36,7 @@ So the SDK owns seven things, one per subpath export:
 |---|---|
 | `/api` | The shapes of the platform's public routes, as types only |
 | `/platform` | A game page's client for those routes: sign-in, runs, the board |
-| `/host` | The game on a page: loading its page module, a run through it, watching a run, and two widgets |
+| `/host` | The game on a page: loading its page module, a platform run through it, a local run, watching a run, and two widgets |
 | `/game` | What a page module is built from: `definePageModule` and the contract a page drives it through |
 | `/build` | A game's source to the two modules and the files folder an upload carries, every limit the platform holds them to, and what a version and a release line are |
 | `/serve` | The handler that serves a game's modules and files at the paths and with the headers `files.vbz.gg` uses |
@@ -306,6 +306,29 @@ A second tab finding it held stops with `E_RUN_OPEN_ELSEWHERE` having asked
 the platform for nothing; a practice run beside a ranked one, or another
 game, is not held back. A browser with no Web Locks starts nothing and stops
 with `E_BROWSER_UNSUPPORTED`: Safari before 15.4, or a page that is not https.
+
+**`playLocal(element, { game, scripted, onEnded })`** plays a game on a
+page with no platform at all: a story, free play, an endless session, a page
+that is never online. It is the same build a ranked run plays, loaded with
+`loadGame` and played through the module's own `mount`, and it asks nothing
+of the platform: no client, no page key, no sign-in, no lock and no request.
+It takes an optional seed and config, a fresh seed and the module's served
+config by default, says whether a scripted event is recorded, as the engine
+asks every page to, and hands `onEnded` the run's recording. A game that
+reads tilt asks for it first, in the click, and starts nothing without it,
+as `playRun` does. A contract-1 module cannot say its tick rate or its
+config, and is refused with `E_LOCAL_PLAY_UNSUPPORTED`; a game with a
+required setting that has no default, played with no config, with
+`E_CONFIG_REQUIRED`.
+
+A local run can never pass for a ranked or practice run. Its seed always
+starts `local:`, whatever the page passes, and every seed the platform issues
+is 64 hex characters, so the platform refuses its recording with
+`E_PINNED_MISMATCH`, as the stand-in does. Its recording is a
+`LocalRecording`, and the client's `submit` takes a `RunRecording`, which only
+`Run` hands it, so passing one compiles only behind a cast somebody wrote. A
+page with devtools can still post anything through `request`; what stops it
+is the seed.
 
 **`watchRun(element, { client, runId })`** reads a settled run, loads its own
 version's page module and replays its own inputs, to `replayTicks`, where the
@@ -659,7 +682,7 @@ game's code to never seeing it.
 at the paths and with the headers above, under the game id
 `00000000-0000-4000-8000-000000000000`, and serves a page on a **second
 port** that loads the page module from there with `loadGame` and plays it
-through the module's own `mount`. The page is served under the policy above,
+with `playLocal`, through the module's own `mount`. The page is served under the policy above,
 naming the game's path on the first port, so a module a studio's page would
 refuse is refused here first and said in the page's status line.
 

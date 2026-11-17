@@ -27,7 +27,11 @@ import {
   type StandInOptions,
   startStandIn,
 } from "../../src/harness/stand-in"
-import { createPlatformClient } from "../../src/platform/client"
+import { localSeed } from "../../src/host/local"
+import {
+  createPlatformClient,
+  type RunRecording,
+} from "../../src/platform/client"
 import { PlatformRefusal } from "../../src/platform/errors"
 import { RUN_PHASE, Run, type RunState } from "../../src/platform/run"
 import {
@@ -144,6 +148,7 @@ const PLATFORM_STATUS: Readonly<Record<string, number>> = {
   E_INPUT_RANGE: 400,
   E_INPUT_BUDGET: 400,
   E_RECORDING_MALFORMED: 400,
+  E_PINNED_MISMATCH: 400,
 }
 
 /** Holds a refusal's status to the platform's for its code. */
@@ -176,8 +181,11 @@ async function refusedCode(response: Response): Promise<string> {
   return error
 }
 
-/** A run of the probe game with two presses, as its page records it. */
-async function played(seed: string): Promise<Recording> {
+/**
+ * A run of the probe game with two presses, as its page records it, handed
+ * over as `Run` hands a recording to `submit`.
+ */
+async function played(seed: string): Promise<RunRecording> {
   const keys = devices()
   const scheduler = new ManualScheduler()
   const game = definePageModule<View, Config>({
@@ -223,7 +231,7 @@ async function played(seed: string): Promise<Recording> {
   handle.stop("abandoned")
   const made = recording as Recording | null
   if (made === null) throw new Error("the run never ended")
-  return made
+  return made as RunRecording
 }
 
 function chunkOf(recording: Recording, seq = 0): RunChunk {
@@ -293,7 +301,8 @@ describe("the game and a run", () => {
     const made = standIn()
     await signIn(made)
     const started = await made.client.startRun()
-    expect(started.seed).toBe("harness")
+    // Shaped as the platform's are, so no local seed can be one.
+    expect(started.seed).toMatch(/^[0-9a-f]{64}$/)
     expect(started.limits).toEqual(STAND_IN_LIMITS)
     expect(started.game.manifestHash).toBe(HASH)
 
@@ -651,7 +660,10 @@ describe("the refusals a page has to handle", () => {
     expect(
       (
         await refusalOf(
-          made.client.submit(run, { ...recording, counters: { presses: 99 } }),
+          made.client.submit(run, {
+            ...recording,
+            counters: { presses: 99 },
+          } as RunRecording),
         )
       ).code,
     ).toBe("E_SESSION_CLOSED")
@@ -665,7 +677,13 @@ describe("the refusals a page has to handle", () => {
     await signIn(made)
     const run = await made.client.startRun()
     expect(
-      (await refusalOf(made.client.submit(run, { format: "nope" }))).code,
+      (
+        await refusalOf(
+          made.client.submit(run, {
+            format: "nope",
+          } as unknown as RunRecording),
+        )
+      ).code,
     ).toBe("E_RECORDING_MALFORMED")
     const recording = await played(run.seed)
     const tampered = {
@@ -675,9 +693,46 @@ describe("the refusals a page has to handle", () => {
         { tick: recording.endTick, code: "jump", value: 1 },
       ],
     }
-    expect((await refusalOf(made.client.submit(run, tampered))).code).toBe(
-      "E_INPUT_UNDECLARED",
-    )
+    expect(
+      (await refusalOf(made.client.submit(run, tampered as RunRecording))).code,
+    ).toBe("E_INPUT_UNDECLARED")
+  })
+
+  /**
+   * A local run plays `local:` and a seed, and every seed the platform
+   * issues is 64 hex characters, so a local recording posted as a run's is
+   * refused, and the run is settled by nothing.
+   */
+  test("a local run's recording is refused as one played on a seed the run was not issued", async () => {
+    const made = standIn()
+    await signIn(made)
+    const run = await made.client.startRun()
+    const local = await played(localSeed(run.seed))
+    expect(local.seed).toBe(`local:${run.seed}`)
+    const refused = await refusalOf(made.client.submit(run, local))
+    expect(refused.code).toBe("E_PINNED_MISMATCH")
+    expect(refused.message).toContain("seed")
+    expect((await made.client.result(run.sessionId)).state).toBe("open")
+    // The run's own recording is still taken.
+    expect(
+      (await made.client.submit(run, await played(run.seed))).sessionId,
+    ).toBe(run.sessionId)
+  })
+
+  test("a recording played on another config, or at another rate, is refused", async () => {
+    const made = standIn()
+    await signIn(made)
+    const run = await made.client.startRun()
+    const recording = await played(run.seed)
+    for (const edited of [
+      { ...recording, config: { endAt: 1 } },
+      { ...recording, tickHz: 30 },
+      { ...recording, manifestHash: "other" },
+    ]) {
+      expect(
+        (await refusalOf(made.client.submit(run, edited as RunRecording))).code,
+      ).toBe("E_PINNED_MISMATCH")
+    }
   })
 
   /**

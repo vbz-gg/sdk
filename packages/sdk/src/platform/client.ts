@@ -8,6 +8,7 @@
  * call a route the platform does not declare.
  */
 
+import type { Recording } from "@clockwork2/engine"
 import type {
   Board,
   BoardPeriod,
@@ -36,6 +37,17 @@ import {
 } from "./kept.js"
 import { createRequester, type Requester } from "./request.js"
 import { requestSignInCode } from "./signin.js"
+
+/**
+ * A platform run's recording, as `Run` hands it to `submit`. The brand
+ * exists at compile time alone, so a recording from anywhere else, a local
+ * run's included, is not one `submit` takes without a cast somebody wrote.
+ * `request` stays open to every page route, so nothing at run time stops a
+ * page; the platform's own checks on a submit do that. The brand is a named
+ * property rather than a symbol, so two copies of this package, built apart,
+ * agree on it.
+ */
+export type RunRecording = Recording & { readonly "vbz:run-recording": true }
 
 export interface PlatformClientOptions {
   /** Where the platform's API answers: `https://api.vbz.gg`. */
@@ -102,7 +114,8 @@ export interface PlatformClient {
   /** Starts a run, or finds again one that has sent nothing yet. */
   startRun(request?: StartRunRequest): Promise<StartedRun>
   sendChunk(run: StartedRun, chunk: RunChunk): Promise<ChunkAccepted>
-  submit(run: StartedRun, recording: unknown): Promise<SubmittedRun>
+  /** A run's recording, as `Run` hands it over: never a local run's. */
+  submit(run: StartedRun, recording: RunRecording): Promise<SubmittedRun>
   /** The player's own run and what its replay decided, now. */
   result(
     sessionId: string,

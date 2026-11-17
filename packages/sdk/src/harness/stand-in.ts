@@ -106,6 +106,7 @@ export const STAND_IN_STATUS = {
   E_INPUT_RANGE: 400,
   E_INPUT_BUDGET: 400,
   E_RECORDING_MALFORMED: 400,
+  E_PINNED_MISMATCH: 400,
 } as const satisfies Partial<Record<PublicRefusalCode, number>>
 
 /** A code the stand-in answers. */
@@ -163,7 +164,11 @@ export interface StandInOptions {
   readonly gameId: string
   /** The only origin the stand-in lets call it: the site's. */
   readonly siteOrigin: string
-  /** The seed every run plays. */
+  /**
+   * What every run's seed is made from. A seed the platform issues is 64 hex
+   * characters, so a run plays the SHA-256 of this, never a seed a page
+   * could make up, such as a local run's.
+   */
   readonly seed: string
   readonly listen: Listen
   /** The API's and the sign-in window's ports. Any free one by default. */
@@ -243,6 +248,8 @@ export function startStandIn(options: StandInOptions): RunningStandIn {
   const ranking: Pick<Board, "rankBy" | "tiePolicy"> = { rankBy, tiePolicy }
   // What a platform serves a run: every declared setting at its default.
   const config = servedConfig(manifest)
+  // A seed shaped as the platform's are: 64 hex characters.
+  const seed = sha256Hex(new TextEncoder().encode(options.seed))
   const now = options.now ?? (() => new Date())
   const log = options.log ?? (() => {})
   const version =
@@ -507,7 +514,7 @@ export function startStandIn(options: StandInOptions): RunningStandIn {
       studio: { slug: "local", name: "This machine" },
       day: dayOf(now()).day,
       today: {
-        seedCommit: sha256Hex(new TextEncoder().encode(options.seed)),
+        seedCommit: sha256Hex(new TextEncoder().encode(seed)),
         line: releaseLine(parseReleaseVersion(version)),
         ranked: paused ? "paused" : "open",
         version: paused ? null : pageVersion,
@@ -577,7 +584,7 @@ export function startStandIn(options: StandInOptions): RunningStandIn {
       mode,
       day: today,
       rankedRunsLeft: null,
-      seed: options.seed,
+      seed,
       config,
       game: {
         id: STAND_IN_VERSION_ID,
@@ -685,6 +692,17 @@ export function startStandIn(options: StandInOptions): RunningStandIn {
     let recording: ReturnType<typeof decodeRecording>
     try {
       recording = decodeRecording(raw)
+    } catch (error) {
+      throw inputRefusal(error)
+    }
+    const pinned = pinnedDifference(session.started, recording)
+    if (pinned !== null) {
+      throw new Refused(
+        "E_PINNED_MISMATCH",
+        `the recording was not played on what this run was issued: its ${pinned} differs`,
+      )
+    }
+    try {
       checkInputs(recording.inputs, manifest.inputs, {
         endTick: recording.endTick,
       })
@@ -722,6 +740,30 @@ export function startStandIn(options: StandInOptions): RunningStandIn {
       `stand-in: ${session.started.mode} run ${session.started.sessionId} settled with the counters its page sent, unreplayed; the platform replays a run before it counts`,
     )
     return answer
+  }
+
+  /**
+   * What the run was issued that the recording does not carry, by name, or
+   * null. A local run's recording, played on a `local:` seed, is refused
+   * here as the platform refuses it.
+   */
+  function pinnedDifference(
+    started: StartedRun,
+    recording: ReturnType<typeof decodeRecording>,
+  ): string | null {
+    const pins: ReadonlyArray<readonly [string, boolean]> = [
+      ["seed", recording.seed === started.seed],
+      ["game", recording.gameId === manifest.id],
+      ["version", recording.gameVersion === version],
+      ["manifest hash", recording.manifestHash === started.game.manifestHash],
+      ["tick rate", recording.tickHz === started.game.tickHz],
+      [
+        "config",
+        hashCanonical(recording.config) ===
+          hashCanonical(started.config as PlainValue),
+      ],
+    ]
+    return pins.find(([, same]) => !same)?.[0] ?? null
   }
 
   function result(session: Session): RunResult {
