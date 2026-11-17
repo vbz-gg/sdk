@@ -317,7 +317,8 @@ What only a browser can settle, and what each spec found:
   refuses at mount, and a tilt request that is refused, fails or throws,
   which starts no run.
 - A tilt game on a studio's page starts no run without tilt, and asks the
-  platform for nothing: a refusal as iOS gives it after "Don't Allow",
+  platform for nothing: a refusal as iOS gives it once the player taps
+  "Cancel" on its motion prompt (the button's name, measured on iPadOS 26.7),
   answered by a stand-in for `requestPermission` because Chromium has none,
   and a laptop's Chromium, which has orientation events and no sensor.
 - Watching an abandoned run stops at its end tick.

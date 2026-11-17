@@ -531,9 +531,10 @@ describe("the page", () => {
 
   /**
    * The page with the SDK's own `playRun`, a game steered by tilt, and a
-   * player who would not allow it, as on an iPad after "Don't Allow". The
-   * page says why in the client's own sentence, and nothing is asked of the
-   * platform, so no ranked run is spent on a game nobody can steer.
+   * player who would not allow it, as on an iPad after "Cancel" on its motion
+   * prompt (the button's name, measured on iPadOS 26.7). The page says why
+   * in the client's own sentence, and nothing is asked of the platform, so
+   * no ranked run is spent on a game nobody can steer.
    */
   test("a refusal of tilt is said in the client's sentence, and starts no run", async () => {
     const page = rig({

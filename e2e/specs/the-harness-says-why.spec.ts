@@ -43,8 +43,9 @@ test("a run the module refuses at mount says why, and is not said to be playing"
 
 /**
  * The harness plays a game as a studio's page does, so a game steered by
- * tilt starts no run here without it either: the refusal iOS gives after
- * "Don't Allow", in the client's own sentence, with nothing mounted.
+ * tilt starts no run here without it either: the refusal iOS gives once the
+ * player taps "Cancel" on its motion prompt (the button's name, measured on
+ * iPadOS 26.7), in the client's own sentence, with nothing mounted.
  */
 test("a refused tilt says why, and starts no run", async ({ page }) => {
   await answerTilt(page, "denied")
