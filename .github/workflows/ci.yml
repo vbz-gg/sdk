@@ -45,8 +45,10 @@ jobs:
 
       # Chromium, Firefox and WebKit are several hundred megabytes, so they
       # are cached by the version the lockfile pins rather than downloaded on
-      # every run. Firefox and WebKit run the one spec each engine decides for
-      # itself: whether a studio's policy lets a game's modules in.
+      # every run. Firefox and WebKit run the specs each engine decides for
+      # itself: whether a studio's policy lets a game's modules and its files
+      # folder's loads in, and the sign-in's box. This is the only place
+      # WebKit runs.
       - name: cache the browsers
         id: browser-cache
         uses: actions/cache@v4

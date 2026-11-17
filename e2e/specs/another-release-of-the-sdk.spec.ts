@@ -17,8 +17,8 @@ import {
   endModule,
   moduleAt,
   openModule,
+  simUrlOf,
   startModule,
-  studio,
 } from "../src/studio"
 
 for (const frozen of ["contract-1", "contract-2"] as const) {
@@ -38,15 +38,8 @@ for (const frozen of ["contract-1", "contract-2"] as const) {
     expect(presses).toEqual(["left", "right"])
 
     // Against that release's own rules code, which its page module imports.
-    const { modules } = await studio()
-    const present = await (
-      await fetch(modules[frozen]?.presentUrl ?? "")
-    ).text()
-    const simPath = /"(\/g\/[^"]+\/sim\/[0-9a-f]{64}\.js)"/.exec(present)?.[1]
-    expect(simPath).toBeDefined()
-    const { bundlesOrigin } = await studio()
     const replayed = await replayAgainst(
-      `${bundlesOrigin}${simPath}`,
+      await simUrlOf(frozen),
       JSON.stringify(ended.recording),
     )
     expect(replayed.comparison.matches).toBe(true)

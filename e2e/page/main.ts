@@ -7,11 +7,14 @@
  * and `watchRun` replays a settled one. It is served under the
  * Content-Security-Policy the SDK recommends, naming one game's path.
  *
- * Two ways in. `?game=template` (or `paddle`) plays that game's runs through
- * the stand-in. `?load=<module>` loads one module the server holds by name,
- * such as one built against another copy of the SDK, says what `loadGame`
- * made of it, and plays it straight through its `mount` on a fixed seed, as
- * the harness does. Whatever the page learns is written into the document,
+ * Three ways in. `?game=template` (or `paddle`, or `folder`) plays that
+ * game's runs through the stand-in. `?load=<module>` loads one module the
+ * server holds by name, such as one built against another copy of the SDK,
+ * says what `loadGame` made of it, and plays it straight through its
+ * `mount` on a fixed seed, as the harness does. `?local=<module>` loads one
+ * and plays it with `playLocal`, asking no platform anything, and can then
+ * post the local run's recording to the stand-in as a run's own, which the
+ * platform refuses. Whatever the page learns is written into the document,
  * where a spec reads it.
  */
 
@@ -22,15 +25,20 @@ import type {
 import {
   type GameAddress,
   type LoadedGame,
+  type LocalEnd,
+  type LocalRun,
   loadGame,
   type PlayedRun,
+  playLocal,
   playRun,
   watchRun,
 } from "../../packages/sdk/src/host/index.js"
 import {
   createPlatformClient,
+  type PlatformClient,
   type PlatformClientOptions,
   RUN_PHASE,
+  type RunRecording,
   type RunState,
 } from "../../packages/sdk/src/platform/index.js"
 
@@ -97,8 +105,102 @@ function loaded(): void {
 }
 
 const named = query.get("load")
-if (named === null) await runs()
+const local = query.get("local")
+if (local !== null) await locally(local)
+else if (named === null) await runs()
 else await one(named)
+
+/** The Sign in button, signing the stand-in's player in through the box. */
+function signsIn(client: PlatformClient): void {
+  const signedIn = () => {
+    const player = client.player()
+    body.dataset.player = player?.displayName ?? ""
+    element("player").textContent = player?.displayName ?? ""
+  }
+  signedIn()
+  element("signin").addEventListener("click", () => {
+    body.dataset.signin = "open"
+    client.signIn().then(
+      () => {
+        body.dataset.signin = "signed in"
+        signedIn()
+      },
+      (error: unknown) => {
+        const { code } = error as { code?: string }
+        body.dataset.signin = code ?? "refused"
+        say(`${code ?? "refused"}: ${String(error)}`)
+      },
+    )
+  })
+}
+
+/**
+ * `?local=`: one module, played with `playLocal`. The client is made, which
+ * asks nothing, and is used only by Post, after the run.
+ */
+async function locally(name: string): Promise<void> {
+  const module = config.modules[name]
+  if (module === undefined) throw new Error(`the server holds no ${name}`)
+  let game: LoadedGame | null = null
+  try {
+    game = await loadGame(module)
+    loaded()
+  } catch (error) {
+    refused(error)
+  }
+  const client = createPlatformClient(config)
+  signsIn(client)
+
+  let played: LocalRun | null = null
+  let ended: LocalEnd | null = null
+  element("play").addEventListener("click", () => {
+    if (game === null) return
+    played?.destroy()
+    stage.replaceChildren()
+    body.dataset.phase = "playing"
+    try {
+      played = playLocal(stage, {
+        game,
+        scripted: "ignore",
+        title: "The game",
+        onFrame: (frame) => {
+          body.dataset.tick = String(frame.tick)
+        },
+        onEnded: (end) => {
+          ended = end
+          publish("run", end)
+          body.dataset.phase = "ended"
+        },
+        onError: (error) => {
+          body.dataset.phase = "failed"
+          body.dataset.code = error.code
+          say(`${error.code}: ${error.message}`)
+        },
+        onNotice: (notice) => say(`${notice.code}: ${notice.detail}`),
+      })
+    } catch (error) {
+      refused(error)
+    }
+  })
+  element("end").addEventListener("click", () => played?.end())
+
+  // A page with devtools can post anything: here, a local run's recording
+  // as a ranked run's own, which only a cast lets through the compiler.
+  element("post").addEventListener("click", async () => {
+    if (ended === null) return
+    const run = await client.startRun()
+    let code: string | null = null
+    try {
+      await client.submit(run, ended.recording as unknown as RunRecording)
+    } catch (error) {
+      code = (error as { code?: string }).code ?? String(error)
+    }
+    const result = await client.result(run.sessionId, { token: run.token })
+    const board = await client.board({ period: "day" })
+    publish("posted", { code, state: result.state, rows: board.rows.length })
+    body.dataset.posted = code ?? "accepted"
+  })
+}
 
 /** `?load=`: one module, loaded and played on its own. */
 async function one(name: string): Promise<void> {
@@ -158,26 +260,7 @@ async function one(name: string): Promise<void> {
 /** `?game=`: runs against the stand-in, the way a studio's page plays them. */
 async function runs(): Promise<void> {
   const client = createPlatformClient(config)
-  const signedIn = () => {
-    const player = client.player()
-    body.dataset.player = player?.displayName ?? ""
-    element("player").textContent = player?.displayName ?? ""
-  }
-  signedIn()
-  element("signin").addEventListener("click", () => {
-    body.dataset.signin = "open"
-    client.signIn().then(
-      () => {
-        body.dataset.signin = "signed in"
-        signedIn()
-      },
-      (error: unknown) => {
-        const { code } = error as { code?: string }
-        body.dataset.signin = code ?? "refused"
-        say(`${code ?? "refused"}: ${String(error)}`)
-      },
-    )
-  })
+  signsIn(client)
 
   let game: LoadedGame | null = null
   try {
@@ -221,6 +304,11 @@ async function runs(): Promise<void> {
         if (next.phase === RUN_PHASE.DONE && next.result !== null) {
           settled = next.result.sessionId
           publish("run", next.result)
+          // What the platform hands a page to watch the run: its seed,
+          // config and inputs, which a spec replays away from the page.
+          void client.watch(settled).then((watched) => {
+            publish("watched-run", watched)
+          })
         }
       },
     })

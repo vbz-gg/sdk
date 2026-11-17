@@ -367,8 +367,10 @@ installed here, which fetches every other package from npm. It keeps a
 request log per bundles origin and one for the registry, which a spec reads
 to see what was actually fetched.
 
-The subjects are the template, which draws its own two buttons, and the
-paddle fixture, which reads tilt and maps Space. Beside them, `e2e/frozen/`
+The subjects are the template, which draws its own two buttons, the
+paddle fixture, which reads tilt and maps Space, and the folder fixture,
+which carries a files folder and loads from it what an engine built into
+one loads, without one. Beside them, `e2e/frozen/`
 holds the template's two modules as the first release of each contract built
 them. They are never rebuilt once that contract is out: a page built from
 every later tree has to play them, and rebuilding them would test a release
@@ -421,6 +423,25 @@ What only a browser can settle, and what each spec found:
   since every ancestor is held to `frame-ancestors` by exact origin, so it
   too gets `E_SIGNIN_UNREACHABLE`. Chromium and Firefox, measured; WebKit is in the
   project and unmeasured here.
+- A game played locally on a studio's page with `playLocal` asks nothing
+  of any platform: every request goes to the page's own origin or the
+  game's. Its recording, posted to the stand-in as a ranked run's own by a
+  page that casts it past the compiler, is refused with
+  `E_PINNED_MISMATCH`, and the run stays open with nothing stored and no
+  board row.
+- The folder fixture's page module imports `cw2:files/entry.js`, which
+  fetches and compiles WebAssembly from the folder, starts a worker from a
+  blob that imports a module of the folder, and imports a module of the
+  folder by a computed name; its presentation is ready 600 ms after that;
+  and its rules code reads a data pack from the folder on demand. Under
+  the recommended policy with the game's needs, played locally, as a
+  ranked run and in the harness: no frame is drawn and no press recorded
+  before it is ready, the pack is fetched only once the rules code names
+  it, and the run replays to its counters with the pack and fails without
+  it. A device with no 2d canvas fails with `E_PRESENTATION_FAILED` before
+  the platform is asked for a run. Under the policy with the needs left
+  out, Chromium and Firefox refuse its core's fetch (`connect-src`) and its
+  worker (`worker-src`), and it never gets ready.
 - Watching an abandoned run stops at its end tick.
 - Tilt through Chromium's orientation override: the first reading is recorded
   as it is, and after that a level only when it changes. A spec that plays
@@ -448,9 +469,10 @@ What only a browser can settle, and what each spec found:
   it failed on a machine with nothing global. The spec holds TypeScript
   unreachable from the installed engine before `vbz new` runs.
 
-Chromium runs every spec; Firefox and WebKit run the one about the policy
-and the one about the sign-in's box, which are each engine's to decide. The fingers and the sensor override are
-Chromium's own protocol.
+Chromium runs every spec; Firefox and WebKit run the ones about the
+policy, the sign-in's box and the files folder's loads, which are each
+engine's to decide. The fingers and the sensor override are Chromium's own
+protocol.
 
 One thing about the tools themselves, measured rather than read:
 

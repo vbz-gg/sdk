@@ -3,3 +3,6 @@
 # but the harness serves built bundles whose byte counts the tests assert, and
 # a CRLF rewrite would move them.
 * text=auto eol=lf
+
+# A WebAssembly module is bytes, never text to convert.
+*.wasm binary

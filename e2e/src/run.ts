@@ -16,7 +16,9 @@ import {
   compareToRecording,
   decodeRecording,
   type GameModule,
+  type InputEvent,
   type Manifest,
+  PackSet,
   type PlainValue,
   RecordedInputSource,
   runSession,
@@ -221,14 +223,57 @@ export async function replay(
   return await replayAgainst(`${info.bundlesOrigin}${info.sim}`, encoded)
 }
 
-/** `replay`, against the rules code at `simUrl`. */
+/** `replay`, against the rules code at `simUrl`, with the data packs given. */
 export async function replayAgainst(
   simUrl: string,
   encoded: string,
+  packs: ReadonlyMap<string, Uint8Array> = new Map(),
 ): Promise<Replayed> {
   const recording = decodeRecording(encoded)
-  const source = await (await fetch(simUrl)).text()
+  return await replayFrom(
+    simUrl,
+    {
+      seed: recording.seed,
+      config: recording.config,
+      inputs: recording.inputs,
+      // The log ends where the player stopped. Without the cap the replay
+      // runs past it and reports a different end tick for a run that never
+      // diverged.
+      maxTicks: Math.max(recording.endTick, 1),
+      tickHz: recording.tickHz,
+    },
+    packs,
+    (replayed) => compareToRecording(recording, replayed),
+  )
+}
 
+/** What a replay plays: a recording's, or what the platform hands a page to watch a run. */
+export interface RunLog {
+  readonly seed: string
+  readonly config: unknown
+  readonly inputs: readonly InputEvent[]
+  readonly maxTicks: number
+  readonly tickHz: number
+}
+
+/**
+ * Replays `log` against the rules code at `simUrl`, with the data packs the
+ * manifest declares from `packs`, each checked against its declared size
+ * and SHA-256 as the run first reads it, as a server's replay does.
+ */
+export async function replayFrom(
+  simUrl: string,
+  log: RunLog,
+  packs: ReadonlyMap<string, Uint8Array> = new Map(),
+  compare: (
+    replayed: ReturnType<typeof runSession<unknown, PlainValue>>,
+  ) => Replayed["comparison"] = () => ({
+    matches: true,
+    divergedAt: null,
+    differences: [],
+  }),
+): Promise<Replayed> {
+  const source = await (await fetch(simUrl)).text()
   const dir = await mkdtemp(join(tmpdir(), "sdk-replay-"))
   try {
     const file = join(dir, "sim.mjs")
@@ -239,21 +284,20 @@ export async function replayAgainst(
     }
     const replayed = runSession<unknown, PlainValue>({
       module: loaded.default(),
-      seed: recording.seed,
-      config: recording.config,
-      inputs: new RecordedInputSource(recording.inputs),
-      // The log ends where the player stopped. Without the cap the replay
-      // runs past it and reports a different end tick for a run that never
-      // diverged.
-      maxTicks: Math.max(recording.endTick, 1),
-      checkpointEvery: recording.tickHz,
+      seed: log.seed,
+      config: log.config as PlainValue,
+      inputs: new RecordedInputSource(log.inputs),
+      maxTicks: log.maxTicks,
+      checkpointEvery: log.tickHz,
       counters: loaded.MANIFEST.counters,
+      assets: loaded.MANIFEST.assets ?? [],
+      packs: PackSet.lazy(loaded.MANIFEST.assets, packs),
     })
     return {
       endTick: replayed.endTick,
       terminal: replayed.terminal,
       counters: replayed.counters,
-      comparison: compareToRecording(recording, replayed),
+      comparison: compare(replayed),
     }
   } finally {
     await rm(dir, { recursive: true, force: true })

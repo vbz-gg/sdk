@@ -126,6 +126,18 @@ export function routesOf(sent: readonly Request[]): string[] {
   )
 }
 
+/**
+ * The rules code a module the studio's bundles origin holds imports, at the
+ * absolute address its rewritten page module names.
+ */
+export async function simUrlOf(module: string): Promise<string> {
+  const { bundlesOrigin, modules } = await studio()
+  const present = await (await fetch(modules[module]?.presentUrl ?? "")).text()
+  const path = /"(\/g\/[^"]+\/sim\/[0-9a-f]{64}\.js)"/.exec(present)?.[1]
+  if (path === undefined) throw new Error(`${module} names no rules code`)
+  return `${bundlesOrigin}${path}`
+}
+
 /** The next request for a module's page module fails once, as a network would. */
 export async function failOnce(module: string): Promise<void> {
   await fetch(`${CONTROL_ORIGIN}/studio/fail-once/${module}`, {

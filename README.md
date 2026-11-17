@@ -41,6 +41,7 @@ packages/sdk/templates/       a game to copy and start from, shipped with it
 packages/sdk/skill/vbz-game/  the agent guide for building one, shipped with it
 docs/sdk.md                   how it works, from first principles
 fixtures/paddle/              a small game steered by tilt
+fixtures/folder/              a game that loads from its files folder as an engine built into one does
 e2e/                          the browser suite, driving the harness and a studio's page for real
 scripts/                      this repository's own tooling
 ```

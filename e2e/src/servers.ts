@@ -10,8 +10,9 @@
  *   reads is this build's and not one left in a working tree.
  * - **The suite's studio page**, on an origin of its own, standing in for a
  *   page a studio serves its game from, and a bundles origin standing in for
- *   the platform's, which holds every game's modules under its own path. The
- *   page plays runs against a stand-in for the platform per game.
+ *   the platform's, which holds every game's modules and files under its own
+ *   path. The page plays runs against a stand-in for the platform per game,
+ *   or plays one locally, asking no platform anything.
  * - **Page modules from other releases**: the template as the first release
  *   of contract 1 built it, committed and never rebuilt, and the template
  *   built against a packed copy of this package that says it speaks a
@@ -54,16 +55,19 @@ import {
   simPathFor,
 } from "../../packages/sdk/src/build/index"
 import { main } from "../../packages/sdk/src/cli/index"
+import { filesDirOf, needsOf } from "../../packages/sdk/src/cli/source"
 import {
   type BuiltGame,
   blobKeys,
   buildAndAddress,
+  type GameNeeds,
   HARNESS_SEED,
   LOOPBACK,
   pageCsp,
   type RunningStandIn,
   startHarness,
   startStandIn,
+  versionNeeds,
 } from "../../packages/sdk/src/harness"
 import { readBuiltManifest } from "../../packages/sdk/src/harness/dist-manifest"
 import { createBlobServer, JS_CONTENT_TYPE } from "../../packages/sdk/src/serve"
@@ -91,9 +95,9 @@ const ENTRIES = {
   captureEntry: "src/capture.ts",
 } as const
 
-function sourceAt(root: string): GameSource {
-  // Neither subject names a files folder.
-  return { root, ...ENTRIES, filesDir: null }
+/** A game's source, with the files folder its `package.json` names, if any. */
+async function sourceAt(root: string): Promise<GameSource> {
+  return { root, ...ENTRIES, filesDir: await filesDirOf(root) }
 }
 
 // The SDK's own `dist` first: the subjects' page modules bundle
@@ -140,7 +144,8 @@ for (const name of Object.keys(SUBJECTS) as SubjectName[]) {
   manifests.set(name, await readBuiltManifest(dir))
 
   const harness = await startHarness({
-    source: sourceAt(dir),
+    source: await sourceAt(dir),
+    needs: await needsOf(dir),
     hostPort: subject.hostPort,
     bundlesPort: subject.bundlesPort,
     onRequest: (path) => log.push(path),
@@ -221,7 +226,7 @@ async function templateBuiltApart(
   const after = edit(before)
   if (after === before) throw new Error(`${name}: the edit changed nothing`)
   await writeFile(file, after)
-  return await buildAndAddress(sourceAt(root), SUBJECTS.template.gameId)
+  return await buildAndAddress(await sourceAt(root), SUBJECTS.template.gameId)
 }
 
 /**
@@ -238,10 +243,19 @@ interface Held {
   readonly presentKey: string
   /** The files folder's base, without the leading slash. */
   readonly filesKey: string
+  /** Each file of the folder, by its key on the bundles origin. */
+  readonly files: ReadonlyMap<string, Uint8Array>
+  /** What a page's policy has to allow for it beyond its two modules. */
+  readonly needs: GameNeeds
 }
 
-function held(game: SubjectName, built: BuiltGame): Held {
+/** A build, as the bundles origin holds it, with what its page's policy needs. */
+async function held(game: SubjectName, built: BuiltGame): Promise<Held> {
   const keys = blobKeys(built)
+  const files = new Map<string, Uint8Array>()
+  for (const [path, onDisk] of built.filesOnDisk) {
+    files.set(`${keys.files}${path}`, new Uint8Array(await readFile(onDisk)))
+  }
   return {
     game,
     manifest: manifests.get(game),
@@ -250,6 +264,11 @@ function held(game: SubjectName, built: BuiltGame): Held {
     present: built.present,
     presentKey: keys.present,
     filesKey: keys.files,
+    files,
+    needs: versionNeeds(
+      await needsOf(join(ROOT, ...SUBJECTS[game].dir)),
+      built,
+    ),
   }
 }
 
@@ -278,30 +297,32 @@ async function frozen(folder: string): Promise<Held> {
     // Neither frozen build has files: contract 1 knows no folder, and a
     // page names one all the same.
     filesKey: filesBaseFor(gameId, listingSha256(EMPTY_LISTING)).slice(1),
+    files: new Map(),
+    needs: {},
   }
 }
 
 /** Every module the studio's bundles origin serves, by the name a page loads it with. */
+/** A subject built for the studio's bundles origin, under its own game id. */
+async function subjectHeld(name: SubjectName): Promise<Held> {
+  return await held(
+    name,
+    await buildAndAddress(
+      await sourceAt(join(ROOT, ...SUBJECTS[name].dir)),
+      SUBJECTS[name].gameId,
+    ),
+  )
+}
+
 const studioModules = {
-  template: held(
-    "template",
-    await buildAndAddress(
-      sourceAt(join(ROOT, ...SUBJECTS.template.dir)),
-      SUBJECTS.template.gameId,
-    ),
-  ),
-  paddle: held(
-    "paddle",
-    await buildAndAddress(
-      sourceAt(join(ROOT, ...SUBJECTS.paddle.dir)),
-      SUBJECTS.paddle.gameId,
-    ),
-  ),
+  template: await subjectHeld("template"),
+  paddle: await subjectHeld("paddle"),
+  folder: await subjectHeld("folder"),
   "contract-1": await frozen("contract-1"),
   "contract-2": await frozen("contract-2"),
   // A release that has moved on to a contract this tree's pages do not
   // drive, which is the one thing a page must refuse rather than misread.
-  "contract-3": held(
+  "contract-3": await held(
     "template",
     await templateBuiltApart("contract-3", (text) =>
       text.replace(
@@ -318,6 +339,7 @@ const studioBlobs = new Map<string, Uint8Array>()
 for (const module of Object.values(studioModules)) {
   studioBlobs.set(module.simKey, module.sim)
   studioBlobs.set(module.presentKey, module.present)
+  for (const [key, bytes] of module.files) studioBlobs.set(key, bytes)
 }
 const studioLog: string[] = []
 requests.set("studio", studioLog)
@@ -456,6 +478,14 @@ Bun.serve({
               bundlesOrigin: studioBundlesOrigin,
               gameId: SUBJECTS[name].gameId,
               connect: [standIn.apiOrigin],
+              // What the game's build and its package.json say it needs:
+              // WebAssembly, workers and its folder's files, for `folder`;
+              // or, `?needs=none`, nothing, which a page that left them out
+              // sends.
+              needs:
+                url.searchParams.get("needs") === "none"
+                  ? {}
+                  : studioModules[name].needs,
               signInOrigin:
                 url.searchParams.get("frames") === "none"
                   ? null

@@ -32,6 +32,18 @@ export const SUBJECTS = {
     bundlesPort: 4323,
     gameId: "00000000-0000-4000-8000-000000000002",
   },
+  /**
+   * `folder` carries a files folder and loads from it what an engine built
+   * into one does: WebAssembly, a worker from a blob that imports a module
+   * of the folder, a module imported by a computed name, and a data pack its
+   * rules code reads on demand. Its presentation gets ready late.
+   */
+  folder: {
+    dir: ["fixtures", "folder"],
+    hostPort: 4327,
+    bundlesPort: 4328,
+    gameId: "00000000-0000-4000-8000-000000000003",
+  },
 } as const
 
 export type SubjectName = keyof typeof SUBJECTS
