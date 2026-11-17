@@ -6,7 +6,7 @@
       "name": "game-base",
       "devDependencies": {
         "@biomejs/biome": "2.5.14",
-        "@clockwork2/engine": "0.9.0",
+        "@clockwork2/engine": "0.10.0",
         "@commitlint/cli": "^19.8.1",
         "@commitlint/config-conventional": "^19.8.1",
         "@happy-dom/global-registrator": "^20.14.5",
@@ -30,12 +30,12 @@
     },
     "packages/sdk": {
       "name": "@vbz-gg/sdk",
-      "version": "0.5.1",
+      "version": "0.6.0",
       "bin": {
         "vbz": "dist/cli/index.js",
       },
       "peerDependencies": {
-        "@clockwork2/engine": ">=0.9.0 <0.10.0",
+        "@clockwork2/engine": ">=0.10.0 <0.11.0",
       },
     },
   },
@@ -62,7 +62,7 @@
 
     "@biomejs/cli-win32-x64": ["@biomejs/cli-win32-x64@2.5.14", "", { "os": "win32", "cpu": "x64" }, "sha512-oJWmBhoHsnhUKIke+0gXDX0mltJrWHA1UyHsrTlXwX0TL64ilVZAo+TYZm97baecV0esBdpzy3k96q+09JaZUQ=="],
 
-    "@clockwork2/engine": ["@clockwork2/engine@0.9.0", "", { "peerDependencies": { "pixi.js": "^8.0.0", "three": ">=0.170.0", "typescript": ">=5.5.0" }, "optionalPeers": ["pixi.js", "three", "typescript"], "bin": { "clockwork2-validate": "dist/validate/cli.js" } }, "sha512-AJgY0P8AuaM2s8HLlzOP1NlImE+aaMcucXoQB42qbbt/eLfzviZJH5VLku5WlQ4yLHVIOECxIVL+wvLHVjY7PA=="],
+    "@clockwork2/engine": ["@clockwork2/engine@0.10.0", "", { "peerDependencies": { "pixi.js": "^8.0.0", "three": ">=0.170.0", "typescript": ">=5.5.0" }, "optionalPeers": ["pixi.js", "three", "typescript"], "bin": { "clockwork2-validate": "dist/validate/cli.js" } }, "sha512-QG6O2Tjdwj6/rJtar2ww0vorBUnsNB1OMH8wgyQMUGN8NY7v/0+wVMkCaqSElMSjnruK+3oHH4yQeGwFS1FpUA=="],
 
     "@commitlint/cli": ["@commitlint/cli@19.8.1", "", { "dependencies": { "@commitlint/format": "^19.8.1", "@commitlint/lint": "^19.8.1", "@commitlint/load": "^19.8.1", "@commitlint/read": "^19.8.1", "@commitlint/types": "^19.8.1", "tinyexec": "^1.0.0", "yargs": "^17.0.0" }, "bin": { "commitlint": "./cli.js" } }, "sha512-LXUdNIkspyxrlV6VDHWBmCZRtkEVRpBKxi2Gtw3J54cGWhLCTouVD/Q6ZSaSvd2YaDObWK8mDjrz3TIKtaQMAA=="],
 

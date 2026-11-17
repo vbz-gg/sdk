@@ -56,7 +56,7 @@
     }
   },
   "peerDependencies": {
-    "@clockwork2/engine": ">=0.9.0 <0.10.0"
+    "@clockwork2/engine": ">=0.10.0 <0.11.0"
   },
   "bin": {
     "vbz": "dist/cli/index.js"

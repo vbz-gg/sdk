@@ -16,7 +16,7 @@ export const MANIFEST: Manifest = {
   id: "paddle",
   version: "1.0.0",
   name: "Paddle",
-  kernel: { version: "0.9.0" },
+  kernel: { version: "0.10.0" },
   session: {
     tickHz: 60,
     maxTicks: 60 * 120,
