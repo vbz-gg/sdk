@@ -44,13 +44,39 @@ const BEFORE_REGEX_WORDS: ReadonlySet<string> = new Set([
   "await",
 ])
 
+/**
+ * Punctuation a `/` after which starts a regular expression. A `)` or a `]`
+ * ends an expression, so a `/` after either divides, and so does one after
+ * a postfix `++` or `--`, which is read as a token of its own. A `}` most
+ * often ends a block, after which a statement starts.
+ */
 const BEFORE_REGEX_PUNCTUATION = "(,=:[!&|?{};+-*%<>~^"
+
+/**
+ * The keywords whose parenthesised head is followed by a statement, so a
+ * `/` just after its `)` starts a regular expression: `if (a) /x/.test(b)`.
+ */
+const CONTROL_WORDS: ReadonlySet<string> = new Set([
+  "if",
+  "while",
+  "for",
+  "with",
+])
+
+/** A line terminator, which makes a `++` or `--` after it a prefix. */
+const LINE_TERMINATOR = /[\n\r\u2028\u2029]/
 
 const WORKERS: ReadonlySet<string> = new Set(["Worker", "SharedWorker"])
 
-/** The last thing read, which decides what a `/` means. */
+/**
+ * The last thing read, which decides what a `/` means: `statement` where a
+ * statement may start (the beginning of the text, or after a control
+ * keyword's head), `value` after something that ends an expression, `word`
+ * after an identifier or keyword that is not a property name, and
+ * `punctuation` after anything else.
+ */
 type Last =
-  | { readonly kind: "start" }
+  | { readonly kind: "statement" }
   | { readonly kind: "value" }
   | { readonly kind: "word"; readonly word: string }
   | { readonly kind: "punctuation"; readonly char: string }
@@ -70,8 +96,10 @@ export function runtimeLoads(text: string): RuntimeLoad[] {
   /** The brace depth each open template's `${` was at. */
   const templates: number[] = []
   let depth = 0
-  let last: Last = { kind: "start" }
+  let last: Last = { kind: "statement" }
   let at = 0
+  /** For each `(` still open, whether it is a control keyword's head. */
+  const parens: boolean[] = []
 
   /** Past whitespace and comments, from `from`. */
   const skipGap = (from: number): number => {
@@ -154,15 +182,21 @@ export function runtimeLoads(text: string): RuntimeLoad[] {
   }
 
   const regexAllowed = (): boolean =>
-    last.kind === "start" ||
+    last.kind === "statement" ||
     (last.kind === "punctuation" &&
       BEFORE_REGEX_PUNCTUATION.includes(last.char)) ||
     (last.kind === "word" && BEFORE_REGEX_WORDS.has(last.word))
+
+  /** Whether what was read last ends an expression, as an operand does. */
+  const endsExpression = (): boolean =>
+    last.kind === "value" ||
+    (last.kind === "word" && !BEFORE_REGEX_WORDS.has(last.word))
 
   const afterDot = (): boolean =>
     last.kind === "punctuation" && last.char === "."
 
   while (at < length) {
+    const gap = at
     at = skipGap(at)
     if (at >= length) break
     const char = text[at] as string
@@ -239,17 +273,32 @@ export function runtimeLoads(text: string): RuntimeLoad[] {
         }
       }
       at = end
-      last =
-        BEFORE_REGEX_WORDS.has(word) && !afterDot()
-          ? { kind: "word", word }
-          : { kind: "value" }
+      // A property name is an operand whatever it spells.
+      last = afterDot() ? { kind: "value" } : { kind: "word", word }
+      continue
+    }
+    if ((char === "+" || char === "-") && text[at + 1] === char) {
+      // Postfix after an operand on the same line, which ends the
+      // expression; prefix otherwise, before its operand.
+      const postfix =
+        endsExpression() && !LINE_TERMINATOR.test(text.slice(gap, at))
+      at += 2
+      last = postfix ? { kind: "value" } : { kind: "punctuation", char }
+      continue
+    }
+    if (char === "(") {
+      parens.push(last.kind === "word" && CONTROL_WORDS.has(last.word))
+      at += 1
+      last = { kind: "punctuation", char }
+      continue
+    }
+    if (char === ")") {
+      at += 1
+      last = parens.pop() === true ? { kind: "statement" } : { kind: "value" }
       continue
     }
     at += 1
-    last =
-      char === ")" || char === "]"
-        ? { kind: "value" }
-        : { kind: "punctuation", char }
+    last = char === "]" ? { kind: "value" } : { kind: "punctuation", char }
   }
   return found
 }

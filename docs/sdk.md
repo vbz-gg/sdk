@@ -536,7 +536,14 @@ What the contract checks, on the bytes rather than on the source:
 4. The page module calls no `import()`, with a literal or a computed name,
    and no `new Worker`, `new SharedWorker` or `importScripts`. Bun's scanner
    sees only a literal `import()`, so these are found by reading the text as
-   tokens, stepping over strings, comments and regular expressions. A load
+   tokens, stepping over strings, comments and regular expressions. Whether
+   a `/` opens a pattern or divides is told by what came before it: an
+   operand, a `)`, a `]` or a postfix `++` or `--` ends an expression, so it
+   divides, and after a control keyword's head, `if (a)`, a statement starts,
+   so it opens one. Run over pixi.js 8.21 (its published `pixi.min.mjs`, and
+   bundled by bun with and without minifying), three 0.186 bundled and
+   minified by bun, and both frozen template builds, it finds pixi's four
+   `new Worker` calls and nothing else. A load
    hidden behind a computed property gets past that reading; the page's
    policy, which names the game's own path and nothing else, is what bounds
    it.
