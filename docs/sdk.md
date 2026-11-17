@@ -917,9 +917,15 @@ the platform mails the studio's admins and the vbz operators instead.
 ## Publishing a version
 
 `vbz publish ./my-game --game <id>` uploads what `vbz build` wrote, the
-files folder first. It sends the listing, `dist/files.json` as written, to
-`POST /v1/games/:gameId/files/missing`, which answers with the SHA-256 of
-each listed file the game's store lacks, and uploads each of those from
+files folder first. It sends the listing, with the version's manifest beside
+it, `MissingFilesRequest` in `/api`, to
+`POST /v1/games/:gameId/files/missing`. The platform answers first every
+refusal the version's upload would get from those two alone: its version
+number, a patch that changes its line's rules, the manifest, the listing and
+its data packs, and the studio's quota, so a version it would refuse uploads
+no file, where before up to 512 MiB of files went up for a version that was
+then refused. Otherwise it answers with the SHA-256 of each listed file the
+game's store lacks, and the command uploads each of those from
 `dist/files/` as its own `PUT /v1/games/:gameId/files/:sha256`, its bytes
 the body. A file is stored once per game under the hash of its bytes, so a
 file a version shares with an earlier one is not sent again, two paths
@@ -978,7 +984,11 @@ as `E_VERSION_EXISTS`, so a slow answer would turn into a confusing one.
 Asking which files the platform lacks and uploading one are safe to repeat,
 since a file is stored under the hash of its bytes, and each is tried up to
 four times, two seconds apart, when the platform does not answer, fails or
-asks for time; a refusal stops the command before the version is sent.
+asks for time, except a 429 that is the studio's quota, which is a "no"
+for a day; a refusal stops the command before the version is sent. A
+publish can still stop between the files and the version, or the upload be
+refused after them because another version arrived in between: the files it
+stored are named by no version, and the platform removes them a day later.
 Reading the version back is safe to repeat too, and a read the platform
 fails to answer is tried again until the wait runs out.
 

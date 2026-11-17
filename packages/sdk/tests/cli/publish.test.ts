@@ -172,7 +172,9 @@ function filesStore(held: Iterable<string>) {
   return (url: string, init: RequestInit): Response => {
     if (url.endsWith("/files/missing")) {
       const listing = JSON.parse(
-        new TextDecoder().decode(init.body as Uint8Array),
+        typeof init.body === "string"
+          ? init.body
+          : new TextDecoder().decode(init.body as Uint8Array),
       ) as FilesListing
       const missing = [
         ...new Set(
@@ -888,7 +890,7 @@ describe("the files folder", () => {
   const ONE = new TextEncoder().encode("one\n")
   const TWO = new TextEncoder().encode("two\n")
 
-  test("is asked about first, with the listing as built, and only what the platform lacks is sent", async () => {
+  test("is asked about first, with the listing as built and the manifest, and only what the platform lacks is sent", async () => {
     const listing = await writeDist(dir, {
       "a/one.bin": ONE,
       "b/two.bin": TWO,
@@ -912,9 +914,12 @@ describe("the files folder", () => {
     if (ask === undefined || put === undefined) {
       throw new Error("the files were not asked about and sent")
     }
-    expect(new Uint8Array(ask.init.body as Uint8Array)).toEqual(
-      new TextEncoder().encode(canonicalListing(listing)),
-    )
+    // The listing, and beside it the manifest the upload will carry, whose
+    // refusals the platform answers before any file goes up.
+    expect(JSON.parse(ask.init.body as string)).toEqual({
+      manifest: JSON.parse(MANIFEST),
+      files: listing.files,
+    })
     for (const request of [ask, put]) {
       const headers = request.init.headers as Record<string, string>
       expect(headers.authorization).toBe(`Bearer ${KEY}`)
@@ -928,6 +933,39 @@ describe("the files folder", () => {
     )
     expect(new Uint8Array(put.init.body as Uint8Array)).toEqual(ONE)
     expect(net.logged.join("\n")).toContain("uploaded a/one.bin, 4 bytes")
+  })
+
+  /**
+   * The platform answers a version's own refusals on the question, so a
+   * version it would refuse stores no file: before, every missing file of
+   * a version that was not newer went up, up to 512 MiB, and then the
+   * version was refused.
+   */
+  test("a version the platform refuses on the question uploads no file and no version", async () => {
+    await writeDist(dir, { "a/one.bin": ONE, "b/two.bin": TWO })
+    for (const [code, status] of [
+      ["E_VERSION_NOT_NEWER", 409],
+      ["E_PATCH_CHANGES_RULES", 409],
+      ["E_VERSION_INVALID", 400],
+      ["E_QUOTA_EXCEEDED", 429],
+    ] as const) {
+      const net = world([], {
+        files: [() => json({ error: code, message: "no" }, status)],
+      })
+      const error = await refusalOf(publish(settings(), net.deps))
+      expect(error.refusal).toBe(code)
+      expect(net.order).toEqual([`POST /v1/games/${GAME}/files/missing`])
+    }
+  })
+
+  test("a manifest that is not JSON is no build, and nothing is asked", async () => {
+    await writeDist(dir)
+    await writeFile(join(dir, "dist", "manifest.json"), "{ version: 1")
+    const net = world([])
+    const error = await refusalOf(publish(settings(), net.deps))
+    expect(error.code).toBe(PUBLISH_ERROR.NOT_BUILT)
+    expect(error.message).toContain("manifest.json is not JSON")
+    expect(net.order).toEqual([])
   })
 
   test("a folder of nothing is still named to the platform, and nothing is sent", async () => {

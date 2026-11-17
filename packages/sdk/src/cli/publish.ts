@@ -13,11 +13,17 @@
  * read it.
  *
  * A version's files go first. The command sends the listing `vbz build`
- * wrote and asks which of its files the platform lacks, uploads each of
- * those in a request of its own, and only then uploads the version, with
- * the listing beside its manifest and its two modules. A file is stored
- * under the SHA-256 of its bytes, so a file whose answer was lost is safe to
- * send again, and the platform only ever holds files a version may name.
+ * wrote, with the version's manifest beside it, and asks which of its files
+ * the platform lacks. The platform answers the version's own refusals
+ * first, its version number, a patch that changes its line's rules, the
+ * studio's quota, so a version it would refuse uploads nothing. Then the
+ * command uploads each missing file in a request of its own, and only then
+ * the version, with the listing beside its manifest and its two modules. A
+ * file is stored under the SHA-256 of its bytes, so a file whose answer was
+ * lost is safe to send again. A publish can still stop between the files
+ * and the version, or the upload be refused after them because another
+ * version arrived first; files stored ahead of a version that never arrives
+ * are removed by the platform a day later, as nothing names them.
  *
  * Every decision is here rather than in the entry point, because the entry
  * point is excluded from the coverage floor.
@@ -33,6 +39,7 @@ import type {
   PageKey,
   PatchChangesRulesDetail,
   PlatformRoutes,
+  PublicRefusalCode,
   SecretKey,
   StoredFile,
   UploadedVersion,
@@ -303,6 +310,18 @@ async function readBuilt(path: string): Promise<Uint8Array<ArrayBuffer>> {
   }
 }
 
+/** `dist/manifest.json`, parsed, or `E_PUBLISH_NOT_BUILT`. */
+function manifestOf(text: Uint8Array, dir: string): unknown {
+  try {
+    return JSON.parse(new TextDecoder().decode(text)) as unknown
+  } catch (error) {
+    throw new PublishError(
+      PUBLISH_ERROR.NOT_BUILT,
+      `${join(dir, DIST_DIR, DIST_FILES.manifest)} is not JSON (${(error as Error).message}); run vbz build again`,
+    )
+  }
+}
+
 function listingOf(text: Uint8Array, path: string): FilesListing {
   try {
     return assertListing(JSON.parse(new TextDecoder().decode(text)) as unknown)
@@ -413,6 +432,9 @@ async function uploadFiles(
   built: BuiltGame,
 ): Promise<void> {
   const { listing } = built
+  const question: PlatformRoutes["POST /v1/games/:gameId/files/missing"]["body"] =
+    { manifest: manifestOf(built.manifest, settings.dir), files: listing.files }
+  const body = JSON.stringify(question)
   const asked: ResponseOf<"POST /v1/games/:gameId/files/missing"> = await tried(
     deps,
     "asking which files the platform lacks",
@@ -424,7 +446,7 @@ async function uploadFiles(
             ...headersFor(settings),
             "content-type": "application/json",
           },
-          body: built.listingText,
+          body,
           signal: AbortSignal.timeout(READ_TIMEOUT_MS),
         }),
         listing,
@@ -573,8 +595,19 @@ async function readStatus(
 /** An answer meaning "not now" rather than "no": asked to slow down. */
 const TOO_MANY_REQUESTS = 429
 
+/**
+ * Refusals answered with that status that mean "no" for longer than a
+ * publish waits: the studio's uploads for the last 24 hours are used up,
+ * which the question about files answers before anything goes up.
+ */
+const NOT_WORTH_WAITING_FOR: ReadonlySet<string> = new Set<PublicRefusalCode>([
+  "E_QUOTA_EXCEEDED",
+])
+
 function worthTryingAgain(error: PublishError): boolean {
   if (error.code === PUBLISH_ERROR.UNREACHABLE) return true
+  if (error.refusal !== undefined && NOT_WORTH_WAITING_FOR.has(error.refusal))
+    return false
   return (
     error.status !== undefined &&
     (error.status >= 500 || error.status === TOO_MANY_REQUESTS)

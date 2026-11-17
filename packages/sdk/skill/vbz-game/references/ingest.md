@@ -5,13 +5,20 @@ before the first storage write, so a submission they refuse leaves nothing
 behind and costs no quota: an upload is its own dry run.
 
 `vbz publish <dir> --game <id>` is how a submission arrives. It sends the
-files folder's listing and asks which files the platform lacks, uploads each
-of those on its own, sends the version with the listing beside it, then
+files folder's listing with the version's manifest and asks which files the
+platform lacks; the platform answers the refusals of sections 0 and 2 that
+the manifest and the listing alone decide, and the quota, before any file
+goes up, so a version it would refuse stores nothing. Then the command
+uploads each missing file on its own, sends the version with the listing
+beside it, then
 reads the version back until the checks below decide, and prints the code
 and the first failed check of a rejection. A file is stored under the hash
 of its bytes (`E_FILE_HASH_MISMATCH` when they are not), so a file an
 earlier version sent is not sent again, and a version whose listing names a
-file the platform does not hold is refused with `E_FILES_MISSING`.
+file the platform does not hold is refused with `E_FILES_MISSING`. Files
+stored for a version that never arrives, because the publish stopped
+between them or another version arrived first, are named by nothing and
+removed a day later.
 
 ## 0. The version
 

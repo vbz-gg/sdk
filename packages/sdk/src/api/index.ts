@@ -350,6 +350,27 @@ export interface FilesListing {
 }
 
 /**
+ * The body of `POST /v1/games/:gameId/files/missing`: a version's listing,
+ * and the manifest its upload will carry, asked before any of its files go
+ * up.
+ *
+ * The platform answers first every refusal the version's upload would get
+ * from these two alone, before a byte is stored: a manifest that is not one
+ * (`E_MANIFEST_INVALID`), its version (`E_VERSION_INVALID`,
+ * `E_VERSION_EXISTS`, `E_VERSION_NOT_NEWER`, `E_PATCH_CHANGES_RULES`), the
+ * listing and the data packs the manifest declares in it (the `E_FILE*` and
+ * `E_PACK*` codes), and the studio's uploads (`E_QUOTA_EXCEEDED`), which
+ * asking does not count against. So a version the platform would refuse
+ * uploads no file. The upload runs every check again, because another
+ * version can arrive in between; files stored ahead of a version that never
+ * arrives are removed a day later, as nothing names them.
+ */
+export interface MissingFilesRequest extends FilesListing {
+  /** The version's manifest, as `dist/manifest.json` holds it. */
+  readonly manifest: unknown
+}
+
+/**
  * `POST /v1/games/:gameId/files/missing`, asked with a version's listing:
  * which of its files the game's store lacks. A file is stored by its
  * SHA-256, once per game however many versions or paths name it, so the
@@ -737,10 +758,12 @@ export interface PlatformRoutes {
   readonly "POST /v1/games/:gameId/files/missing": {
     readonly auth: "secret-key"
     /**
-     * The version's listing. A canonical listing of 10,000 files is at most
-     * `MAX_LISTING_BYTES` from `@vbz-gg/sdk/build`.
+     * The version's listing, with its manifest beside it, whose refusals are
+     * answered first. A canonical listing of 10,000 files is at most
+     * `MAX_LISTING_BYTES` from `@vbz-gg/sdk/build`; the manifest is as long
+     * as the game's.
      */
-    readonly body: FilesListing
+    readonly body: MissingFilesRequest
     readonly response: MissingFiles
   }
   readonly "PUT /v1/games/:gameId/files/:sha256": {
