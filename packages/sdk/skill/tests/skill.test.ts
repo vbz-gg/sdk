@@ -33,6 +33,7 @@ import {
   MAX_RUN_BYTES,
   MAX_SIM_BYTES,
   MAX_VERSION_PART,
+  PATCH_SCORE_RUNS,
   REPLAY_ANSWER_MARGIN_MS,
   REPLAY_CPU_BUDGET_MS,
   REPLAY_MEMORY_MB,
@@ -540,7 +541,7 @@ describe("one replay's budget", () => {
       `${minutes(CHECKS_CONTAINER_WAIT_MS)} minutes for the checks container`,
     )
     expect(text).toContain(
-      `the ${minutes(REPLAY_WALL_BUDGET_MS)} minutes of wall time the replay-service check's one replay may take`,
+      `the ${minutes(REPLAY_WALL_BUDGET_MS)} minutes of wall time one replay may take`,
     )
     expect(text).toContain(
       `${REPLAY_ANSWER_MARGIN_MS / 1000} seconds the platform waits past it for the answer`,
@@ -551,6 +552,48 @@ describe("one replay's budget", () => {
     expect(text).toContain(
       `${minutes(CHECK_WAIT_HEADROOM_MS)} minute of headroom`,
     )
+  })
+})
+
+describe("a patch's replays", () => {
+  /**
+   * A studio reads how many of its line's runs a patch is replayed against,
+   * and the build log prints a count of them, so every count the prose
+   * gives is the one the platform takes from `/build`, and every printed
+   * example is one the platform could measure.
+   */
+  test("every count quoted for a patch's replays is PATCH_SCORE_RUNS", async () => {
+    const api = await readFile(join(PACKAGE, "src", "api", "index.ts"), "utf8")
+    const texts: Readonly<Record<string, string>> = {
+      "SKILL.md": await read("SKILL.md"),
+      "references/ingest.md": await read("references", "ingest.md"),
+      "docs/sdk.md": await readRepository("docs", "sdk.md"),
+      "README.md": await readFile(join(PACKAGE, "README.md"), "utf8"),
+      // The doc comments, as the prose they are.
+      "src/api/index.ts": api.replace(/\n\s*\* ?/g, " "),
+    }
+    const seen = { counts: 0, examples: 0 }
+    for (const [where, raw] of Object.entries(texts)) {
+      const text = raw.replace(/\s+/g, " ")
+      for (const match of text.matchAll(
+        /(?:at most|up to) (\d+) of (?:its|the) (?:release )?line's (?:most )?recent/g,
+      )) {
+        seen.counts += 1
+        expect(`${where}: ${match[1]}`).toBe(`${where}: ${PATCH_SCORE_RUNS}`)
+      }
+      for (const match of text.matchAll(
+        /patch check: (\d+) of (\d+) recent ranked runs?/g,
+      )) {
+        seen.examples += 1
+        const [differing, compared] = [Number(match[1]), Number(match[2])]
+        expect(`${where}: ${compared <= PATCH_SCORE_RUNS}`).toBe(
+          `${where}: true`,
+        )
+        expect(`${where}: ${differing <= compared}`).toBe(`${where}: true`)
+      }
+    }
+    expect(seen.counts).toBeGreaterThanOrEqual(4)
+    expect(seen.examples).toBeGreaterThanOrEqual(2)
   })
 })
 

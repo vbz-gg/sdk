@@ -1287,11 +1287,12 @@ command needs only the game's id. It waits up to 36 minutes,
 rounded up to whole minutes: 10 minutes for the ingest job to wait in the
 platform's queue (`CHECK_QUEUE_ALLOWANCE_MS`); 12 minutes for the checks
 container, as long as the platform waits for one
-(`CHECKS_CONTAINER_WAIT_MS`); the 7.5 minutes of wall time the
-replay-service check's one replay may take (`REPLAY_WALL_BUDGET_MS`) and the
-10 seconds the platform waits past it for the answer
-(`REPLAY_ANSWER_MARGIN_MS`); 5 minutes for copying a published version's
-files to the public store before the verdict is written
+(`CHECKS_CONTAINER_WAIT_MS`); the 7.5 minutes of wall time one replay may
+take (`REPLAY_WALL_BUDGET_MS`), which the replay-service check and a patch's
+replays share, since they run beside each other, and the 10 seconds the
+platform waits past it for the answer (`REPLAY_ANSWER_MARGIN_MS`); 5
+minutes for copying a published version's files to the public store before
+the verdict is written
 (`CHECK_PUBLISH_ALLOWANCE_MS`), which nobody has timed; and 1 minute of
 headroom (`CHECK_WAIT_HEADROOM_MS`). The platform takes its own waits and
 the replay's budget from the same `/build` constants. The wait covers one
@@ -1317,16 +1318,19 @@ answer all exit 1 with a code that names which, and a refusal
 prints its `detail`: the fields a patch changed and the minor to publish
 instead, or the versions an upload had to be above.
 
-A published version also comes back with `patchScores`. As a version
-publishes, the platform replays up to 50 of its line's most recent settled
-ranked runs, played on the line's other versions, under the new rules code,
-and counts the runs whose end tick, terminal or counters come out different.
-That is the part of a patch's promise a manifest cannot show: a fix that
-changes what the same play scores. The count decides nothing, and the
-command prints it as the platform measured it, such as
-`patch check: 3 of 50 recent ranked runs on line 1.2 end differently under
+A published version also comes back with `patchScores`. Before the
+verdict, beside the replay-service check, the platform replays at most 3 of
+its line's most recent settled ranked runs (`PATCH_SCORE_RUNS`), played on
+the line's other versions, under the new rules code, and counts the runs
+whose end tick, terminal or counters come out different. That is the part
+of a patch's promise a manifest cannot show: a fix that changes what the
+same play scores. They are players' own recordings, and the only players'
+runs a version meets before it publishes. The count decides nothing. It is
+written with the verdict, so the command waits for it as it waits for the
+verdict and prints it as the platform measured it, such as
+`patch check: 2 of 3 recent ranked runs on line 1.2 end differently under
 this version`. A line's first version has no runs of its line to replay, and
-the command says so. While the platform has not measured a version,
+the command says so. When the platform has not measured a version,
 `patchScores` is null and nothing is printed.
 
 The two files routes and the version's upload each take the studio's secret

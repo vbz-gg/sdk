@@ -101,9 +101,10 @@ VBZ_STUDIO_KEY=vbz_sk_... vbz publish . --game <game id>
 
 It exits 0 when the version passed its checks and is published, and prints
 the release line it joined and which runs it serves: today's ranked runs,
-the next day's, or none, and practice or not. Once the platform has measured
-it, it also prints how many of the line's recent ranked runs end differently
-under the new version, which decides nothing and is there for you to read.
+the next day's, or none, and practice or not. Before the verdict the
+platform replays at most 3 of the line's most recent ranked runs under the
+new version, and with the verdict the command prints how many end
+differently, which decides nothing and is there for you to read.
 Anything else exits 1: a
 rejection prints the code and the first check that failed, a refusal prints
 the platform's detail, such as the fields a patch may not change, and a

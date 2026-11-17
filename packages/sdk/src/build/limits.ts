@@ -76,10 +76,11 @@ export const MAX_CHUNK_BYTES = 1024 * 1024
 
 /**
  * The CPU time one replay may spend on the platform's replay service, where
- * every ranked and practice run is replayed and where the platform's checks
- * run a version's rules code for a few steps before it publishes: 5
- * minutes, the most Cloudflare lets a Worker spend on one request on its
- * paid plan. The platform takes its replays' budget from here.
+ * every ranked and practice run is replayed, where the platform's checks run
+ * a version's rules code for a few steps before it publishes, and where a
+ * patch is replayed against its line's recent ranked runs: 5 minutes, the
+ * most Cloudflare lets a Worker spend on one request on its paid plan. The
+ * platform takes its replays' budget from here.
  */
 export const REPLAY_CPU_BUDGET_MS = 5 * 60_000
 
@@ -104,6 +105,15 @@ export const REPLAY_MEMORY_MB = 128
  * from here.
  */
 export const REPLAY_ANSWER_MARGIN_MS = 10_000
+
+/**
+ * The most of a release line's recent settled ranked runs the platform
+ * replays under a new version's rules code before its verdict: 3. They are
+ * players' own recordings, replayed beside the replay-service check, and the
+ * count of those that end differently decides nothing; `vbz publish` prints
+ * it with the verdict. The platform takes its count from here.
+ */
+export const PATCH_SCORE_RUNS = 3
 
 /**
  * How long the platform waits for one checks container to answer: 12

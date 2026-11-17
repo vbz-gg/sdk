@@ -589,6 +589,32 @@ describe("waiting for the checks", () => {
     expect(net.logged.join("\n")).toContain("in release line 1.2")
   })
 
+  /**
+   * A patch's scores are measured before the verdict and written with it, so
+   * the read that ends the wait carries them, and the build log prints them
+   * from that read: no read before it has a count, and none is made after.
+   */
+  test("a patch's scores are printed from the read that carries the verdict", async () => {
+    await writeDist(dir)
+    const net = world([
+      () => json(uploaded(), 201),
+      () => json(status("pending")),
+      () => json(status("pending")),
+      () =>
+        json(
+          status("published", { patchScores: { compared: 3, differing: 1 } }),
+        ),
+    ])
+    const decided = await publish(settings(), net.deps)
+    expect(net.sent).toHaveLength(4)
+    expect(verdictOf(decided).lines).toEqual([
+      "published version 1.2.0, in release line 1.2",
+      expect.stringMatching(/^ranked runs: today's/),
+      expect.stringMatching(/^practice runs: from the next start/),
+      "patch check: 1 of 3 recent ranked runs on line 1.2 ends differently under this version",
+    ])
+  })
+
   test("a read the platform fails to answer is tried again", async () => {
     await writeDist(dir)
     const net = world([
@@ -712,18 +738,19 @@ describe("the verdict a build log shows", () => {
   })
 
   /**
-   * The platform replays the line's recent ranked runs under a patch's rules
-   * code as it publishes, and says how many ended differently. It decides
-   * nothing, so the command prints it after which runs the version serves.
+   * The platform replays at most three of the line's recent ranked runs
+   * under a patch's rules code before its verdict, and says how many ended
+   * differently. It decides nothing, so the command prints it after which
+   * runs the version serves.
    */
   test("a published version says how many of its line's recent ranked runs end differently", () => {
     const verdict = verdictOf(
-      status("published", { patchScores: { compared: 50, differing: 3 } }),
+      status("published", { patchScores: { compared: 3, differing: 2 } }),
     )
     expect(verdict.exitCode).toBe(0)
     expect(verdict.lines).toHaveLength(4)
     expect(verdict.lines[3]).toBe(
-      "patch check: 3 of 50 recent ranked runs on line 1.2 end differently under this version",
+      "patch check: 2 of 3 recent ranked runs on line 1.2 end differently under this version",
     )
     expect(
       verdictOf(
@@ -742,12 +769,12 @@ describe("the verdict a build log shows", () => {
     const takenDown = verdictOf(
       status("published", {
         suspended: true,
-        patchScores: { compared: 50, differing: 0 },
+        patchScores: { compared: 3, differing: 0 },
       }),
     )
     expect(takenDown.exitCode).toBe(1)
     expect(takenDown.lines[1]).toBe(
-      "patch check: 0 of 50 recent ranked runs on line 1.2 end differently under this version",
+      "patch check: 0 of 3 recent ranked runs on line 1.2 end differently under this version",
     )
   })
 
@@ -1275,7 +1302,7 @@ describe("the real command", () => {
     const file = new TextEncoder().encode("level data\r\n")
     const listing = await writeDist(dir, { "packs/one.bin": file })
     const { server, seen } = platform(
-      status("published", { patchScores: { compared: 50, differing: 3 } }),
+      status("published", { patchScores: { compared: 3, differing: 2 } }),
     )
     try {
       const result = await run(`http://127.0.0.1:${server.port}`, {
@@ -1288,7 +1315,7 @@ describe("the real command", () => {
       expect(result.stdout).toContain("ranked runs: today's")
       expect(result.stdout).toContain("practice runs: from the next start")
       expect(result.stdout).toContain(
-        "patch check: 3 of 50 recent ranked runs on line 1.2 end differently under this version",
+        "patch check: 2 of 3 recent ranked runs on line 1.2 end differently under this version",
       )
       expect(seen.origin).toBeNull()
       expect(seen.authorization).toBe(`Bearer ${KEY}`)
@@ -1527,8 +1554,8 @@ describe("a version's answer is checked in every field the verdict reads", () =>
       { compared: 3, differing: 4 },
       { compared: -1, differing: 0 },
       { compared: 1.5, differing: 0 },
-      { compared: 50 },
-      "3 of 50",
+      { compared: 3 },
+      "2 of 3",
       undefined,
     ]) {
       expect(await readBack({ ...status("published"), patchScores })).toBe(
@@ -1537,7 +1564,7 @@ describe("a version's answer is checked in every field the verdict reads", () =>
     }
     expect(
       await readBack(
-        status("published", { patchScores: { compared: 50, differing: 50 } }),
+        status("published", { patchScores: { compared: 3, differing: 3 } }),
       ),
     ).toBe("ok")
   })

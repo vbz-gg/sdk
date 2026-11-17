@@ -570,15 +570,18 @@ export interface VersionStatus {
   readonly suspended: boolean
   readonly serving: VersionServing
   /**
-   * What publishing this version does to its line's scores. As a version
-   * publishes, the platform replays up to 50 of its release line's most
-   * recent settled ranked runs, played on the line's other versions, under
-   * this version's rules code, and counts the runs whose end tick, terminal
-   * or counters come out different. It decides nothing: the version
-   * publishes whatever the count says, and the studio is told. `compared` is
-   * 0 for a line's first version, which has no runs of its own line to
-   * replay. Null while the version is pending or rejected, or when the
-   * platform has not measured it.
+   * What publishing this version does to its line's scores. Before the
+   * verdict, beside the replay-service check, the platform replays at most 3
+   * of its release line's most recent settled ranked runs
+   * (`PATCH_SCORE_RUNS` in `/build`), played on the line's other versions,
+   * under this version's rules code, and counts the runs whose end tick,
+   * terminal or counters come out different. It decides nothing: the
+   * version publishes whatever the count says, and the studio is told. The
+   * count is written with the verdict, so the read that first finds the
+   * version published carries it. `compared` is 0 for a line's first
+   * version, which has no runs of its own line to replay. Null while the
+   * version is pending, for a rejected version, and for one the platform has
+   * not measured.
    */
   readonly patchScores: {
     /** The line's runs replayed under this version's rules code. */
