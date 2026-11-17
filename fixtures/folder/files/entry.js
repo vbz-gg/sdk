@@ -46,13 +46,32 @@ function startWorker() {
   }).finally(() => URL.revokeObjectURL(url))
 }
 
-/** Everything ready to draw: the drawing, the core's tint and the worker. */
+/**
+ * Everything ready to draw: the drawing, the core's tint and the worker. If
+ * any of the three fails, a worker the others did not stop is terminated
+ * before the failure is passed on, so a start that fails leaves nothing
+ * running.
+ */
 export async function start() {
-  const [drawing, tint, worker] = await Promise.all([
+  const [drawn, cored, started] = await Promise.allSettled([
     loadDrawing(),
     loadCore(),
     startWorker(),
   ])
+  if (
+    drawn.status === "rejected" ||
+    cored.status === "rejected" ||
+    started.status === "rejected"
+  ) {
+    if (started.status === "fulfilled") started.value.terminate()
+    const failed = [drawn, cored, started].find(
+      (outcome) => outcome.status === "rejected",
+    )
+    throw failed.reason
+  }
+  const drawing = drawn.value
+  const tint = cored.value
+  const worker = started.value
   return {
     tint,
     drawnBy: drawing.NAME,

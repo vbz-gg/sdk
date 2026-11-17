@@ -7,7 +7,9 @@
  * name, and then waits `READY_AFTER_MS` more, as an engine compiling its
  * shaders does. The engine starts the run's clock only once `prepare`
  * resolves, so no tick runs and no input is recorded before the game can be
- * drawn, and a device without a 2d canvas fails before tick 0.
+ * drawn, and a device without a 2d canvas fails before tick 0. Taken down
+ * while it gets ready, it stops what getting ready started as soon as that
+ * arrives, so nothing it started outlives it.
  *
  * What it did is written on the element it fills, as data attributes the
  * browser suite reads: when getting ready started and ended, when the first
@@ -35,6 +37,8 @@ export function createFolderPresentation(): PreparedPresentation {
   let engine: Started | null = null
   let framesBeforeReady = 0
   let drawnOnce = false
+  /** Taken down: whatever getting ready starts after this is stopped. */
+  let gone = false
 
   const mark = (name: string, value: string | number) => {
     if (container !== null) container.dataset[name] = String(value)
@@ -57,7 +61,15 @@ export function createFolderPresentation(): PreparedPresentation {
         throw new Error("this browser gives the game no 2d canvas to draw on")
       }
       const started = await start()
+      if (gone) {
+        started.stop()
+        return
+      }
       await new Promise((resolve) => setTimeout(resolve, READY_AFTER_MS))
+      if (gone) {
+        started.stop()
+        return
+      }
       engine = started
       mark("tint", started.tint)
       mark("drawnBy", started.drawnBy)
@@ -85,6 +97,7 @@ export function createFolderPresentation(): PreparedPresentation {
     },
 
     unmount(): void {
+      gone = true
       engine?.stop()
       engine = null
       canvas?.remove()

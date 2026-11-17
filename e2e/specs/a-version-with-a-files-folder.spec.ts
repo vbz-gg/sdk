@@ -68,6 +68,43 @@ async function folderAsked(): Promise<string[]> {
     .map((path) => path.slice(base.length))
 }
 
+/**
+ * Counts every worker the page starts and terminates, by standing in for
+ * the browser's `Worker` with one that counts, so a spec can tell a worker
+ * left running from one stopped.
+ */
+async function countWorkers(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    const counted = { started: 0, terminated: 0 }
+    ;(globalThis as unknown as { vbzWorkers: typeof counted }).vbzWorkers =
+      counted
+    const Original = globalThis.Worker
+    globalThis.Worker = class extends Original {
+      constructor(url: string | URL, options?: WorkerOptions) {
+        super(url, options)
+        counted.started += 1
+      }
+      override terminate(): void {
+        counted.terminated += 1
+        super.terminate()
+      }
+    }
+  })
+}
+
+async function workers(
+  page: Page,
+): Promise<{ readonly started: number; readonly terminated: number }> {
+  return await page.evaluate(
+    () =>
+      (
+        globalThis as unknown as {
+          vbzWorkers: { started: number; terminated: number }
+        }
+      ).vbzWorkers,
+  )
+}
+
 /** A browser whose canvases give no 2d context: a device the game cannot draw on. */
 async function noCanvas(page: Page): Promise<void> {
   await page.addInitScript(() => {
@@ -284,4 +321,47 @@ test("a device that cannot draw it starts nothing, locally or ranked, and the pl
   await expect(body).toHaveAttribute("data-phase", "failed")
   await expect(body).toHaveAttribute("data-code", "E_PRESENTATION_FAILED")
   await expect(page.locator("#run")).toBeEmpty()
+})
+
+/**
+ * Its presentation starts a worker while it gets ready. A run taken down
+ * then, here by Play pressed again, which takes the first run down, stops
+ * that worker once it has started; and a start that fails part-way, here
+ * because the core cannot be fetched, stops the worker the rest started.
+ * Nothing it started outlives it.
+ */
+test("taken down while it gets ready, or failing part-way, it leaves no worker running", async ({
+  page,
+}) => {
+  await countWorkers(page)
+  const body = page.locator("body")
+  const stage = page.locator("#stage")
+  await page.goto(`${STUDIO_ORIGIN}/?game=folder&local=folder`)
+  await expect(body).toHaveAttribute("data-loaded", "ready")
+  await page.getByRole("button", { name: "Play" }).click()
+  await expect(stage).toHaveAttribute("data-prepare-started", /.+/)
+  // Again while the first is getting ready: the first is taken down.
+  await page.getByRole("button", { name: "Play" }).click()
+  await expect(body).toHaveAttribute("data-tick", /^[1-9]/)
+  // The first run's worker, started after it was taken down, is stopped;
+  // the second's draws the run that is playing.
+  await expect
+    .poll(async () => await workers(page))
+    .toEqual({
+      started: 2,
+      terminated: 1,
+    })
+
+  // The core that will not arrive: the worker that did start is stopped.
+  await page.route("**/core.wasm", (route) => route.abort())
+  await page.reload()
+  await expect(body).toHaveAttribute("data-loaded", "ready")
+  await page.getByRole("button", { name: "Play" }).click()
+  await expect(body).toHaveAttribute("data-code", "E_PRESENTATION_FAILED")
+  await expect
+    .poll(async () => await workers(page))
+    .toEqual({
+      started: 1,
+      terminated: 1,
+    })
 })

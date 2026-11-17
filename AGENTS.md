@@ -519,7 +519,9 @@ What only a browser can settle, and what each spec found:
   before it is ready, the pack is fetched only once the rules code names
   it, and the run replays to its counters with the pack and fails without
   it. A device with no 2d canvas fails with `E_PRESENTATION_FAILED` before
-  the platform is asked for a run. Under the policy with the needs left
+  the platform is asked for a run. Taken down while it gets ready, or
+  failing part-way, it leaves no worker running, counted through a
+  stand-in for `Worker`. Under the policy with the needs left
   out, Chromium and Firefox refuse its core's fetch (`connect-src`) and its
   worker (`worker-src`), and it never gets ready.
 - Watching an abandoned run stops at its end tick.
