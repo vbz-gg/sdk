@@ -8,7 +8,8 @@ clockwork2's `docs/engine.md` is required before changing anything that touches
 a manifest or an input.
 
 This repository sits between two others. [clockwork2](https://github.com/vbz-gg/clockwork2)
-is the engine and owns determinism, the manifest and the host bridge; the
+is the engine and owns determinism, the manifest, the host that runs a game
+in a page and the device helpers that record its inputs; the
 [platform](https://github.com/vbz-gg/platform) is the backend that checks an
 upload, replays a run and ranks it. A studio serves its game from its own page.
 
@@ -22,7 +23,7 @@ bun run lint           # biome check .
 bun run lint:fix
 bun test               # the unit suite
 bun run test:coverage  # the same tests, then the 99% floor over packages/*/src
-bun run test:e2e       # the browser suite, against a real sandboxed frame
+bun run test:e2e       # the browser suite: the harness and a studio's page, for real
 bun run check:publishable   # pack the package and read what a consumer gets
 ```
 
@@ -30,18 +31,16 @@ Never start a dev server. Ask the user to run it.
 
 ## The one rule
 
-**A studio's page and the harness draw the same pad, because they run the same
-code.** A scheme a studio's page renders differently from the harness is a
-scaffold that lies to the author who trusted it, and they find out when a
-player does. So the scheme table and the renderer live here, studios' pages
-and the platform import them, and nothing about a layout is re-derived
-anywhere else.
+**A studio's page and the harness load a game through `loadGame` and play it
+through the module's own `mount`.** They run the same code, so the game an
+author tried in the harness is the game a studio's page plays, and the engine
+that plays it is the one the game was built and checked with, bundled into
+its page module. Nothing on a page builds a `GameHost`, draws a control for a
+game, or works out again what the module already decides.
 
-That is also why the renderer is plain DOM behind
-`mountControls(element, options)` rather than a component. A studio's page may
-use React, another framework or none, and the harness uses none; a component
-would make every other host wrap it, and a wrapper is where a difference
-starts.
+That is also why the page and the module pass each other plain data behind a
+contract version. They are built at different times, against different
+releases of this package, and share no class.
 
 ## The platform's route shapes
 
@@ -49,7 +48,9 @@ starts.
 types only, and the platform imports it. **A route's shape changes here
 first**: released, then taken by the platform, never the other way round,
 because the platform depends on this package and this package on nothing of
-the platform's. Within `/v1` a change only adds. `packages/sdk/tests/api.test.ts`
+the platform's. Within `/v1` a change only adds, from the day vbz-gg/platform's
+`AGENTS.md` marks the platform deployed; until then a shape may change in
+place, here first. `packages/sdk/tests/api.test.ts`
 holds the subpath to exporting no value, because a studio's page bundles it.
 
 ## The page's client
@@ -71,67 +72,112 @@ plain node.
 first, even a resolved promise, moves the open out of the click's turn and the
 browser blocks it.
 
+**Every read and write of the kept player goes through `kept`, `keep` and
+`forget` in `client.ts`**, which tell `onPlayerChange`'s listeners when the
+player moved. A `store.read()` or `store.clear()` anywhere else changes the
+player without telling, and `mountSignIn`, which follows it, then shows a
+player the client has let go.
+
 **The client's codes and the platform's never share a name.** `CLIENT_ERROR`
 in `errors.ts` is the client's table, a compile-time check keeps it apart from
 `PublicRefusalCode`, and the skill's `references/page.md` explains every entry,
 held both ways by `skill/tests/skill.test.ts`. A new code is a new row in both.
 
+## The page module
+
+`packages/sdk/src/game/` is what every page module is built from, and
+`docs/sdk.md` describes the contract a page drives it through. What to hold
+while changing it:
+
+**`./game` holds no DOM and no dynamic import.** It is bundled into every
+page module, which may import exactly one module by name, its rules code, and
+the platform refuses one with a dynamic import before it stores a byte.
+Nothing in it reads the browser until `mount` is called, and it imports
+nothing of `./host`, `./platform` or the CLI. `tests/game/subpath.test.ts`
+holds all three.
+
+**A contract version once released is driven by every later release.**
+`DRIVEN_CONTRACTS` only grows. A change that a module built by an earlier
+release could not meet is a new contract version, which a page refuses by
+name until it learns it, never a new meaning for one already out.
+`e2e/frozen/contract-1/` is the template as the first contract-1 release
+built it, and the browser suite holds every later tree to playing it. Never
+rebuild it.
+
+**What crosses is plain data.** A failure is `{ code, message }`, never an
+error object, and an engine error is recognised by its mark, because the page
+holds no engine and the module's classes are not the page's.
+
 ## The page's host
 
-`packages/sdk/src/host/` puts a game on a page, and the harness's page frames
-with it too, so a page and the harness cannot frame a game two ways.
-`docs/sdk.md` describes it. What to hold while changing it:
+`packages/sdk/src/host/` loads a game's page module onto a page and plays a
+run through it, and the harness's page loads with it too, so a page and the
+harness cannot load a game two ways. `docs/sdk.md` describes it. What to hold
+while changing it:
 
-**A host refuses before it frames.** `hostedControls` reads the manifest
-first, and anything a host cannot draw or the platform cannot replay throws
-before a frame or a control exists.
+**A page refuses before it plays.** `loadGame` checks a module in a fixed
+order, and anything that fails throws a client code before a run is started,
+so a failure spends no run. A new check goes into that order with a code of
+its own in `CLIENT_ERROR`.
 
-**Nothing starts in a frame that speaks another protocol version.** Its
-`ready` goes to `onRefused` and never to `onReady`.
+**`playRun` asks for motion before it awaits anything**, when the game reads
+tilt, for the reason `signIn()` opens its window first: iOS grants it only in
+the click's own turn. **Anything but a grant starts no run**: the run fails
+with the engine's refusal code, a client code with a sentence for the player,
+before the platform is asked for one, and the lock is let go. Never add a
+path that plays a tilt game without tilt, keys or not: on iOS a refusal is
+remembered, so every ranked run after it would be spent on a game nobody can
+steer. The harness page reads the answer through the same `motionRefusal`.
 
-**A press from a drawn control goes through the run.** `playRun` hands the
-host `Run.press`, which drops a press outside the run; never wire a control
-to the frame's `virtualInput` beside a run.
+**A game is held to one tab per mode by a Web Lock named for its page key
+and the mode**, taken in the click before the run is started and let go once
+the platform has the run. A browser with no Web Locks starts nothing, with
+`E_BROWSER_UNSUPPORTED`. Never add a path that plays unlocked, or a start
+before the lock is held: two tabs on one run post chunks that conflict, and a
+second tab's start closes a run the first has committed to.
+
+**The page never chooses a version.** A run plays what its start names, and
+`playRun` loads a resumed run's own module when its manifest hash is not the
+loaded module's. The hash names a module; its address can be written more
+than one way.
 
 **The widgets are plain DOM with every colour a `--gb-widget-*` custom
-property**, as the pad is, and show a failure in the client's or the
-platform's own sentence for its code.
+property**, and show a failure in the client's or the platform's own sentence
+for its code.
 
-## Working on controls
+## What a game records
 
-`docs/sdk.md` has the three answers a manifest can give, the scheme table and
-the custom path. What to hold while changing any of it:
+`docs/sdk.md` under "Choosing what to record" is the design: the manifest
+declares inputs, `src/capture.ts` maps devices onto them through the engine's
+device helpers, and the game decides in `tick`. What to hold while changing
+the template, the fixture or anything that reaches them:
 
-**The scheme list is short on purpose.** Each entry is a layout a host has to
-draw correctly at every screen size, in a skin it chose, forever. A scheme
-earns its place by covering games that exist rather than by completing a grid.
-Before adding one, check whether the game could bind a subset of a scheme that
-is already there: a game binds the slots it uses, so `dpad` already serves a
-left-and-right game.
+**A game draws its own controls, and there is no hook for controls a page
+builds.** A page that drew a button and handed the game a press would decide
+the result where nothing checks it. The template draws its two buttons and
+hit-tests them in `tick`, against `src/sim/field.ts`, which the renderer
+reads too.
 
-**A stick is not a row in that table.** `virtual-input` carries one value per
-press and a stick sends two axes, so adding one is a change to the engine's
-protocol first.
+**A game may not construct an input.** Only the engine's helpers record, from
+real devices. Anything that would let a renderer decide which control was
+pressed and hand the answer over is the hole the helpers exist to close.
 
-**Layout, hit target and safe-area clearance belong to the renderer**, and
-every colour to a CSS custom property with a fallback. A host must be able to
-restyle it without a stylesheet from us, and must not be able to restyle away
-the 44px minimum or the `env(safe-area-inset-*)` clearance.
+**The template's buttons stay at least 44 CSS pixels across at its smallest
+size.** `tests/templates/buttons.test.ts` measures the drawn button and the
+area a finger lands on; moving a button means keeping it passing.
 
-**A control that goes down must come up.** `pointerup`, `pointercancel`,
-`lostpointercapture`, `update()` and `destroy()` all release. Adding a fifth
-way for a press to end means adding a sixth release.
-
-**A game may not construct an input.** Anything that would let a renderer
-decide which control was pressed and hand the answer over is the hole the
-custom path exists to close.
+**Coarse ranges, and changes rather than streams.** The template records a
+finger in steps of 30 field units, and `tests/templates/recording.test.ts`
+holds a scripted session's recording under a stated size. A mapping change
+that grows the recording past it is a finding to explain, not a number to
+raise.
 
 ## Publishing what a consumer can actually use
 
 **Every relative import inside `packages/sdk/src` carries `.js`**, and a
 directory import carries the whole `/index.js`. `tsc` emits a relative
 specifier exactly as the source wrote it, and node ESM has no extension
-resolution, so `from "./schemes"` runs everywhere in this repository and
+resolution, so `from "./load"` runs everywhere in this repository and
 nowhere under plain node.
 
 `bun run check:publishable` packs the tarball and imports every subpath the
@@ -141,11 +187,49 @@ the tarball - `RUNTIME_FILES` in the script - because the harness bundles its
 page script from a path built off `import.meta.dir`, and nothing importing the
 package would notice that file missing.
 
+**`loadGame`'s import of a game's code keeps both bundler comments**,
+`webpackIgnore: true` and `@vite-ignore`, on the call itself. The URL arrives
+at run time, so the import is the browser's to make, and a studio's bundler
+that took it for one of its own loads no game. `check:publishable` holds the
+packed `dist` to carrying both, and the browser suite's packed install
+measures what they are for.
+
 **A command's path in `bin` is written the way `npm publish` writes it**: no
 leading `./`. `npm pack` leaves the entry alone and `npm publish` rewrites
 it, and npm 12 logs the rewrite as the command being removed while keeping
 it. The check holds each entry to the published form, and to a file the
 tarball carries.
+
+## Where a game's code runs
+
+**Every command that evaluates a game's code does it through
+`runGameProcess`**, in a process of its own with an empty environment, and
+names anything the child provably needs: the bundler gets `NODE_ENV`, nothing
+else gets anything. That covers the bundler, which runs a game's macros, the
+manifest read out of the rules code, `vbz check`'s conformance and mapping,
+and `vbz dev`'s replay. Never import a game's built output or its source into
+a command's own process, and never pass `process.env` to a child: the
+commands run beside a studio's secret key and cloud credentials.
+`vbz publish` evaluates nothing of a game, and a test holds it to that. Each
+command has a test that plants a variable and holds the game's code to never
+seeing it.
+
+## What a command loads
+
+**Only `vbz check` loads `@clockwork2/engine/validate`, and only once it
+runs**, through an `import()` in the entry point. Everything the entry point
+imports statically is loaded before it reads which command it was given, and
+the engine's checks import `typescript`, an optional peer of the engine. A
+game has TypeScript once its own install has run, which is after `vbz new`,
+and `bunx @vbz-gg/sdk new` runs from an install holding the kit and the
+engine alone. The same goes for anything importing `pixi.js` or `three`.
+`tests/cli/startup.test.ts` walks what the entry point loads, as `tsc` emits
+it, into the installed engine.
+
+The kit declares no peer on `typescript`. The engine declares it, with the
+range its checks need, wherever the engine is installed, and the template's
+`devDependencies` carry it, so `vbz check` finds it in any game `vbz new`
+made.
 
 ## The publish command
 
@@ -157,8 +241,21 @@ refuses a secret key that arrives with one.
 **The upload is sent once; only the read-back retries.** A second upload of
 a version that did arrive is refused as `E_VERSION_EXISTS`.
 
-**Its exit code is the verdict.** 0 means the version is live and served.
-Anything else, including a version an operator took down, is 1.
+**The platform is `https://api.vbz.gg`** unless `--api` or `VBZ_API_ORIGIN`
+names another, and the key is sent only over https or to this machine.
+`https://studio.vbz.gg` is the dashboard, not the API.
+
+**It prints what the platform decided, in the platform's terms**: the release
+line the version joined, a refusal's `detail` (the fields a patch changed and
+the minor to publish instead, or the versions an upload had to be above), and
+once the checks pass, which runs the version serves and how many of its
+line's recent ranked runs end differently under it.
+
+**Its exit code is the verdict.** 0 means the version passed its checks and
+is published, and the command has printed which runs it serves. Anything
+else, including a version an operator took down, is 1. This sentence, the
+package README, `docs/sdk.md`, the skill's `SKILL.md` and `cli/publish.ts`
+say it together, and change together.
 
 No template or example names a script `publish`, because npm runs one with
 that name as a lifecycle hook of `npm publish`.
@@ -172,12 +269,14 @@ Determinism belongs to clockwork2's `platform-game`, and this one points at it
 rather than repeating it - two copies of that rulebook is how one of them goes
 quietly out of date.
 
-`skill/tests/skill.test.ts` measures the drift a machine can see: every scheme
-and slot in the reference matches `SCHEMES`, the size caps and the 44px
-minimum match the code, every refusal code named exists and every one that
-exists is explained, the commands are the CLI's, the layout it prints is the
-template's, and every reference is linked both ways. Adding a scheme fails it
-until the reference has a line.
+`skill/tests/skill.test.ts` measures the drift a machine can see: the size
+caps match the code, every artifact refusal named exists and every one that
+exists is explained, `references/page.md` explains every client code and no
+other, every prose copy of what a release line fixes (in `SKILL.md`,
+`references/ingest.md` and `docs/sdk.md`) names exactly the fields
+`LINE_RULES` fixes, the commands are the CLI's, the layout it prints is the
+template's, and every reference is linked both ways. Adding a client code
+fails it until `page.md` has a row.
 
 ## Tests
 
@@ -196,8 +295,8 @@ until the reference has a line.
   happy-dom cannot represent `max(14px, env(safe-area-inset-bottom))` at all -
   the longhand reads back empty and `setProperty` mangles it to `14px` - so
   asserting safe-area clearance there would be measuring happy-dom's CSS
-  parser. Anything about real layout, a real thumb or a real cross-origin frame
-  belongs in the browser suite.
+  parser. Anything about real layout, a real thumb, a module imported from
+  another origin or a policy that admits it belongs in the browser suite.
 - Playwright runs with `retries: 0`. For a suite about determinism, flake is
   the finding.
 - A record-and-replay test needs a non-triviality guard. Assert the recording
@@ -206,22 +305,63 @@ until the reference has a line.
 
 ## The browser suite
 
-`e2e/` drives the harness an author runs, against both subjects this
-repository ships: the template, which declares a scheme, and the paddle
-fixture, which declares `{ mode: "custom" }`. One process builds each game
-through the real CLI and serves it, so a stale `dist` cannot be what is
-tested, and it keeps a request log per subject that a spec reads to see what
-the browser actually fetched.
+`e2e/` drives what an author and a studio's page actually run. One process,
+`e2e/src/servers.ts`, builds the package and both subjects through the real
+CLI, so a stale `dist` cannot be what is tested, and serves: each subject's
+harness, as `vbz dev` serves it; the suite's studio page, `e2e/page/`, on an
+origin of its own under the policy the SDK recommends, against a stand-in for
+the platform per game; a bundles origin holding every game's modules under
+the game's own path; and this package packed and installed apart. It keeps a
+request log per bundles origin, which a spec reads to see what the browser
+actually fetched.
 
-What only a browser can settle, and what each one caught: a sandboxed frame
-loading its own modules from an opaque origin; `max()` around an `env()`
-resolving at all; a pointer that presses a button and is released somewhere
-else, which without `setPointerCapture` records the press and never the
-release; two fingers, where lifting one must not lift the other; and a
-recording replaying to the counters the page displayed. The picker test found
-a live bug while it was being written - the harness page handed a game's
-declared binding to every layout the picker offered, so a game binding two
-slots drew two buttons under `dpad+2` and called it six.
+The subjects are the template, which draws its own two buttons, and the
+paddle fixture, which reads tilt and maps Space. Beside them, `e2e/frozen/`
+holds the template's two modules as the first release of contract 1 built
+them. They are never rebuilt: a page built from every later tree has to play
+them, and rebuilding them would test a release against itself.
+
+What only a browser can settle, and what each spec found:
+
+- The recommended policy admits a page module and its own static import of
+  its rules code, and refuses another game's path on the same origin before
+  any request leaves, in Chromium, Firefox and WebKit.
+- All three keep a failed module import for the life of the page and answer
+  a second `import()` of that URL without asking the network, which is why
+  `E_GAME_UNLOADABLE` tells the player to reload.
+- Two thumbs on the template's buttons are two pointers, and lifting one
+  leaves the other down. A thumb that slides off its button and off the game,
+  onto the page around it, still records its release.
+- With Play focused, a mapped Space reaches the game and does not press Play,
+  because the helpers cancel a mapped key's default. Measured in Chromium.
+- A second tab of the game and mode another tab is playing stops at the
+  lock having asked the platform for nothing, before and after the first
+  has committed a chunk.
+- The harness page keeps a refusal on its status line: a run the module
+  refuses at mount, and a tilt request that is refused, fails or throws,
+  which starts no run.
+- A tilt game on a studio's page starts no run without tilt, and asks the
+  platform for nothing: a refusal as iOS gives it once the player taps
+  "Cancel" on its motion prompt (the button's name, measured on iPadOS 26.7),
+  answered by a stand-in for `requestPermission` because Chromium has none,
+  and a laptop's Chromium, which has orientation events and no sensor.
+- Watching an abandoned run stops at its end tick.
+- Tilt through Chromium's orientation override: the first reading is recorded
+  as it is, and after that a level only when it changes. A spec that plays
+  the paddle by its keys holds the override level, because without a sensor
+  the paddle starts no run.
+- A recording replays to the counters the page displayed, held both by the
+  harness's own report and by a replay in the spec, against the bytes the
+  browser loaded.
+- A page bundled from the packed package by Vite, webpack and esbuild, each
+  in its production build, loads a game from another origin and plays it.
+  Without its comment webpack turns `loadGame`'s import into a lookup of its
+  own and the page loads nothing; Vite 8 and esbuild leave it alone either
+  way.
+
+Chromium runs every spec; Firefox and WebKit run the one about the policy,
+which is each engine's to decide. The fingers and the sensor override are
+Chromium's own protocol.
 
 One thing about the tools themselves, measured rather than read:
 
@@ -229,6 +369,11 @@ One thing about the tools themselves, measured rather than read:
   down, although the protocol describes `touchPoints` as "active touch
   points". With two fingers down, ending with the point that is still down
   releases that one. `e2e/src/fingers.ts` has the sequence that measured it.
+- **A window that closes itself inside a click can close before Chromium
+  answers the click's `mouseup`**, and Playwright then reports the click as
+  failed with the page closed. The stand-in's sign-in window does exactly
+  that, as the platform's does, so `signIn` in `e2e/src/studio.ts` takes a
+  click that failed because the window closed as the click working.
 
 Until engine 0.7.1 a spec could not import `@clockwork2/engine` at all, because
 its built output imported its own files without extensions and Playwright's
@@ -350,9 +495,10 @@ commitlint and demands a `Docs-Updated:` trailer. Never bypass either with
 `--no-verify`.
 
 The trailer records the pass no test can make. Most of what this package
-documents is a contract rather than a behaviour - which slots a scheme has,
-what a frame may import, which headers make a sandboxed frame load - and
-nothing measures whether a paragraph about one of those is still true. Writing
+documents is a contract rather than a behaviour - what a page module may
+import, which headers and which policy let a game's code into a studio's
+page, which fields a patch keeps - and nothing measures whether a paragraph
+about one of those is still true. Writing
 the trailer says you re-read the pages covering what you changed and brought
 them back in line.
 
@@ -369,7 +515,7 @@ only other trailers in its paragraph. Prose that wraps onto a line starting
 as is a stamp from the list in `scripts/check-docs-updated.ts`. Say what you
 did, inside the 100 columns commitlint allows a trailer line:
 
-    Docs-Updated: added the dpad+2 slots to sdk.md and to the skill's controls page
+    Docs-Updated: added the new client code to sdk.md and to the skill's page.md
     Docs-Updated: re-read sdk.md on the two artifacts; the rewrite is unchanged
     Docs-Updated: new browser test only, no documented contract moved
 

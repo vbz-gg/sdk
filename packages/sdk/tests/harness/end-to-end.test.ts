@@ -20,11 +20,19 @@ import {
   blobKeys,
   buildAndAddress,
 } from "../../src/harness/artifacts"
-import { harnessPage } from "../../src/harness/page/document"
-import { startFrameServer } from "../../src/harness/servers"
+import { escapeHtml, harnessPage } from "../../src/harness/page/document"
+import { startBundleServer } from "../../src/harness/servers"
+
+const GAME = "0b6f3c1e-2d4a-4e8b-9c7d-5a1f2e3b4c6d"
+
+const SOURCE = {
+  simEntry: "src/sim/index.ts",
+  presentEntry: "src/present.ts",
+  captureEntry: "src/capture.ts",
+}
 
 const MANIFEST = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   id: "probe",
   version: "1.0.0",
   name: "Probe",
@@ -34,14 +42,14 @@ const MANIFEST = {
 let root: string
 let built: BuiltGame
 
-async function writeGame(dir: string, frame: string): Promise<void> {
+async function writeGame(dir: string, present: string): Promise<void> {
   await mkdir(join(dir, "src", "sim"), { recursive: true })
   await writeFile(
     join(dir, "src", "sim", "index.ts"),
     `export const MANIFEST = ${JSON.stringify(MANIFEST)}\n` +
       `export const TINT = "#3bd68a"\n`,
   )
-  await writeFile(join(dir, "src", "frame.ts"), frame)
+  await writeFile(join(dir, "src", "present.ts"), present)
 }
 
 beforeAll(async () => {
@@ -51,11 +59,7 @@ beforeAll(async () => {
     `import { MANIFEST, TINT } from "cw2:sim"\n` +
       `document.title = MANIFEST.name + TINT\n`,
   )
-  built = await buildAndAddress({
-    root,
-    simEntry: "src/sim/index.ts",
-    frameEntry: "src/frame.ts",
-  })
+  built = await buildAndAddress({ root, ...SOURCE }, GAME)
 })
 
 afterAll(async () => {
@@ -63,51 +67,39 @@ afterAll(async () => {
 })
 
 describe("building a game", () => {
-  test("the simulation carries no import and the frame carries one", async () => {
-    const { sim, frame } = await buildGameArtifacts({
-      root,
-      simEntry: "src/sim/index.ts",
-      frameEntry: "src/frame.ts",
-    })
+  test("the simulation carries no import and the page module carries one", async () => {
+    const { sim, present } = await buildGameArtifacts({ root, ...SOURCE })
     const simText = new TextDecoder().decode(sim)
     expect(simText).not.toContain("cw2:sim")
-    expect(new TextDecoder().decode(frame)).toContain("cw2:sim")
+    expect(new TextDecoder().decode(present)).toContain("cw2:sim")
   })
 
   /**
-   * The frame must not carry a copy of the simulation. Minification renames
-   * identifiers and leaves string literals alone, so a colour the simulation
-   * declares is a probe that survives the build: finding it in the frame
-   * means the module was inlined rather than imported.
+   * The page module must not carry a copy of the simulation. Minification
+   * renames identifiers and leaves string literals alone, so a colour the
+   * simulation declares is a probe that survives the build: finding it in the
+   * page module means the module was inlined rather than imported.
    */
-  test("the simulation's own literals do not appear in the frame", () => {
-    expect(new TextDecoder().decode(built.frame)).not.toContain("#3bd68a")
+  test("the simulation's own literals do not appear in the page module", () => {
+    expect(new TextDecoder().decode(built.present)).not.toContain("#3bd68a")
   })
 
   test("a build repeated in one process gives the same bytes", async () => {
-    const again = await buildGameArtifacts({
-      root,
-      simEntry: "src/sim/index.ts",
-      frameEntry: "src/frame.ts",
-    })
+    const again = await buildGameArtifacts({ root, ...SOURCE })
     expect(sha256Hex(again.sim)).toBe(built.simSha256)
   })
 
-  test("a frame that inlines its simulation is refused at build time", async () => {
+  test("a page module that inlines its simulation is refused at build time", async () => {
     const dir = await mkdtemp(join(tmpdir(), "sdk-inline-"))
     try {
       // Reaching the simulation by a relative path rather than by the one
-      // bare specifier is how a frame ends up carrying its own copy.
+      // bare specifier is how a page module ends up carrying its own copy.
       await writeGame(
         dir,
         `import { MANIFEST } from "./sim/index"\ndocument.title = MANIFEST.name\n`,
       )
       await expect(
-        buildGameArtifacts({
-          root: dir,
-          simEntry: "src/sim/index.ts",
-          frameEntry: "src/frame.ts",
-        }),
+        buildGameArtifacts({ root: dir, ...SOURCE }),
       ).rejects.toThrow(/imports nothing/)
     } finally {
       await rm(dir, { recursive: true, force: true })
@@ -116,34 +108,31 @@ describe("building a game", () => {
 
   test("a build of a file that is not there fails with what bun said", async () => {
     await expect(
-      buildGameArtifacts({
-        root,
-        simEntry: "src/nowhere.ts",
-        frameEntry: "src/frame.ts",
-      }),
+      buildGameArtifacts({ root, ...SOURCE, simEntry: "src/nowhere.ts" }),
     ).rejects.toThrow(/build failed/)
   })
 })
 
 describe("addressing a game", () => {
   /**
-   * The frame is hashed after its import is rewritten, not before. That is
-   * what makes a stored frame name exactly one simulation forever, and it is
-   * the property "the browser and the validator ran the same code" rests on.
+   * The page module is hashed after its import is rewritten, not before.
+   * That is what makes a stored page module name exactly one game's
+   * simulation forever, and it is the property "the browser and the
+   * validator ran the same code" rests on.
    */
-  test("the stored frame already names the simulation", () => {
-    const text = new TextDecoder().decode(built.frame)
-    expect(text).toContain(`/sim/${built.simSha256}.js`)
+  test("the stored page module already names the game's simulation", () => {
+    const text = new TextDecoder().decode(built.present)
+    expect(text).toContain(`/g/${GAME}/sim/${built.simSha256}.js`)
     expect(text).not.toContain("cw2:sim")
-    expect(built.frameSha256).toBe(sha256Hex(built.frame))
-    expect(built.frameSha256).not.toBe(built.frameSourceSha256)
+    expect(built.presentSha256).toBe(sha256Hex(built.present))
+    expect(built.presentSha256).not.toBe(built.presentSourceSha256)
   })
 
   test("each hash is the digest of the bytes served under it", () => {
     expect(built.simSha256).toBe(sha256Hex(built.sim))
     expect(blobKeys(built)).toEqual({
-      sim: `sim/${built.simSha256}.js`,
-      frame: `frame/${built.frameSha256}.js`,
+      sim: `g/${GAME}/sim/${built.simSha256}.js`,
+      present: `g/${GAME}/present/${built.presentSha256}.js`,
     })
   })
 })
@@ -173,11 +162,9 @@ describe("serving it", () => {
   const asked: string[] = []
 
   beforeAll(() => {
-    server = startFrameServer({
+    server = startBundleServer({
       port: 0,
-      title: "Probe",
       built,
-      siteOrigins: ["http://127.0.0.1:4310"],
       log: (path) => asked.push(path),
     })
   })
@@ -186,34 +173,32 @@ describe("serving it", () => {
     await server.stop()
   })
 
-  test("the document names the stored frame and carries the sandbox", async () => {
-    const response = await fetch(`${server.origin}/play`)
-    const html = await response.text()
-    expect(html).toContain(`/frame/${built.frameSha256}.js`)
-    const csp = response.headers.get("content-security-policy") ?? ""
-    expect(csp.startsWith("sandbox allow-scripts")).toBe(true)
-    expect(csp).toContain("frame-ancestors http://127.0.0.1:4310")
-    // The document names an artifact by hash, and a rebuild changes it.
-    expect(response.headers.get("cache-control")).toBe("no-store")
-  })
-
-  test("both artifacts are fetchable at the addresses the document uses", async () => {
-    const frame = await fetch(`${server.origin}/frame/${built.frameSha256}.js`)
-    const sim = await fetch(`${server.origin}/sim/${built.simSha256}.js`)
-    expect(frame.status).toBe(200)
+  /** The page module's rewritten import resolves against its own URL. */
+  test("both modules are fetchable where the page module's import points", async () => {
+    const keys = blobKeys(built)
+    const present = await fetch(`${server.origin}/${keys.present}`)
+    const sim = await fetch(`${server.origin}/${keys.sim}`)
+    expect(present.status).toBe(200)
     expect(sim.status).toBe(200)
     expect(sha256Hex(new Uint8Array(await sim.arrayBuffer()))).toBe(
       built.simSha256,
     )
+    expect(new TextDecoder().decode(built.present)).toContain(`/${keys.sim}`)
+    // The headers the platform's edge sends, so a page meets them here first.
+    expect(present.headers.get("access-control-allow-origin")).toBe("*")
+    expect(present.headers.get("cache-control")).toBe(
+      "public, max-age=31536000, immutable",
+    )
   })
 
   test("the request log is what the network did, for a test to read", () => {
-    expect(asked).toContain("/play")
-    expect(asked).toContain(`/sim/${built.simSha256}.js`)
+    expect(asked).toContain(`/${blobKeys(built).sim}`)
   })
 
-  test("an artifact that was never built is a 404", async () => {
-    const response = await fetch(`${server.origin}/sim/${"c".repeat(64)}.js`)
+  test("a module that was never built is a 404", async () => {
+    const response = await fetch(
+      `${server.origin}/g/${GAME}/sim/${"c".repeat(64)}.js`,
+    )
     expect(response.status).toBe(404)
   })
 })
@@ -236,5 +221,11 @@ describe("the harness page", () => {
     const html = harnessPage({ title: `<b>x</b>`, config: {} })
     expect(html).toContain("&lt;b&gt;x&lt;/b&gt;")
     expect(html).toContain('<script type="module" src="/harness.js">')
+  })
+
+  test("every character that could leave an attribute or a tag is escaped", () => {
+    expect(escapeHtml(`<a href="x" title='y'>&</a>`)).toBe(
+      "&lt;a href=&quot;x&quot; title=&#39;y&#39;&gt;&amp;&lt;/a&gt;",
+    )
   })
 })

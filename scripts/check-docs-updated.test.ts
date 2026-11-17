@@ -28,9 +28,9 @@ describe("bearing paths", () => {
 
   test("every documented surface is covered", () => {
     const covered = [
-      "packages/sdk/src/controls/schemes.ts",
+      "packages/sdk/src/game/define.ts",
       "packages/sdk/README.md",
-      "e2e/specs/two-fingers.spec.ts",
+      "e2e/specs/the-templates-buttons.spec.ts",
       "scripts/check-coverage.ts",
       "skill/vbz-game/SKILL.md",
       "docs/sdk.md",

@@ -15,5 +15,5 @@ export const DIST_DIR = "dist"
 export const DIST_FILES = {
   manifest: "manifest.json",
   sim: "sim.js",
-  frame: "frame.js",
+  present: "present.js",
 } as const

@@ -2,11 +2,11 @@
  * The skill is prose an agent follows literally, so a stale sentence is worse
  * than a missing one.
  *
- * Most of it cannot be measured: whether a paragraph about the sandbox is
+ * Most of it cannot be measured: whether a paragraph about the page module is
  * still true is what the `Docs-Updated:` trailer records. What *can* be
- * measured is where the prose restates something the code owns - the scheme
- * table, the slot lists, the refusal codes, the commands, the template's
- * layout - and those are what this file holds. A scheme added to the table
+ * measured is where the prose restates something the code owns - the size
+ * caps, the refusal codes, the client's codes, the commands, the template's
+ * layout - and those are what this file holds. A code added to a table
  * without a line in the reference fails here.
  */
 
@@ -15,16 +15,15 @@ import { readdir, readFile } from "node:fs/promises"
 import { join } from "node:path"
 import {
   BUILD_REFUSAL,
-  MAX_FRAME_BYTES,
+  MAX_PRESENT_BYTES,
   MAX_SIM_BYTES,
   SIM_SPECIFIER,
 } from "../../packages/sdk/src/build/index.js"
-import { TEMPLATE_DIR } from "../../packages/sdk/src/cli/new.js"
 import {
-  CONTROL_SCHEMES,
-  MIN_TOUCH_PX,
-  SCHEMES,
-} from "../../packages/sdk/src/controls/index.js"
+  CAPABILITY_RULES,
+  LINE_RULES,
+} from "../../packages/sdk/src/build/line.js"
+import { TEMPLATE_DIR } from "../../packages/sdk/src/cli/new.js"
 import { CLIENT_ERROR } from "../../packages/sdk/src/platform/errors.js"
 
 const SKILL = join(import.meta.dir, "..", "vbz-game")
@@ -48,35 +47,6 @@ describe("the skill's front matter", () => {
 })
 
 describe("what the prose restates from the code", () => {
-  test("every scheme is in the reference, with its own slots", async () => {
-    const text = await read("references", "controls.md")
-    for (const scheme of CONTROL_SCHEMES) {
-      expect(text).toContain(scheme)
-      for (const slot of SCHEMES[scheme].slots) {
-        expect(text).toContain(slot.slot)
-      }
-    }
-  })
-
-  test("the reference names no scheme that does not exist", async () => {
-    const text = await read("references", "controls.md")
-    // The layouts block is the list a reader copies from, so it is the one
-    // that must not grow a name the table has never had.
-    const block = text.split("```")[1] ?? ""
-    for (const line of block.trim().split("\n")) {
-      const name = line.trim().split(/\s+/)[0]
-      if (name === undefined || name === "") continue
-      expect(CONTROL_SCHEMES).toContain(
-        name as (typeof CONTROL_SCHEMES)[number],
-      )
-    }
-  })
-
-  test("the smallest a control may be drawn is the number the code uses", async () => {
-    const text = await read("references", "controls.md")
-    expect(text).toContain(`${MIN_TOUCH_PX} CSS pixels`)
-  })
-
   test("the bare specifier is spelled the way the scan demands", async () => {
     for (const file of ["SKILL.md", "references/artifacts.md"]) {
       expect(await read(...file.split("/"))).toContain(SIM_SPECIFIER)
@@ -86,7 +56,7 @@ describe("what the prose restates from the code", () => {
   test("the size caps are the caps", async () => {
     const text = await read("references", "artifacts.md")
     expect(text).toContain(`${MAX_SIM_BYTES / 1024 / 1024} MiB`)
-    expect(text).toContain(`${MAX_FRAME_BYTES / 1024 / 1024} MiB`)
+    expect(text).toContain(`${MAX_PRESENT_BYTES / 1024 / 1024} MiB`)
   })
 
   /**
@@ -101,13 +71,16 @@ describe("what the prose restates from the code", () => {
     const named = text.match(/E_[A-Z0-9_]+/g) ?? []
     const artifactCodes = named.filter(
       (code) =>
-        code.startsWith("E_FRAME") ||
+        code.startsWith("E_PRESENT") ||
         code.startsWith("E_ARTIFACT") ||
         code.startsWith("E_SIM") ||
-        code.startsWith("E_REWRITE"),
+        code.startsWith("E_REWRITE") ||
+        code.startsWith("E_VERSION_INVALID"),
     )
     expect(artifactCodes.length).toBeGreaterThan(4)
     for (const code of artifactCodes) expect(owned).toContain(code)
+    // The codes the page module's checks were renamed from.
+    expect(named.filter((code) => code.startsWith("E_FRAME"))).toEqual([])
   })
 
   test("every artifact refusal that exists is explained somewhere", async () => {
@@ -115,6 +88,60 @@ describe("what the prose restates from the code", () => {
     for (const code of Object.values(BUILD_REFUSAL)) {
       if (code === BUILD_REFUSAL.REWRITE_FAILED) continue // the platform's, never an author's
       expect(text).toContain(code)
+    }
+  })
+})
+
+describe("what a release line fixes", () => {
+  /**
+   * The fields a patch must keep are `LINE_RULES`, and three pages say them in
+   * prose. A field the table fixes that a page leaves out is a patch an author
+   * publishes and the platform refuses; one a page names that the table frees
+   * is a minor nobody needed. Each copy is the sentence naming
+   * `E_PATCH_CHANGES_RULES`, read for the fields in backticks outside its
+   * parentheses, which hold what each field keeps.
+   */
+  test("every prose copy names exactly the fields LINE_RULES fixes", async () => {
+    const fixed = [
+      ...Object.entries(LINE_RULES)
+        .filter(([field, rule]) => rule !== "free" && field !== "capabilities")
+        .map(([field]) => field),
+      ...Object.entries(CAPABILITY_RULES)
+        .filter(([, rule]) => rule === "fixed")
+        .map(([capability]) => capability),
+    ].sort()
+    const known = new Set([
+      ...Object.keys(LINE_RULES),
+      ...Object.keys(CAPABILITY_RULES),
+    ])
+    const copies = {
+      "SKILL.md": await read("SKILL.md"),
+      "references/ingest.md": await read("references", "ingest.md"),
+      "docs/sdk.md": await readFile(
+        join(import.meta.dir, "..", "..", "docs", "sdk.md"),
+        "utf8",
+      ),
+    }
+    for (const [name, text] of Object.entries(copies)) {
+      const sentence = text
+        .replace(/\s+/g, " ")
+        .split(/(?<=\.) (?=[A-Z`])/)
+        .find(
+          (part) =>
+            part.includes("E_PATCH_CHANGES_RULES") &&
+            part.includes("`schemaVersion`"),
+        )
+      expect(`${name}: ${sentence === undefined ? "no copy" : "a copy"}`).toBe(
+        `${name}: a copy`,
+      )
+      const outside = (sentence ?? "").replace(/\([^)]*\)/g, "")
+      const named = [...outside.matchAll(/`([A-Za-z]+)`/g)]
+        .map((match) => match[1] ?? "")
+        .filter((field) => known.has(field))
+        .sort()
+      expect(`${name}: ${named.join(", ")}`).toBe(
+        `${name}: ${fixed.join(", ")}`,
+      )
     }
   })
 })
@@ -149,7 +176,7 @@ describe("what the skill tells an author to run", () => {
       "utf8",
     )
     const text = await read("SKILL.md")
-    for (const command of ["new", "build", "dev", "publish"]) {
+    for (const command of ["new", "build", "check", "dev", "publish"]) {
       expect(text).toContain(`vbz ${command}`)
       expect(cli).toContain(`case "${command}"`)
     }
@@ -160,7 +187,8 @@ describe("what the skill tells an author to run", () => {
     for (const file of [
       "src/sim/index.ts",
       "src/sim/manifest.ts",
-      "src/frame.ts",
+      "src/capture.ts",
+      "src/present.ts",
     ]) {
       expect(text).toContain(file)
       expect(

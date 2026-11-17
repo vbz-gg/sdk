@@ -1,70 +1,112 @@
 # The harness
 
-`vbz dev ./my-game` is your game's page on a laptop. It builds the
-two real artifacts, serves them behind the real frame document with the real
-sandbox and CSP on one port, and serves the page that frames them on another.
+`vbz dev ./my-game` is your game's page on a laptop. It builds the two real
+artifacts, serves them on one port at the paths and with the headers the
+platform's edge uses, and serves a page on another that loads the page module
+from there with `loadGame` and plays it through the module's own `mount`.
 
 ```
-http://127.0.0.1:4310   the page that frames the game
-http://127.0.0.1:4311   the game, its document and its two artifacts
+http://127.0.0.1:4310   the page that loads the game
+http://127.0.0.1:4311   the game's two modules, under /g/<game id>/
 ```
 
-Two ports are two origins, which is the point: a sandboxed cross-origin frame
-has traps, and meeting them on a laptop is cheaper than meeting them in an
-upload.
-
-## What the frame is
-
-The document carries a `Content-Security-Policy` that leads with
-`sandbox allow-scripts allow-pointer-lock`. As a header rather than an iframe
-attribute it is a property of the document however it was loaded, so opening
-the game's URL straight out of devtools is still sandboxed. The rest is
-`default-src 'none'` with the few sources a game needs, `connect-src 'none'`,
-and a `frame-ancestors` naming the one page allowed to frame it.
-
-Without `allow-same-origin` the frame sits in an **opaque origin**, which is
-same-origin with nothing: no cookies, no storage, no reach into the page. It
-also means every script the frame fetches, including its own from the host
-that served its document, is a cross-origin request - which is why the
-artifacts are served with `Access-Control-Allow-Origin: *`. A server answering
-with its own origin never matches `null`, and the frame then loads nothing,
-posts no `ready`, and shows a blank game with no error anywhere.
+Two ports are two origins, which is the point: a studio's page imports the
+page module from the platform's bundle origin, and meeting that import on a
+laptop is cheaper than meeting it on a studio's page. The page is served
+under the Content-Security-Policy a studio's page should send, with scripts
+from the page's own origin and the game's own path and nowhere else, and no
+`unsafe-eval`, so a page module that needs more is refused here first.
 
 ## What the page gives you
 
-- **The pad your manifest asked for**, drawn by the same code a studio's page
-  draws it with.
-- **A picker** that switches between every scheme, `custom` and `off` without
-  editing the manifest. Under a scheme your game did not declare, the slots you
-  did not bind are bound to their own names, so the layout is visible and
-  plainly inert.
-- **Start and End.** End stops the run where it stands, which is how to get a
-  recording out of a game you do not intend to lose at.
-- **The recording**, published once every chunk of it has arrived, with a link
-  to save it. It is the same envelope the platform would replay.
-- **A status line** carrying what the bridge is saying: `ready`, the tick
+- **The checks a studio's page makes**, through the same `loadGame`: a module
+  of another contract, another manifest, a mapping its manifest does not
+  allow, or a page that replaced a built-in is refused, and the refusal is in
+  the status line.
+- **Start and End.** Start asks for tilt first when the game reads it, as a
+  studio's Play button does, and without tilt starts no run, with the code
+  and the player's sentence in the status line. On a laptop, give the page a
+  sensor with the browser's emulation: in Chrome, DevTools' Sensors panel
+  (the Command Menu's Show Sensors). End stops the run where it stands,
+  which is how to get a recording out of a game you do not intend to lose
+  at.
+- **A report on every run**, three lines under the game once it ends:
+  - `replayed:` whether the recording, replayed against the built rules code
+    to the tick it ended, matches what the page reported. A run that differs
+    names the first tick it differs from, and fails on the platform too.
+  - `inputs:` how many the recording holds, against the budget the platform
+    allows a run that long, or the code the platform would refuse them with.
+  - `recording:` its size in bytes, which is what a submit sends.
+  The report turns red when the replay does not match or the inputs would be
+  refused.
+- **The recording**, with a link to save it. It is the same envelope the
+  platform would replay.
+- **A status line** carrying what the game is saying: `ready`, the tick
   count, how the run ended and what it scored.
 
 The seed is a constant, so the run you are debugging is the run you had a
 moment ago. The platform's daily seed is a keyed HMAC of the game and the day,
 which does the same job for everybody at once.
 
-## What it does not reproduce
-
-- **The second registrable domain.** Production serves frames from a different
-  site so a game cannot set a cookie for the platform. Two ports on localhost
-  are one site. Cookie scope is not something a game can get wrong from inside
-  a sandbox, so this gap is named rather than closed.
-- **Replay, settlement and ranking.** That half is the platform's, and a harness
-  that pretended to do it would be teaching you about a server that does not
-  exist.
-- **The conformance suite and the cross-engine sweep.** Use the platform-game
-  skill's `validate` for the first; the second needs three browsers installed
-  and runs at ingest.
-
 ## A phone
 
-Use a device emulation at phone width, or a phone on the same network. The pad
-is drawn **over** the game, in the letterbox margin where a declared aspect
-leaves one and over the art where it does not, so check that nothing the player
-needs to read lives in the bottom corners.
+A phone is another machine, and a browser loads a game's code from another
+machine only over https, and grants tilt only to a secure page. So both
+origins listen on the laptop's own address on the network, over https:
+
+```bash
+vbz dev . --address 192.168.1.20 --https --cert cert.pem --key key.pem
+```
+
+The certificate and key are PEM files, and the phone has to trust the
+certificate for that address; the harness makes none. An address other than
+this machine's own (`127.0.0.1`, `localhost`, `::1`) is refused without
+`--https`, and so is `0.0.0.0`, which no page can name. `--host` and
+`--bundles-port` move the two ports.
+
+## Your game's page
+
+`vbz dev . --site` serves the game's own `site/` instead of the harness page:
+`site/index.html`, `site/main.ts` bundled for the browser as `main.js`, and
+every other file in `site/` as it is, under the same policy with the API's
+origin added. The game is built and served from a bundles origin as above.
+
+The page talks to a stand-in for the platform, on origins of its own: the
+page routes and the sign-in window, as one local player. The harness answers
+the page's `config.json` with the stand-in's API, sign-in window and page
+key, so the file in `site/` is not read. The stand-in:
+
+- signs the player in through a window of its own, with the same code trade;
+- starts a run on the harness seed, and resumes it on a refresh until it has
+  committed a chunk;
+- holds chunks and the submit to the manifest the way the platform does:
+  a chunk sent again unchanged, one that conflicts or reaches back, a
+  checkpoint at a tick an earlier chunk reached, inputs the manifest does
+  not allow, and the byte limits;
+- settles a run at its submit with the counters the page sent, without a
+  replay, and says so in the terminal;
+- reads a settled run back for watching, a run from a day still open to the
+  local player alone, and answers a run the reader may not have, or one that
+  does not exist, with the platform's `E_NOT_FOUND`;
+- keeps the local player's last ranked run of the day as the board;
+- answers every refusal with the platform's code and the platform's status
+  for it.
+
+It neither replays nor ranks. A score it shows has not been checked.
+
+## What it does not reproduce
+
+- **The second registrable domain.** Production serves a game's code from a
+  different site from the studio's page. Two ports on localhost are one site.
+  A module import does not carry cookies either way, so this gap is named
+  rather than closed.
+- **Settlement and ranking.** The harness replays a run and says whether it
+  matches; deciding what it scores on a board is the platform's.
+- **The cross-engine sweep.** `vbz check` runs the engine's conformance
+  checks under bun, in a process of its own with an empty environment. The
+  platform also runs the game in three engines at ingest, which needs three
+  browsers installed.
+
+Use a device emulation at phone width, or a phone through `--https`. Your
+game draws its own controls, so check that a thumb on one does not cover
+anything the player needs to read.

@@ -1,13 +1,9 @@
 /**
- * Paddle's renderer, which draws the controls the host does not.
- *
- * The grab bar is the control. It is drawn at `GRAB_TOP`, which is the same
- * constant the simulation hit-tests against, and that is the whole contract
- * of the custom path: a control drawn somewhere the simulation does not
- * believe it is, is a control a player presses and nothing happens.
+ * Paddle's renderer: the drops, the paddle, and which way the screen leans.
  *
  * Everything here works in simulation units and scales to the canvas at the
- * end, so the two never disagree about where anything is.
+ * end, so the two never disagree about where anything is. The canvas fills
+ * the element it is mounted in, as every page module's presentation does.
  */
 
 import type { Presentation } from "@clockwork2/engine"
@@ -23,7 +19,6 @@ export function createPaddlePresentation(): Presentation<View, HTMLElement> {
       canvas.style.width = "100%"
       canvas.style.height = "100%"
       canvas.style.display = "block"
-      canvas.style.touchAction = "none"
       container.append(canvas)
       context = canvas.getContext("2d")
     },
@@ -41,18 +36,14 @@ export function createPaddlePresentation(): Presentation<View, HTMLElement> {
       context.fillStyle = "#0d0e11"
       context.fillRect(0, 0, size, size)
 
-      // The control, drawn where the simulation hit-tests for it.
-      context.fillStyle = "#191b20"
-      context.fillRect(
-        0,
-        view.grabTop * unit,
-        size,
-        (PLAYFIELD - view.grabTop) * unit,
-      )
-      context.fillStyle = "#8c919c"
-      context.font = `${Math.round(22 * unit)}px system-ui, sans-serif`
-      context.textAlign = "center"
-      context.fillText("drag here", size / 2, (view.grabTop + 40) * unit)
+      // A level that leans with the screen, so a player sees what the game
+      // read rather than guessing at it.
+      context.save()
+      context.translate(size / 2, 80 * unit)
+      context.rotate((view.tilt / 10) * 0.5)
+      context.fillStyle = "#3a3d46"
+      context.fillRect(-120 * unit, -4 * unit, 240 * unit, 8 * unit)
+      context.restore()
 
       context.fillStyle = "#f0a028"
       for (const drop of view.drops) {
@@ -67,7 +58,7 @@ export function createPaddlePresentation(): Presentation<View, HTMLElement> {
         context.fill()
       }
 
-      context.fillStyle = view.boosting ? "#ffbe5c" : "#3bd68a"
+      context.fillStyle = "#3bd68a"
       context.fillRect(
         (view.paddleX - view.paddleHalf) * unit,
         PADDLE_Y * unit,

@@ -344,6 +344,132 @@ describe("runs", () => {
   })
 })
 
+describe("following the player", () => {
+  /** Signs `made`'s page in through the window, as `player`. */
+  async function signInAs(
+    made: ReturnType<typeof client>,
+    player: typeof PLAYER,
+    expiresIn = 7_776_000,
+  ) {
+    made.page.answers.push({
+      status: 200,
+      body: { token: `t-${player.displayName}`, expiresIn, player },
+    })
+    const signing = made.client.signIn()
+    await settle()
+    made.page.post({
+      origin: SIGN_IN,
+      source: made.page.popup,
+      data: {
+        type: "vbz.signin",
+        code: "c",
+        state: authorizeQuery(made.page).get("state"),
+      },
+    })
+    await signing
+  }
+
+  function listen(made: ReturnType<typeof client>) {
+    const told: Array<typeof PLAYER | null> = []
+    const stop = made.client.onPlayerChange((player) => told.push(player))
+    return { told, stop }
+  }
+
+  test("tells each sign-in and sign-out once, and a renewed token not at all", async () => {
+    const made = client()
+    const { told } = listen(made)
+    await signInAs(made, PLAYER)
+    expect(told).toEqual([PLAYER])
+
+    made.page.answers.push({
+      status: 201,
+      body: { sessionId: "s-1", token: "t-2", expiresIn: 7_776_000 },
+    })
+    await made.client.startRun()
+    expect(told).toEqual([PLAYER])
+
+    // The same player under a name changed in the sign-in window is a change.
+    const renamed = { ...PLAYER, displayName: "Ann" }
+    await signInAs(made, renamed)
+    expect(told).toEqual([PLAYER, renamed])
+
+    made.client.signOut()
+    made.client.signOut()
+    expect(told).toEqual([PLAYER, renamed, null])
+  })
+
+  test("a token the platform stopped honouring is told as nobody, before the refusal", async () => {
+    const order: string[] = []
+    const made = client(new FakePage(), () => order.push("onSignedOut"))
+    await signInAs(made, PLAYER)
+    made.client.onPlayerChange((player) =>
+      order.push(`changed to ${player?.displayName ?? "nobody"}`),
+    )
+    made.page.answers.push({
+      status: 401,
+      body: { error: "E_SIGN_IN_REQUIRED", message: "sign in" },
+    })
+    const error = (await caught(() =>
+      made.client.startRun(),
+    )) as PlatformRefusal
+    order.push(`refused ${error.code}`)
+    expect(order).toEqual([
+      "changed to nobody",
+      "onSignedOut",
+      "refused E_SIGN_IN_REQUIRED",
+    ])
+    expect(made.client.player()).toBeNull()
+  })
+
+  test("an older run's token refused tells nothing", async () => {
+    const made = client()
+    await signInAs(made, PLAYER)
+    const { told } = listen(made)
+    const run = { sessionId: "s-old", token: "t-old" } as Parameters<
+      typeof made.client.sendChunk
+    >[0]
+    made.page.answers.push({
+      status: 401,
+      body: { error: "E_SIGN_IN_REQUIRED", message: "sign in" },
+    })
+    await caught(() =>
+      made.client.sendChunk(run, {
+        seq: 0,
+        throughTick: 9,
+        checkpoints: [],
+        inputs: [],
+      }),
+    )
+    expect(told).toEqual([])
+    expect(made.client.player()).toEqual(PLAYER)
+  })
+
+  test("a token found expired is told as nobody, by whatever read found it", async () => {
+    const made = client()
+    await signInAs(made, PLAYER, 60)
+    const { told } = listen(made)
+    made.page.advance(60_000)
+    made.page.answers.push({ status: 200, body: { rows: [] } })
+    await made.client.board()
+    expect(made.page.sent.at(-1)?.headers.authorization).toBeUndefined()
+    expect(told).toEqual([null])
+    expect(made.client.player()).toBeNull()
+    expect(told).toEqual([null])
+  })
+
+  test("a player kept from an earlier visit is no change, and a stopped listener hears nothing", async () => {
+    const earlier = client()
+    await signInAs(earlier, PLAYER)
+    const made = client(earlier.page)
+    const { told, stop } = listen(made)
+    expect(made.client.player()).toEqual(PLAYER)
+    expect(told).toEqual([])
+    stop()
+    made.client.signOut()
+    expect(told).toEqual([])
+  })
+})
+
 describe("waiting for a result", () => {
   const waiting = {
     sessionId: "s-1",

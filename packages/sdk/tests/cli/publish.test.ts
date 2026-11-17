@@ -23,6 +23,7 @@ import {
   CHECK_POLL_MS,
   CHECK_WAIT_MS,
   DEFAULT_API_ORIGIN,
+  failureLines,
   PUBLISH_ERROR,
   PublishError,
   type PublishErrorCode,
@@ -40,7 +41,7 @@ const STUDIO = "2b7e2c5a-3c62-4bb6-8f2c-0c8f0b6a9e11"
 const VERSION_ID = "9a0e5d3c-1f3e-4b7f-a2d4-57c1c0a5c2b9"
 const MANIFEST = `${JSON.stringify({ id: "lane-runner", version: "1.2.0" })}\n`
 const SIM = new TextEncoder().encode("export const MANIFEST = {}\n")
-const FRAME = new TextEncoder().encode('import "cw2:sim"\n')
+const PRESENT = new TextEncoder().encode('import "cw2:sim"\n')
 
 let dir: string
 
@@ -56,7 +57,7 @@ async function writeDist(root: string): Promise<void> {
   await mkdir(join(root, "dist"), { recursive: true })
   await writeFile(join(root, "dist", "manifest.json"), MANIFEST)
   await writeFile(join(root, "dist", "sim.js"), SIM)
-  await writeFile(join(root, "dist", "frame.js"), FRAME)
+  await writeFile(join(root, "dist", "present.js"), PRESENT)
 }
 
 function settings(overrides: Partial<PublishSettings> = {}): PublishSettings {
@@ -74,14 +75,15 @@ function uploaded(overrides: Partial<UploadedVersion> = {}): UploadedVersion {
     gameVersionId: VERSION_ID,
     studioId: STUDIO,
     version: "1.2.0",
+    line: "1.2",
     state: "pending",
     simSha256: "a".repeat(64),
-    frameSha256: "b".repeat(64),
-    frameSourceSha256: "c".repeat(64),
+    presentSha256: "b".repeat(64),
+    presentSourceSha256: "c".repeat(64),
     manifestHash: "d".repeat(16),
     manifestSha256: "e".repeat(64),
-    simUrl: "https://bundles.example/sim/a.js",
-    frameUrl: "https://bundles.example/frame/b.js",
+    simUrl: `https://bundles.example/g/${GAME}/sim/a.js`,
+    presentUrl: `https://bundles.example/g/${GAME}/present/b.js`,
     ...overrides,
   }
 }
@@ -94,11 +96,17 @@ function status(
     gameVersionId: VERSION_ID,
     gameId: GAME,
     version: "1.2.0",
+    line: "1.2",
     state,
     rejectedCode: null,
     firstFailure: null,
     checkedAt: state === "pending" ? null : "2026-11-11T06:00:00.000Z",
     suspended: false,
+    serving: {
+      ranked: state === "published" ? "today" : "none",
+      practice: state === "published",
+    },
+    patchScores: null,
     createdAt: "2026-11-11T05:59:00.000Z",
     ...overrides,
   }
@@ -191,9 +199,9 @@ describe("what the command line and the environment say", () => {
     expect(parseArgs(["publish"]).game).toBeUndefined()
   })
 
-  test("with no --api and nothing in the environment, the platform is studio.vbz.gg", () => {
+  test("with no --api and nothing in the environment, the platform is api.vbz.gg", () => {
     const read = publishSettings({ dir, game: GAME, api: undefined }, env)
-    expect(DEFAULT_API_ORIGIN).toBe("https://studio.vbz.gg")
+    expect(DEFAULT_API_ORIGIN).toBe("https://api.vbz.gg")
     expect(read.apiOrigin).toBe(DEFAULT_API_ORIGIN)
     expect(read).toEqual({
       dir,
@@ -285,20 +293,20 @@ describe("what the command line and the environment say", () => {
 })
 
 describe("reading what vbz build wrote", () => {
-  test("the three files, the manifest as text", async () => {
+  test("the three files, as the bytes on disk", async () => {
     await writeDist(dir)
     const built = await readBuild(dir)
-    expect(built.manifest).toBe(MANIFEST)
+    expect(built.manifest).toEqual(new TextEncoder().encode(MANIFEST))
     expect(built.sim).toEqual(SIM)
-    expect(built.frame).toEqual(FRAME)
+    expect(built.present).toEqual(PRESENT)
   })
 
   test("a missing file is named, with what to run", async () => {
     await writeDist(dir)
-    await rm(join(dir, "dist", "frame.js"))
+    await rm(join(dir, "dist", "present.js"))
     const refused = await refusalOf(readBuild(dir))
     expect(refused.code).toBe(PUBLISH_ERROR.NOT_BUILT)
-    expect(refused.message).toContain(join(dir, "dist", "frame.js"))
+    expect(refused.message).toContain(join(dir, "dist", "present.js"))
     expect(refused.message).toContain("vbz build")
   })
 
@@ -335,13 +343,23 @@ describe("the upload", () => {
       "origin",
     )
     const form = upload?.init.body as FormData
-    expect(form.get("manifest")).toBe(MANIFEST)
+    // A file part, as the other two are. A text part is not sent as it is:
+    // an encoder following the HTML standard, as Bun 1.4 and Node's do,
+    // rewrites each line feed in one as CRLF.
+    const manifest = form.get("manifest")
+    expect(manifest).toBeInstanceOf(Blob)
+    expect((manifest as File).name).toBe("manifest.json")
+    expect((manifest as File).type).toStartWith("application/json")
+    expect(new Uint8Array(await (manifest as File).arrayBuffer())).toEqual(
+      new TextEncoder().encode(MANIFEST),
+    )
     expect(
       new Uint8Array(await (form.get("sim") as File).arrayBuffer()),
     ).toEqual(SIM)
     expect(
-      new Uint8Array(await (form.get("frame") as File).arrayBuffer()),
-    ).toEqual(FRAME)
+      new Uint8Array(await (form.get("present") as File).arrayBuffer()),
+    ).toEqual(PRESENT)
+    expect(form.get("frame")).toBeNull()
   })
 
   test("a game id is put in the path escaped, never as more path", async () => {
@@ -448,6 +466,7 @@ describe("waiting for the checks", () => {
     }
     expect(net.slept).toEqual([CHECK_POLL_MS, CHECK_POLL_MS])
     expect(net.logged.join("\n")).toContain(VERSION_ID)
+    expect(net.logged.join("\n")).toContain("in release line 1.2")
   })
 
   test("a read the platform fails to answer is tried again", async () => {
@@ -503,10 +522,89 @@ describe("waiting for the checks", () => {
 })
 
 describe("the verdict a build log shows", () => {
-  test("published and served exits 0", () => {
+  test("published exits 0, and says its line and which runs it serves", () => {
     const verdict = verdictOf(status("published"))
     expect(verdict.exitCode).toBe(0)
-    expect(verdict.lines).toEqual(["published version 1.2.0"])
+    expect(verdict.lines[0]).toBe(
+      "published version 1.2.0, in release line 1.2",
+    )
+    expect(verdict.lines[1]).toMatch(
+      /^ranked runs: today's, from the next start/,
+    )
+    expect(verdict.lines[2]).toMatch(/^practice runs: from the next start/)
+  })
+
+  /**
+   * A new minor passes at noon and today's ranked runs stay on the day's
+   * line, so a build log that said only "published" would read as a ranked
+   * day that changed. It still exits 0: the version passed and is published.
+   */
+  test("a version that serves no run yet still exits 0, and says when it will", () => {
+    const waiting = verdictOf(
+      status("published", {
+        serving: { ranked: "from-next-seed", practice: false },
+      }),
+    )
+    expect(waiting.exitCode).toBe(0)
+    expect(waiting.lines[1]).toMatch(/^ranked runs: from the next day's seed/)
+    expect(waiting.lines[2]).toMatch(/^practice runs: none/)
+
+    const older = verdictOf(
+      status("published", { serving: { ranked: "none", practice: false } }),
+    )
+    expect(older.exitCode).toBe(0)
+    expect(older.lines[1]).toMatch(/^ranked runs: none/)
+  })
+
+  /**
+   * The platform replays the line's recent ranked runs under a patch's rules
+   * code as it publishes, and says how many ended differently. It decides
+   * nothing, so the command prints it after which runs the version serves.
+   */
+  test("a published version says how many of its line's recent ranked runs end differently", () => {
+    const verdict = verdictOf(
+      status("published", { patchScores: { compared: 50, differing: 3 } }),
+    )
+    expect(verdict.exitCode).toBe(0)
+    expect(verdict.lines).toHaveLength(4)
+    expect(verdict.lines[3]).toBe(
+      "patch check: 3 of 50 recent ranked runs on line 1.2 end differently under this version",
+    )
+    expect(
+      verdictOf(
+        status("published", { patchScores: { compared: 1, differing: 1 } }),
+      ).lines[3],
+    ).toBe(
+      "patch check: 1 of 1 recent ranked run on line 1.2 ends differently under this version",
+    )
+    expect(
+      verdictOf(
+        status("published", { patchScores: { compared: 0, differing: 0 } }),
+      ).lines[3],
+    ).toBe(
+      "patch check: line 1.2 has no settled ranked runs yet to compare this version with",
+    )
+    const takenDown = verdictOf(
+      status("published", {
+        suspended: true,
+        patchScores: { compared: 50, differing: 0 },
+      }),
+    )
+    expect(takenDown.exitCode).toBe(1)
+    expect(takenDown.lines[1]).toBe(
+      "patch check: 0 of 50 recent ranked runs on line 1.2 end differently under this version",
+    )
+  })
+
+  test("a version the platform has not measured prints no patch check", () => {
+    const verdict = verdictOf(status("published"))
+    expect(verdict.lines).toHaveLength(3)
+    expect(verdict.lines.some((line) => line.startsWith("patch check"))).toBe(
+      false,
+    )
+    expect(
+      verdictOf(status("published", { suspended: true })).lines,
+    ).toHaveLength(1)
   })
 
   test("published and taken down exits 1, because no player is served it", () => {
@@ -544,19 +642,123 @@ describe("the verdict a build log shows", () => {
   })
 })
 
+describe("what a refusal's detail says", () => {
+  function refused(
+    refusal: string,
+    detail?: Readonly<Record<string, unknown>>,
+  ): PublishError {
+    return new PublishError(
+      PUBLISH_ERROR.REFUSED,
+      "the platform refused: no",
+      refusal,
+      409,
+      detail,
+    )
+  }
+
+  test("a patch that changes its line's rules names the fields and the minor to use", () => {
+    expect(
+      failureLines(
+        refused("E_PATCH_CHANGES_RULES", {
+          line: "1.2",
+          comparedWith: "1.2.0",
+          fields: ["inputs", "rankBy"],
+          nextMinor: "1.3.0",
+        }),
+      ),
+    ).toEqual([
+      "the platform refused: no (E_PUBLISH_REFUSED, E_PATCH_CHANGES_RULES)",
+      "release line 1.2 fixes inputs, rankBy, as 1.2.0 set them",
+      "publish these rules as 1.3.0 instead",
+    ])
+  })
+
+  test("a version that does not move forward names what it had to be above", () => {
+    expect(
+      failureLines(
+        refused("E_VERSION_NOT_NEWER", {
+          highestInLine: "1.2.4",
+          highestInGame: "1.3.0",
+        }),
+      ).slice(1),
+    ).toEqual([
+      "the highest version in its release line is 1.2.4, and the highest the game has is 1.3.0",
+    ])
+    expect(
+      failureLines(
+        refused("E_VERSION_NOT_NEWER", {
+          highestInLine: null,
+          highestInGame: "2.0.0",
+        }),
+      ).slice(1),
+    ).toEqual([
+      "the highest version in its release line is none yet, and the highest the game has is 2.0.0",
+    ])
+  })
+
+  test("any other detail, or one not the shape its code promises, is printed as sent", () => {
+    expect(
+      failureLines(refused("E_QUOTA_EXCEEDED", { used: 20 })).slice(1),
+    ).toEqual(['detail: {"used":20}'])
+    expect(
+      failureLines(
+        refused("E_PATCH_CHANGES_RULES", { line: "1.2", fields: "inputs" }),
+      ).slice(1),
+    ).toEqual(['detail: {"line":"1.2","fields":"inputs"}'])
+    expect(
+      failureLines(refused("E_VERSION_NOT_NEWER", { highestInLine: 3 })).slice(
+        1,
+      ),
+    ).toEqual(['detail: {"highestInLine":3}'])
+  })
+
+  test("a refusal with no detail is its sentence alone", () => {
+    expect(failureLines(refused("E_VERSION_EXISTS"))).toHaveLength(1)
+  })
+
+  test("the platform's detail reaches the error", async () => {
+    await writeDist(dir)
+    const detail = {
+      line: "1.2",
+      comparedWith: "1.2.0",
+      fields: ["counters"],
+      nextMinor: "1.3.0",
+    }
+    const net = world([
+      () =>
+        json(
+          { error: "E_PATCH_CHANGES_RULES", message: "rules moved", detail },
+          409,
+        ),
+    ])
+    const error = await refusalOf(publish(settings(), net.deps))
+    expect(error.refusal).toBe("E_PATCH_CHANGES_RULES")
+    expect(error.detail).toEqual(detail)
+  })
+
+  test("a refusal whose detail is not an object is not read as a refusal", async () => {
+    await writeDist(dir)
+    const net = world([
+      () => json({ error: "E_X", message: "x", detail: "words" }, 409),
+    ])
+    const error = await refusalOf(publish(settings(), net.deps))
+    expect(error.code).toBe(PUBLISH_ERROR.ANSWER_UNREADABLE)
+  })
+})
+
 describe("the real command", () => {
   const CLI = resolve(import.meta.dir, "..", "..", "src", "cli", "index.ts")
 
   /**
-   * A local platform answering the two routes. It records what arrived, so
-   * the test reads the request a real fetch made rather than the one the
-   * command meant to make.
+   * A local platform answering the two routes. It records what arrived, as
+   * the bytes each part carried, so the test reads the request a real fetch
+   * made rather than the one the command meant to make.
    */
   function platform(decided: VersionStatus) {
     const seen: {
       origin: string | null
       authorization: string | null
-      parts: Record<string, string>
+      parts: Record<string, Uint8Array>
       reads: number
     } = { origin: null, authorization: null, parts: {}, reads: 0 }
     const server = Bun.serve({
@@ -571,10 +773,12 @@ describe("the real command", () => {
           seen.origin = request.headers.get("origin")
           seen.authorization = request.headers.get("authorization")
           const form = await request.formData()
-          for (const name of ["manifest", "sim", "frame"]) {
+          for (const name of ["manifest", "sim", "present"]) {
             const part = form.get(name)
             seen.parts[name] =
-              typeof part === "string" ? part : await (part as Blob).text()
+              typeof part === "string"
+                ? new TextEncoder().encode(part)
+                : new Uint8Array(await (part as Blob).arrayBuffer())
           }
           return json(uploaded(), 201)
         }
@@ -607,21 +811,60 @@ describe("the real command", () => {
 
   test("uploads a build with no Origin header and exits 0 when it goes live", async () => {
     await writeDist(dir)
+    const { server, seen } = platform(
+      status("published", { patchScores: { compared: 50, differing: 3 } }),
+    )
+    try {
+      const result = await run(`http://127.0.0.1:${server.port}`, {
+        [STUDIO_KEY_VARIABLE]: KEY,
+      })
+      expect(result.code).toBe(0)
+      expect(result.stdout).toContain(
+        "published version 1.2.0, in release line 1.2",
+      )
+      expect(result.stdout).toContain("ranked runs: today's")
+      expect(result.stdout).toContain("practice runs: from the next start")
+      expect(result.stdout).toContain(
+        "patch check: 3 of 50 recent ranked runs on line 1.2 end differently under this version",
+      )
+      expect(seen.origin).toBeNull()
+      expect(seen.authorization).toBe(`Bearer ${KEY}`)
+      // Byte for byte what `vbz build` wrote, whichever runtime sent it.
+      expect(seen.parts).toEqual({
+        manifest: new TextEncoder().encode(MANIFEST),
+        sim: SIM,
+        present: PRESENT,
+      })
+      expect(seen.reads).toBe(1)
+    } finally {
+      server.stop(true)
+    }
+  })
+
+  /**
+   * The command holds the studio's secret key in its environment, so it
+   * never evaluates what it uploads. A build whose modules would hand the
+   * environment on, if anything ran them, is sent as bytes and never run.
+   */
+  test("runs none of the game's code, so nothing of it reads the key", async () => {
+    const marker = join(dir, "ran.json")
+    const handsOn = new TextEncoder().encode(
+      `import { writeFileSync } from "node:fs"\n` +
+        `writeFileSync(${JSON.stringify(marker)}, JSON.stringify(process.env))\n` +
+        "export const MANIFEST = {}\n",
+    )
+    await writeDist(dir)
+    await writeFile(join(dir, "dist", "sim.js"), handsOn)
+    await writeFile(join(dir, "dist", "present.js"), handsOn)
     const { server, seen } = platform(status("published"))
     try {
       const result = await run(`http://127.0.0.1:${server.port}`, {
         [STUDIO_KEY_VARIABLE]: KEY,
       })
       expect(result.code).toBe(0)
-      expect(result.stdout).toContain("published version 1.2.0")
-      expect(seen.origin).toBeNull()
-      expect(seen.authorization).toBe(`Bearer ${KEY}`)
-      expect(seen.parts).toEqual({
-        manifest: MANIFEST,
-        sim: new TextDecoder().decode(SIM),
-        frame: new TextDecoder().decode(FRAME),
-      })
-      expect(seen.reads).toBe(1)
+      expect(seen.parts.sim).toEqual(handsOn)
+      expect(seen.parts.present).toEqual(handsOn)
+      expect(await Bun.file(marker).exists()).toBe(false)
     } finally {
       server.stop(true)
     }
@@ -640,6 +883,41 @@ describe("the real command", () => {
       expect(result.stdout).toContain(
         "rejected version 1.2.0: E_SEED_INSENSITIVE",
       )
+    } finally {
+      server.stop(true)
+    }
+  })
+
+  test("exits 1 and prints a refusal's detail when the platform refuses the upload", async () => {
+    await writeDist(dir)
+    const server = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      fetch: () =>
+        json(
+          {
+            error: "E_PATCH_CHANGES_RULES",
+            message: "version 1.2.1 changes what release line 1.2 fixes",
+            detail: {
+              line: "1.2",
+              comparedWith: "1.2.0",
+              fields: ["inputs"],
+              nextMinor: "1.3.0",
+            },
+          },
+          409,
+        ),
+    })
+    try {
+      const result = await run(`http://127.0.0.1:${server.port}`, {
+        [STUDIO_KEY_VARIABLE]: KEY,
+      })
+      expect(result.code).toBe(1)
+      expect(result.stderr).toContain("E_PATCH_CHANGES_RULES")
+      expect(result.stderr).toContain(
+        "release line 1.2 fixes inputs, as 1.2.0 set them",
+      )
+      expect(result.stderr).toContain("publish these rules as 1.3.0 instead")
     } finally {
       server.stop(true)
     }
@@ -750,6 +1028,57 @@ describe("a version's answer is checked in every field the verdict reads", () =>
     expect(await readBack({ ...status("rejected"), rejectedCode: 7 })).toBe(
       PUBLISH_ERROR.ANSWER_UNREADABLE,
     )
+  })
+
+  test("an answer that does not say its line or which runs it serves is unreadable", async () => {
+    const { line: _line, ...noLine } = status("published")
+    expect(await readBack(noLine)).toBe(PUBLISH_ERROR.ANSWER_UNREADABLE)
+    const { serving: _serving, ...noServing } = status("published")
+    expect(await readBack(noServing)).toBe(PUBLISH_ERROR.ANSWER_UNREADABLE)
+    expect(
+      await readBack({
+        ...status("published"),
+        serving: { ranked: "tomorrow", practice: true },
+      }),
+    ).toBe(PUBLISH_ERROR.ANSWER_UNREADABLE)
+    expect(
+      await readBack({
+        ...status("published"),
+        serving: { ranked: "today", practice: "yes" },
+      }),
+    ).toBe(PUBLISH_ERROR.ANSWER_UNREADABLE)
+    expect(await readBack({ ...status("published"), serving: "today" })).toBe(
+      PUBLISH_ERROR.ANSWER_UNREADABLE,
+    )
+  })
+
+  test("a patch check that is not two counts is not printed", async () => {
+    for (const patchScores of [
+      { compared: 3, differing: 4 },
+      { compared: -1, differing: 0 },
+      { compared: 1.5, differing: 0 },
+      { compared: 50 },
+      "3 of 50",
+      undefined,
+    ]) {
+      expect(await readBack({ ...status("published"), patchScores })).toBe(
+        PUBLISH_ERROR.ANSWER_UNREADABLE,
+      )
+    }
+    expect(
+      await readBack(
+        status("published", { patchScores: { compared: 50, differing: 50 } }),
+      ),
+    ).toBe("ok")
+  })
+
+  test("an upload answer that does not name its line is unreadable", async () => {
+    await writeDist(dir)
+    const { line: _line, ...noLine } = uploaded()
+    const net = world([() => json(noLine, 201)])
+    const refused = await refusalOf(publish(settings(), net.deps))
+    expect(refused.code).toBe(PUBLISH_ERROR.ANSWER_UNREADABLE)
+    expect(refused.message).toContain(VERSION_ID)
   })
 
   test("a complete answer passes", async () => {

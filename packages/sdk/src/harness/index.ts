@@ -1,40 +1,57 @@
 /**
- * The harness: your game, framed the way production frames it.
+ * The harness: your game, loaded the way a studio's page loads it.
  *
- * It builds the two real artifacts, serves them content-addressed behind a
- * frame document with the production sandbox and CSP, and serves a page on a
- * second origin that frames it. The point is that the first time a game meets
- * a sandboxed cross-origin frame should be on a laptop rather than in an
- * upload.
+ * It builds the two real artifacts, serves them content-addressed at the
+ * paths and with the headers the platform's edge uses, and serves a page on a
+ * second origin that loads the page module from there with `loadGame`, under
+ * the Content-Security-Policy a studio's page is meant to send, and plays it
+ * through the module's own `mount` on a fixed seed. The point is that the
+ * first time a game meets a cross-origin module import under that policy
+ * should be on a laptop rather than on a studio's page.
  *
- * What it does not do is replay, settle or rank. That is the platform's half,
- * and a harness that pretended to do it would be teaching an author about a
- * server that does not exist.
+ * When a run ends the page sends its recording back, and the harness replays
+ * it against the built rules code, holds its inputs to the manifest with
+ * `checkInputs` and its budget, and says how big it is. It settles and ranks
+ * nothing: a pass here says the platform's replay would agree, not what the
+ * run would score on a board.
  */
 
 import { existsSync } from "node:fs"
-import { readFile } from "node:fs/promises"
 import { join } from "node:path"
-import { DIST_DIR, DIST_FILES } from "../build/dist.js"
+import { hashCanonical, type PlainValue } from "@clockwork2/engine"
 import type { GameSource } from "../build/index.js"
-import { type BuiltGame, buildAndAddress } from "./artifacts.js"
-import { harnessPage } from "./page/document.js"
-import { startFrameServer, startHostServer } from "./servers.js"
+import { type BuiltGame, blobKeys, buildAndAddress } from "./artifacts.js"
+import { pageCsp } from "./csp.js"
+import { readBuiltManifest } from "./dist-manifest.js"
+import { HARNESS_STYLE, harnessPage } from "./page/document.js"
+import { replayInChild } from "./replay.js"
+import {
+  type Listen,
+  LOOPBACK,
+  startBundleServer,
+  startHostServer,
+} from "./servers.js"
 
 export interface HarnessOptions {
   readonly source: GameSource
   readonly hostPort?: number
-  readonly framePort?: number
+  readonly bundlesPort?: number
+  /** Where both servers listen, and over what. This machine, over http, by default. */
+  readonly listen?: Listen
   /** The seed the run is played on. Fixed, so a session is repeatable. */
   readonly seed?: string
-  /** Every path the frame origin was asked for, for a test. */
+  /** Every path the bundles origin was asked for, for a test. */
   readonly onRequest?: (path: string) => void
 }
 
 export interface Harness {
   readonly hostOrigin: string
-  readonly frameOrigin: string
+  readonly bundlesOrigin: string
   readonly built: BuiltGame
+  /** The page module's absolute address, as the platform would hand it out. */
+  readonly presentUrl: string
+  /** The policy the page is served under. */
+  readonly csp: string
   stop(): Promise<void>
 }
 
@@ -42,11 +59,20 @@ export interface Harness {
 interface HarnessManifest {
   readonly name?: string
   readonly session?: { readonly tickHz?: number; readonly maxTicks?: number }
-  readonly inputs?: { readonly controls?: unknown }
 }
 
+/** Where the page sends a run's recording for the harness's report on it. */
+export const REPLAY_PATH = "/replay"
+
 export const DEFAULT_HOST_PORT = 4310
-export const DEFAULT_FRAME_PORT = 4311
+export const DEFAULT_BUNDLES_PORT = 4311
+
+/**
+ * The game id the harness serves under. The platform issues each game a
+ * UUID and every path names it; a game on a laptop has none, so it gets
+ * this one.
+ */
+export const HARNESS_GAME_ID = "00000000-0000-4000-8000-000000000000"
 
 /**
  * A seed that does not move between runs.
@@ -58,74 +84,84 @@ export const DEFAULT_FRAME_PORT = 4311
 export const HARNESS_SEED = "harness"
 
 export async function startHarness(options: HarnessOptions): Promise<Harness> {
-  const built = await buildAndAddress(options.source)
+  const built = await buildAndAddress(options.source, HARNESS_GAME_ID)
   const manifest = await readManifest(options.source.root)
+  const listen = options.listen ?? LOOPBACK
 
   const title = manifest.name ?? "Game"
 
-  // Bound first, because each server has to be told the other's origin and an
+  // Bound first, because the page has to name the bundles origin and an
   // origin is the port the socket got rather than the port it was asked for.
   // The host's page is written last, once both are known.
   const host = startHostServer({
     port: options.hostPort ?? DEFAULT_HOST_PORT,
     script: await bundlePage(),
+    style: HARNESS_STYLE,
+    listen,
+    routes: {
+      [REPLAY_PATH]: async (request) => {
+        if (request.method !== "POST") {
+          return new Response("POST a recording", { status: 405 })
+        }
+        const report = await replayInChild(
+          built.sim,
+          manifest,
+          await request.text(),
+        )
+        return Response.json(report, {
+          headers: { "cache-control": "no-store" },
+        })
+      },
+    },
   })
 
-  const frame = startFrameServer({
-    port: options.framePort ?? DEFAULT_FRAME_PORT,
-    title,
+  const bundles = startBundleServer({
+    port: options.bundlesPort ?? DEFAULT_BUNDLES_PORT,
     built,
-    // Only the harness page may frame it, as the platform lets only a game's
-    // allowed pages frame it. A game that works here against a real
-    // `frame-ancestors` will not be surprised by one in production.
-    siteOrigins: [host.origin],
+    listen,
     ...(options.onRequest === undefined ? {} : { log: options.onRequest }),
+  })
+  const presentUrl = `${bundles.origin}/${blobKeys(built).present}`
+  const csp = pageCsp({
+    bundlesOrigin: bundles.origin,
+    gameId: HARNESS_GAME_ID,
   })
 
   host.setPage(
     harnessPage({
       title,
       config: {
-        frameOrigin: frame.origin,
+        presentUrl,
+        // What the platform would compute from the uploaded manifest, so a
+        // page module carrying another one is refused here as it would be on
+        // a studio's page.
+        manifestHash: hashCanonical(manifest as PlainValue),
         title,
         seed: options.seed ?? HARNESS_SEED,
         tickHz: manifest.session?.tickHz ?? 60,
         maxTicks: manifest.session?.maxTicks ?? 36000,
-        config: null,
-        // Whole, so the page reads its controls the way a game's page does:
-        // through `mountHost`, which refuses what a host cannot draw.
-        manifest,
+        config: {},
+        replayPath: REPLAY_PATH,
       },
     }),
+    csp,
   )
 
   return {
     hostOrigin: host.origin,
-    frameOrigin: frame.origin,
+    bundlesOrigin: bundles.origin,
     built,
+    presentUrl,
+    csp,
     stop: async () => {
-      await Promise.all([host.stop(), frame.stop()])
+      await Promise.all([host.stop(), bundles.stop()])
     },
   }
 }
 
-/**
- * The manifest, read from the game's built output rather than imported.
- *
- * Importing the simulation to reach its `MANIFEST` would run a stranger's
- * module in this process. The build writes the manifest beside the artifacts
- * for exactly this reason.
- */
+/** The manifest `vbz build` wrote, as the harness reads it. */
 async function readManifest(root: string): Promise<HarnessManifest> {
-  try {
-    const text = await readFile(
-      join(root, DIST_DIR, DIST_FILES.manifest),
-      "utf8",
-    )
-    return JSON.parse(text) as HarnessManifest
-  } catch {
-    return {}
-  }
+  return (await readBuiltManifest(root)) as HarnessManifest
 }
 
 /**
@@ -171,10 +207,43 @@ export {
   blobKeys,
   buildAndAddress,
 } from "./artifacts.js"
-export { harnessPage } from "./page/document.js"
+export { gamePath, type PageCspOptions, pageCsp } from "./csp.js"
+export { escapeHtml, HARNESS_STYLE, harnessPage } from "./page/document.js"
 export {
+  type DevReport,
+  type InputsReport,
+  type Problem,
+  type ReplayVerdict,
+  replayInChild,
+  replayRecording,
+} from "./replay.js"
+export { reportLines, reportPasses } from "./report.js"
+export {
+  type Listen,
+  LOOPBACK,
+  originOf,
+  type Route,
   type RunningHostServer,
   type RunningServer,
-  startFrameServer,
+  startBundleServer,
   startHostServer,
+  type Tls,
 } from "./servers.js"
+export {
+  type RunningSite,
+  SITE_DIR,
+  SITE_ENTRY,
+  type SiteConfig,
+  type SiteOptions,
+  siteFile,
+  startSite,
+} from "./site.js"
+export {
+  LOCAL_PLAYER,
+  type RunningStandIn,
+  STAND_IN_LIMITS,
+  STAND_IN_PAGE_KEY,
+  STAND_IN_VERSION_ID,
+  type StandInOptions,
+  startStandIn,
+} from "./stand-in.js"

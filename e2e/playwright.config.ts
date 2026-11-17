@@ -1,23 +1,28 @@
 /**
  * The browser suite.
  *
- * `retries: 0`. This suite is about what a browser does with a sandboxed
- * frame, a held control and two fingers, and every one of those is either
- * right or a bug. A retry that turns red into green throws away the finding.
+ * `retries: 0`. This suite is about what a browser does with a module from
+ * another origin, a held button and two fingers, and every one of those is
+ * either right or a bug. A retry that turns red into green throws away the
+ * finding.
  *
- * One worker. The harness serves one build of each subject and keeps one
- * request log per subject, and a parallel run would interleave two pages'
- * requests into one log.
+ * One worker. The servers keep one request log per bundles origin and one
+ * stand-in per game, and a parallel run would interleave two pages' requests
+ * into one log.
  *
- * Chromium alone. The two-finger test drives `Input.dispatchTouchEvent`,
- * which is Chromium's own protocol, and there is no second way to put two
- * fingers on a page from a test. Whether a game computes the same numbers on
- * another engine is a question clockwork2 answers with its three-engine
- * sweep; it is not this suite's.
+ * Chromium for everything, and Firefox and WebKit for the one spec that is
+ * each engine's to decide: whether the policy a studio's page is told to send
+ * lets the page module and its rules code in, and keeps another game's out.
+ * The fingers are Chromium's own input protocol, and so is the tilt sensor's
+ * override. Whether a game computes the same numbers on another engine is a
+ * question clockwork2 answers with its three-engine sweep, not this suite.
  */
 
 import { defineConfig, devices } from "@playwright/test"
 import { CONTROL_ORIGIN, hostOrigin } from "./src/env"
+
+/** The specs every engine runs. */
+const EVERY_ENGINE = /a-module-from-another-origin\.spec\.ts$/
 
 export default defineConfig({
   testDir: "./specs",
@@ -35,15 +40,29 @@ export default defineConfig({
     baseURL: hostOrigin("template"),
     trace: "retain-on-failure",
   },
-  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
+  projects: [
+    { name: "chromium", use: { ...devices["Desktop Chrome"] } },
+    {
+      name: "firefox",
+      testMatch: EVERY_ENGINE,
+      use: { ...devices["Desktop Firefox"] },
+    },
+    {
+      name: "webkit",
+      testMatch: EVERY_ENGINE,
+      use: { ...devices["Desktop Safari"] },
+    },
+  ],
   webServer: {
-    // Every subject, built and served by one process. It builds each game
-    // through the real CLI first, so a stale `dist` cannot be what is served.
-    command: "bun run src/harness-servers.ts",
+    // Everything, built and served by one process. It builds the package and
+    // each game first, so a stale `dist` cannot be what is served.
+    command: "bun run src/servers.ts",
     url: `${CONTROL_ORIGIN}/health`,
     reuseExistingServer: false,
-    timeout: 120_000,
+    timeout: 180_000,
     stdout: "pipe",
     stderr: "pipe",
+    // So the process can remove the packed copy it unpacked.
+    gracefulShutdown: { signal: "SIGTERM", timeout: 5_000 },
   },
 })

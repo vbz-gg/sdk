@@ -1,24 +1,22 @@
 /**
- * A game that draws its own controls.
+ * A game steered by tilting the device.
  *
- * `controls: { mode: "custom" }` says the host draws nothing. Everything a
- * player touches is painted by this game's renderer and hit-tested by its
- * simulation, which is the whole point of the fixture: the custom path is
- * the one a game takes when its controls are part of its art, and it is the
- * path that cannot work unless pointer input carries an identity.
- *
- * The bindings are the two fingers the game handles. A third is bound by
- * nobody and its events are dropped, exactly as an unbound key is.
+ * Tilt is recorded as one small number, how far the screen leans left or
+ * right, from -10 to 10, rather than three raw gravity axes: a game-sized
+ * value records less and replays the same. The arrow keys move the paddle
+ * too, and Space brings it back to the middle. A page starts no run of a
+ * game that reads tilt without it, so the keys play beside a sensor and
+ * never instead of one.
  */
 
 import type { Manifest } from "@clockwork2/engine/manifest"
 
 export const MANIFEST: Manifest = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   id: "paddle",
   version: "1.0.0",
   name: "Paddle",
-  kernel: { version: "0.8.0" },
+  kernel: { version: "0.9.0" },
   session: {
     tickHz: 60,
     maxTicks: 60 * 120,
@@ -26,22 +24,11 @@ export const MANIFEST: Manifest = {
     hasEnding: true,
   },
   inputs: {
-    map: {
-      // Where the first finger is, across the playfield. The simulation
-      // decides what that position means, because a renderer may not build
-      // an input and so may not decide what was pressed.
-      aimX: [{ code: "pointer0-x", device: "pointer", label: "Drag" }],
-      aimY: [{ code: "pointer0-y", device: "pointer", label: "Drag" }],
-      touch: [{ code: "pointer0", device: "pointer", label: "Touch" }],
-      // A second finger, held while the first still drags. This pair is what
-      // one shared pointer stream could never express.
-      boostX: [{ code: "pointer1-x", device: "pointer", label: "Boost" }],
-      boost: [{ code: "pointer1", device: "pointer", label: "Boost" }],
-      // A keyboard too, so the fixture is playable on a desktop.
-      left: [{ code: "ArrowLeft", device: "key", label: "Left" }],
-      right: [{ code: "ArrowRight", device: "key", label: "Right" }],
-    },
-    controls: { mode: "custom" },
+    // Which way the screen leans, and how far: 0 is flat, 10 is fully over.
+    tilt: { min: -10, max: 10, label: "Tilt" },
+    left: { min: 0, max: 1, label: "Left" },
+    right: { min: 0, max: 1, label: "Right" },
+    centre: { min: 0, max: 1, label: "Centre" },
   },
   counters: [
     { name: "caught", direction: "up", monotonic: true, label: "Caught" },
@@ -49,7 +36,10 @@ export const MANIFEST: Manifest = {
   ],
   rankBy: ["caught", "ticksSurvived"],
   tiePolicy: "shared",
-  display: { orientation: "any", minViewport: { width: 240, height: 320 } },
+  display: {
+    orientation: "portrait",
+    minViewport: { width: 240, height: 320 },
+  },
   capabilities: {
     deterministic: true,
     physics: "none",

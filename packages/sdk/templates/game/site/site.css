@@ -1,0 +1,80 @@
+:root {
+  color-scheme: dark;
+  --gb-widget-bg: #191b20;
+  --gb-widget-fg: #ecedf0;
+}
+
+html,
+body {
+  margin: 0;
+  background: #0b1020;
+  color: #ecedf0;
+  font:
+    16px system-ui,
+    sans-serif;
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: max(12px, env(safe-area-inset-top)) 16px 12px;
+}
+
+.bar h1 {
+  margin: 0;
+  font-size: 20px;
+}
+
+main {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 0 16px max(16px, env(safe-area-inset-bottom));
+}
+
+/* The game fills this element, and a finger is measured across it, so it
+   keeps the playfield's shape and never drops below the manifest's minimum
+   size of 320 by 480. */
+.game {
+  aspect-ratio: 2 / 3;
+  width: min(100%, calc((100dvh - 180px) * 2 / 3));
+  min-width: 320px;
+  outline: none;
+  touch-action: none;
+}
+
+.game:focus-visible {
+  outline: 2px solid #6ee7ff;
+}
+
+#message {
+  min-height: 1.5em;
+  margin: 0;
+  text-align: center;
+}
+
+.actions {
+  display: flex;
+  gap: 12px;
+}
+
+.actions button {
+  min-width: 120px;
+  min-height: 44px;
+  border: 1px solid #3a3d46;
+  border-radius: 8px;
+  background: #191b20;
+  color: inherit;
+  font: inherit;
+}
+
+.actions button[hidden] {
+  display: none;
+}
+
+section h2 {
+  font-size: 16px;
+}

@@ -29,6 +29,14 @@ coveragePathIgnorePatterns = [
   # by the browser suite, which drives the page it builds. Listed rather than
   # left out, so that it is a decision rather than a file nobody loaded.
   "packages/sdk/src/harness/page/main.ts",
+  # The replay's own process entry. It reads stdin and writes stdout at
+  # module scope, so importing it into the runner would wait on input that
+  # never comes. What it decides is `replayRecording`, which is exported and
+  # tested, and the tests run this file as the child it is.
+  "packages/sdk/src/harness/replay-child.ts",
+  # The same, for `vbz check`'s process. What it decides is `checkHere`, which
+  # is exported and tested, and the tests run this file as the child it is.
+  "packages/sdk/src/cli/check-child.ts",
   "fixtures/**",
   # A test's own stand-ins, such as the fake page the platform client's tests
   # drive. They are how a test reaches the code under test, not that code, and
@@ -44,6 +52,10 @@ coveragePathIgnorePatterns = [
   # says nothing about the SDK. They also arrive with a fresh random name
   # every run, as `../../../tmp/sdk-conformance-1hN9V6/index.js`.
   "**/sdk-conformance-*/**",
+  # The same, for the copy `vbz check` writes the built rules code to before
+  # the engine's checks load it, and for the games its own tests write.
+  "**/vbz-check-*/**",
+  "**/sdk-check-*/**",
 ]
 
 # No `coverageThreshold` here on purpose, and adding one back is a mistake.

@@ -2,19 +2,37 @@
  * What the platform knows about this game without running it.
  *
  * Every field here is read before a single tick executes: how fast it runs,
- * how long it may run for, what it counts, how it ranks, and how somebody on
- * a phone steers it.
+ * how long it may run for, what it records, what it counts and how it ranks.
  */
 
 import type { Manifest } from "@clockwork2/engine/manifest"
+import { POINTER_X_MAX, POINTER_Y_MAX } from "./field"
 
 export const MANIFEST: Manifest = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   /** Immutable. Change it and this is a different game with a new board. */
   id: "lane-runner",
+  /**
+   * MAJOR.MINOR.PATCH and nothing else: no prerelease or build suffix, no
+   * leading zero. Every version sharing a MAJOR.MINOR is one release line,
+   * which players, the board and the day's seed treat as one game.
+   *
+   * - A patch, 1.0.0 to 1.0.1, changes how the game looks or fixes a bug,
+   *   and keeps what a score means. It may not change what its line fixes,
+   *   or the platform refuses it with E_PATCH_CHANGES_RULES: schemaVersion,
+   *   id, session, inputs (each one's min and max), counters (each one's
+   *   name, direction and monotonic), rankBy, tiePolicy, params (all but
+   *   each one's label and description), and of the capabilities
+   *   deterministic, physics and multiplayer.
+   * - A minor, 1.0.0 to 1.1.0, changes the rules: any of those, or a fix
+   *   that changes what a score means for the same play.
+   * - A major, 1.0.0 to 2.0.0, is a game players would call a different one.
+   *
+   * This is the one place the version is written: package.json has none.
+   */
   version: "1.0.0",
   name: "Lane Runner",
-  kernel: { version: "0.8.0" },
+  kernel: { version: "0.9.0" },
   session: {
     tickHz: 60,
     /** A hard cap: the kernel ends the run here whatever the game says. */
@@ -22,38 +40,25 @@ export const MANIFEST: Manifest = {
     maxWallSeconds: 300,
     hasEnding: true,
   },
+  /**
+   * What a recording holds: each input by name, and the whole numbers it
+   * carries. A press is 0 or 1. Which key, finger or controller drives each
+   * one is `src/capture.ts`'s business, not the manifest's.
+   */
   inputs: {
-    map: {
-      left: [
-        { code: "ArrowLeft", device: "key", label: "Left" },
-        { code: "KeyA", device: "key" },
-      ],
-      right: [
-        { code: "ArrowRight", device: "key", label: "Right" },
-        { code: "KeyD", device: "key" },
-      ],
-    },
-    /**
-     * A layout the **page hosting the game** draws, with this game's actions
-     * in its slots.
-     *
-     * Bind the slots you use and leave the rest of the layout empty: this
-     * game moves sideways only, so it sits in a d-pad's left and right
-     * positions and the other two cells stay blank. The SDK's renderer owns
-     * every pixel of those buttons, which is what lets it promise they are
-     * thumb-sized and clear of the notch.
-     *
-     * If your controls are part of your art, declare `{ mode: "custom" }`
-     * instead, paint them in your renderer and hit-test them in `tick`. See
-     * the `paddle` fixture. And if your game needs a keyboard, leave this
-     * field out: a page hosting it can then say so to somebody holding a
-     * phone rather than framing a canvas they cannot steer.
-     */
-    controls: {
-      mode: "scheme",
-      scheme: "dpad",
-      bind: { left: "left", right: "right" },
-    },
+    // Keys, and a controller's d-pad.
+    left: { min: 0, max: 1, label: "Left" },
+    right: { min: 0, max: 1, label: "Right" },
+    // A controller's stick, recorded only as left, centre or right.
+    stick: { min: -1, max: 1, label: "Stick" },
+    // Two fingers, each a press and where it is, in coarse steps across the
+    // field. `tick` decides whether a finger landed on a button.
+    touch0: { min: 0, max: 1, label: "First finger" },
+    touch0X: { min: 0, max: POINTER_X_MAX },
+    touch0Y: { min: 0, max: POINTER_Y_MAX },
+    touch1: { min: 0, max: 1, label: "Second finger" },
+    touch1X: { min: 0, max: POINTER_X_MAX },
+    touch1Y: { min: 0, max: POINTER_Y_MAX },
   },
   counters: [
     { name: "motes", direction: "up", monotonic: true, label: "Motes" },

@@ -1,19 +1,31 @@
 /**
- * Driving one run: the frame plays it, this commits it as it goes, submits
- * the recording at the end, and waits for the replay's answer.
+ * Driving one run: the game's page module plays it, this commits it as it
+ * goes, submits the recording at the end, and waits for the replay's answer.
  *
- * The frame is a seam rather than the engine's `GameFrame` directly, so this
- * file can be driven by a test that posts the messages a real frame would and
- * reads what reached the platform. The engine's `createGameFrame` satisfies
- * it: hand `mount` a function that makes one with the handlers it is given.
+ * The page module is reached through `mount`, which `playRun` in `/host`
+ * points at the module's own `mount`. So this file holds no engine and no
+ * DOM, and a test drives it with a mount that reports what a real one would.
  *
  * What it holds:
  *
- * - **The frame plays the game the run was issued for.** The manifest hash
- *   the frame reports must be the run's, or nothing starts.
+ * - **The module plays the game the run was issued for.** The mount is told
+ *   the run's manifest hash and refuses before a tick runs if it is not its
+ *   own.
  * - **Chunks do not overlap, and each ends at the last complete tick**
- *   (`throughTickFor`). They are sent one at a time, in order, and one that
- *   got no answer goes again, unchanged, before the next.
+ *   (`throughTickFor`). One goes every `CHUNK_SECONDS` of play and one more
+ *   when the run ends. A chunk over the run's `chunkBytes` is cut between
+ *   ticks (`splitChunk`). They are sent one at a time, in order; one that got
+ *   no answer goes again, unchanged, before the next; and after a refusal
+ *   nothing more is sent.
+ * - **A run stops before it outgrows what the platform takes.** Every piece
+ *   is held to `runBytes` before it is sent, and while the run plays one
+ *   chunk's room is kept for the last commit, which goes just before the
+ *   recording. A piece that would eat into that room ends the run the way a
+ *   player leaving ends it, and the last commit and the recording follow. A
+ *   piece that would not fit at all is never sent: the run then ends where
+ *   its chunks reach, is not submitted, and the platform settles it from
+ *   what it committed, as an abandoned run. So is a recording larger than
+ *   `runBytes`, which the platform would refuse.
  * - **The last chunk reaches the platform before the recording.** A submit
  *   whose chunks stop short of the run's end is refused.
  * - **A submit that got no answer goes again.** The same recording answers
@@ -22,9 +34,20 @@
  *   The result's counters are what the replay computed.
  */
 
-import type { GameToHost } from "@clockwork2/engine/protocol"
 import type { RunChunk, RunResult, StartedRun } from "../api/index.js"
-import { throughTickFor } from "./chunks.js"
+import type {
+  MountError,
+  MountedEnd,
+  MountHandle,
+  MountHandlers,
+  MountOptions,
+} from "../game/contract.js"
+import {
+  byteLengthOf,
+  type ChunkBody,
+  splitChunk,
+  throughTickFor,
+} from "./chunks.js"
 import type { PlatformClient } from "./client.js"
 import {
   type ClientErrorCode,
@@ -33,49 +56,17 @@ import {
   worthRetrying,
 } from "./errors.js"
 
-type FromFrame<Type extends GameToHost["type"]> = Extract<
-  GameToHost,
-  { type: Type }
->
-
-/** What the driver needs of a frame. The engine's `GameFrame` satisfies it. */
-export interface RunFrame {
-  init(
-    seed: string,
-    config: unknown,
-    tickHz: 30 | 60 | 120,
-    maxTicks: number,
-  ): void
-  start(): void
-  end(): void
-  destroy(): void
-  virtualInput(action: string, value: number): void
-}
-
-/** The handlers to give the frame: `createGameFrame`'s options of the same names. */
-export interface RunFrameHandlers {
-  onReady(message: FromFrame<"ready">): void
-  onProgress(message: FromFrame<"progress">): void
-  onCheckpoint(message: FromFrame<"checkpoint">): void
-  onLogChunk(message: FromFrame<"log-chunk">): void
-  onEnded(message: FromFrame<"ended">): void
-  onRecordingChunk(message: FromFrame<"recording-chunk">): void
-  onError(message: FromFrame<"error">): void
-  /**
-   * The host refusing the frame before the run starts: `mountHost` calls it
-   * with `E_FRAME_PROTOCOL` for a frame that answers in another protocol
-   * version. A frame of the page's own making need never call it.
-   */
-  onRefused(error: PlatformClientError): void
-}
-
 export const RUN_PHASE = {
-  /** The frame is loading, and has not said which game it serves. */
-  WAITING: "waiting",
+  /** The run is being started, and its game's code loaded. */
+  LOADING: "loading",
   PLAYING: "playing",
   /** The run ended, and its recording is going to the platform. */
   SUBMITTING: "submitting",
-  /** The platform took the recording, and a server is replaying it. */
+  /**
+   * The platform has the run, and a server is replaying it: the recording
+   * it took, or the chunks it committed of a run too large to submit, which
+   * it settles as abandoned.
+   */
   REPLAYING: "replaying",
   /** The result is final: `result` says what the replay decided. */
   DONE: "done",
@@ -86,49 +77,77 @@ export type RunPhase = (typeof RUN_PHASE)[keyof typeof RUN_PHASE]
 
 export interface RunState {
   readonly phase: RunPhase
-  /** Why it failed: a `PlatformRefusal`'s or a `PlatformClientError`'s code. */
+  /**
+   * Why it failed: a `PlatformRefusal`'s, a `PlatformClientError`'s, or the
+   * engine's own code from the game.
+   */
   readonly errorCode: string | null
-  /** For a failure, what the frame or the platform said about it. */
+  /** For a failure, what the game or the platform said about it. */
   readonly detail: string | null
+  /**
+   * For the platform's refusal, the `detail` it gave, such as when a bar ends
+   * for `E_PLAYER_BARRED`. Null for anything else.
+   */
+  readonly refusalDetail: Readonly<Record<string, unknown>> | null
   /** Once the phase is `done`. */
   readonly result: RunResult | null
 }
 
+/**
+ * What the run asks of the game: plays it with these options, which carry
+ * the handlers the run listens with. `playRun` binds it to the page module's
+ * own `mount` and the element the game is drawn in.
+ */
+export type MountRun = (options: MountOptions) => MountHandle
+
 export interface RunOptions {
   readonly client: Pick<PlatformClient, "sendChunk" | "submit" | "awaitResult">
-  /** The run, as `startRun` answered it. Its token is used for every write. */
-  readonly run: StartedRun
-  /** Makes the frame, with the handlers the driver gives it. */
-  readonly mount: (handlers: RunFrameHandlers) => RunFrame
   readonly onState?: (state: RunState) => void
+  /** Told about a device the player should hear about, which stops nothing. */
+  readonly onNotice?: MountHandlers["onNotice"]
   /** How many times a submit is sent before the run fails. */
   readonly submitAttempts?: number
   /** The wait before the first resend of a submit, doubled each time after. */
   readonly retryDelayMs?: number
+  /** Seconds of play between two chunks. */
+  readonly chunkSeconds?: number
 }
 
 export const SUBMIT_ATTEMPTS = 5
 export const SUBMIT_RETRY_MS = 1_000
 
-const TICK_RATES = [30, 60, 120] as const
+/**
+ * Seconds of play between two chunks. What a chunk is for is a run whose tab
+ * closed: the platform settles it from what it committed, so this is how
+ * much play a crash can lose.
+ */
+export const CHUNK_SECONDS = 2
 
 export class Run {
   private readonly options: RunOptions
-  private readonly frame: RunFrame
   private readonly abort = new AbortController()
   private state: RunState = {
-    phase: RUN_PHASE.WAITING,
+    phase: RUN_PHASE.LOADING,
     errorCode: null,
     detail: null,
+    refusalDetail: null,
     result: null,
   }
 
-  /** Arrived from the frame and not yet in a chunk. */
+  private run: StartedRun | null = null
+  private handle: MountHandle | null = null
+
+  /** Arrived from the game and not yet in a chunk. */
   private checkpoints: Array<{ tick: number; hash: string }> = []
-  private inputs: unknown[] = []
   private counters: Record<string, number> = {}
   private tick = 0
   private ended = false
+  /** How many of the recorded inputs a chunk has carried. */
+  private inputsSent = 0
+  /** Ticks of play between two chunks, at the run's own rate. */
+  private chunkTicks = 0
+  private committedAtTick = 0
+  private committedBytes = 0
 
   private seq = 0
   private postedThrough = -1
@@ -137,153 +156,188 @@ export class Run {
   /** Sends in order: two chunks in flight could arrive out of sequence. */
   private posting: Promise<unknown> = Promise.resolve()
 
-  private recordingParts: string[] = []
-  private recordingTotal = 0
-  private submitting = false
-
   constructor(options: RunOptions) {
     this.options = options
-    this.frame = options.mount({
-      onReady: (message) => this.ready(message.manifestHash),
-      onProgress: (message) => {
-        this.tick = Math.max(this.tick, message.tick)
-        this.counters = { ...message.counters }
-        this.commit()
-      },
-      onCheckpoint: (message) => {
-        this.checkpoints.push({ tick: message.tick, hash: message.hash })
-      },
-      onLogChunk: (message) => {
-        this.inputs.push(...message.inputs)
-        this.commit()
-      },
-      onEnded: (message) => {
-        this.tick = Math.max(this.tick, message.tick)
-        this.counters = { ...message.counters }
-        this.ended = true
-        this.commit()
-        this.submitIfReady()
-      },
-      onRecordingChunk: (message) => {
-        this.recordingTotal = message.total
-        this.recordingParts[message.index] = message.data
-        this.submitIfReady()
-      },
-      onError: (message) =>
-        this.fail("E_FRAME_FAILED", `${message.code}: ${message.detail}`),
-      onRefused: (error) =>
-        this.fail(
-          error.code,
-          error.cause === undefined
-            ? error.message
-            : `${error.message}: ${JSON.stringify(error.cause)}`,
-        ),
-    })
   }
 
   get current(): RunState {
     return this.state
   }
 
-  /**
-   * The frame says which game it serves, and it has to be this run's. A frame
-   * serving another version would play a different game against this seed,
-   * and the replay would not agree.
-   */
-  private ready(manifestHash: string): void {
-    // A second `ready` (a reloaded frame document, another hello) would
-    // start the game again in the middle of the run.
-    if (this.state.phase !== RUN_PHASE.WAITING) return
-    const { run } = this.options
-    if (manifestHash !== run.game.manifestHash) {
-      this.fail("E_WRONG_GAME", `the frame reports ${manifestHash}`)
-      this.frame.destroy()
-      return
-    }
-    const tickHz = TICK_RATES.find((rate) => rate === run.game.tickHz)
-    if (tickHz === undefined) {
-      this.fail("E_TICK_RATE_UNSUPPORTED", `${run.game.tickHz}`)
-      this.frame.destroy()
-      return
-    }
-    this.frame.init(run.seed, run.config, tickHz, run.game.maxTicks)
-    this.frame.start()
-    this.move(RUN_PHASE.PLAYING)
+  /** The run as the platform started it, once it has. */
+  get started(): StartedRun | null {
+    return this.run
   }
 
-  /** Sends what is complete since the last chunk, if anything is. */
-  private commit(): void {
-    if (
-      this.checkpoints.length === 0 &&
-      this.inputs.length === 0 &&
-      !this.ended
-    ) {
+  /**
+   * Plays `run` through `mount`. Called once, while the run is loading; a
+   * second call, or one after the run failed, does nothing.
+   */
+  play(run: StartedRun, mount: MountRun): void {
+    if (this.abort.signal.aborted || this.run !== null) return
+    this.run = run
+    this.chunkTicks =
+      (this.options.chunkSeconds ?? CHUNK_SECONDS) * run.game.tickHz
+    this.move(RUN_PHASE.PLAYING)
+    let handle: MountHandle
+    try {
+      handle = this.mountWith(run, mount)
+    } catch (error) {
+      // A module that throws rather than reporting is not one this release
+      // built, and the run ends where the page can see it.
+      this.failWith(error)
       return
+    }
+    // A mount the game refused has already failed the run, and its handle
+    // holds nothing to keep.
+    if (!this.abort.signal.aborted) this.handle = handle
+  }
+
+  private mountWith(run: StartedRun, mount: MountRun): MountHandle {
+    return mount({
+      mode: "play",
+      seed: run.seed,
+      config: run.config,
+      tickHz: run.game.tickHz,
+      maxTicks: run.game.maxTicks,
+      expect: { manifestHash: run.game.manifestHash },
+      handlers: {
+        onCheckpoint: (checkpoint) => {
+          if (this.abort.signal.aborted) return
+          this.checkpoints.push({
+            tick: checkpoint.tick,
+            hash: checkpoint.hash,
+          })
+        },
+        onFrame: (frame) => {
+          if (this.abort.signal.aborted) return
+          this.tick = Math.max(this.tick, frame.tick)
+          this.counters = { ...frame.counters }
+          if (this.tick - this.committedAtTick >= this.chunkTicks) {
+            this.commit()
+          }
+        },
+        onEnded: (ended) => this.onEnded(ended),
+        onError: (error) => this.onError(error),
+        ...(this.options.onNotice === undefined
+          ? {}
+          : { onNotice: this.options.onNotice }),
+      },
+    })
+  }
+
+  /**
+   * Ends a run that has not started playing, with the reason: the start
+   * refused, the game's code not loaded, or a tap that has to come again.
+   */
+  refuse(error: unknown): void {
+    if (this.state.phase !== RUN_PHASE.LOADING) return
+    this.failWith(error)
+  }
+
+  private onEnded(ended: MountedEnd): void {
+    if (this.abort.signal.aborted || this.ended) return
+    this.tick = Math.max(this.tick, ended.tick)
+    this.counters = { ...ended.counters }
+    this.ended = true
+    const reached = this.commit()
+    this.move(RUN_PHASE.SUBMITTING)
+    // A recording whose chunks stop short of its end, or larger than the
+    // platform takes, would be refused. The chunks are the run then.
+    const fits =
+      byteLengthOf({ recording: ended.recording }) <=
+      (this.run?.limits.runBytes ?? 0)
+    const recording = reached && fits ? ended.recording : null
+    // After the chunks, so the last chunk reaches the platform first.
+    this.posting = this.posting.then(() => this.submit(recording))
+  }
+
+  private onError(error: MountError): void {
+    this.fail(error.code, error.message)
+  }
+
+  /**
+   * Sends what is complete since the last chunk, if anything is, a piece at
+   * a time. Answers whether everything complete was sent: false when the
+   * next piece would take the run past what the platform takes, which ends
+   * a run still playing.
+   */
+  private commit(): boolean {
+    const run = this.run
+    if (run === null) return false
+    const log = this.handle?.recorded() ?? []
+    const inputs = log.slice(this.inputsSent)
+    this.committedAtTick = this.tick
+    if (this.checkpoints.length === 0 && inputs.length === 0 && !this.ended) {
+      return true
     }
     const throughTick = throughTickFor({
       tick: this.tick,
-      inputTicks: this.inputs.map(tickOf),
+      inputTicks: inputs.map((input) => input.tick),
       ended: this.ended,
       postedThrough: this.postedThrough,
     })
     // Nothing new is complete: keep what arrived for the next chunk.
-    if (throughTick === null) return
+    if (throughTick === null) return true
 
-    const chunk: RunChunk = {
-      seq: this.seq,
+    const body: ChunkBody = {
       throughTick,
       checkpoints: this.checkpoints,
-      inputs: this.inputs,
+      inputs,
       counters: this.counters,
     }
-    this.seq += 1
-    this.postedThrough = throughTick
-    this.checkpoints = []
-    this.inputs = []
-    this.posting = this.posting.then(() => this.send(chunk))
+    // While the run plays, one chunk's room is kept for the last commit.
+    const room = run.limits.runBytes - (this.ended ? 0 : run.limits.chunkBytes)
+    for (const chunk of splitChunk(body, run.limits.chunkBytes, this.seq)) {
+      const bytes = byteLengthOf(chunk)
+      if (this.committedBytes + bytes > room) {
+        // What is left goes with the last commit, if the room takes it.
+        if (!this.ended) this.handle?.stop("abandoned")
+        return false
+      }
+      this.seq += 1
+      this.committedBytes += bytes
+      this.inputsSent += chunk.inputs.length
+      this.checkpoints = this.checkpoints.slice(chunk.checkpoints.length)
+      this.postedThrough = chunk.throughTick
+      this.posting = this.posting.then(() => this.send(chunk))
+    }
+    return true
   }
 
   /** Sends the chunks that got no answer, then this one, in order. */
   private async send(chunk?: RunChunk): Promise<void> {
+    const run = this.run
+    if (run === null) return
     const queue = chunk === undefined ? this.unsent : [...this.unsent, chunk]
     this.unsent = []
     for (const [index, body] of queue.entries()) {
       if (this.abort.signal.aborted) return
       try {
-        await this.options.client.sendChunk(this.options.run, body)
+        await this.options.client.sendChunk(run, body)
       } catch (error) {
         if (worthRetrying(error)) {
           // Keep it, and everything after it, for the next send.
           this.unsent = queue.slice(index)
           return
         }
-        // A refusal is the platform's answer to this body; sending it again
-        // gets the same one. The submit says whether the run still stands.
+        // A refusal is the platform's answer to this body, and a later chunk
+        // would build on one it did not take, so nothing more is sent.
+        this.failWith(error)
+        return
       }
     }
   }
 
-  /** Submits once the run has ended and every part of its recording is here. */
-  private submitIfReady(): void {
-    if (this.submitting || !this.ended || this.recordingTotal === 0) return
-    for (let index = 0; index < this.recordingTotal; index += 1) {
-      if (this.recordingParts[index] === undefined) return
-    }
-    this.submitting = true
-
-    let recording: unknown
-    try {
-      recording = JSON.parse(this.recordingParts.join(""))
-    } catch (error) {
-      this.fail("E_RECORDING_UNREADABLE", String(error))
-      return
-    }
-    this.move(RUN_PHASE.SUBMITTING)
-    // After the chunks, so the last chunk reaches the platform first.
-    this.posting = this.posting.then(() => this.submit(recording))
-  }
-
-  private async submit(recording: unknown): Promise<void> {
+  /**
+   * Sends the chunks still unsent, then the recording, or nothing more for a
+   * run that is not submitted, and waits for the result.
+   */
+  private async submit(
+    recording: MountedEnd["recording"] | null,
+  ): Promise<void> {
+    const run = this.run
+    if (run === null) return
     const attempts = this.options.submitAttempts ?? SUBMIT_ATTEMPTS
     let delay = this.options.retryDelayMs ?? SUBMIT_RETRY_MS
     for (let attempt = 1; ; attempt += 1) {
@@ -292,11 +346,14 @@ export class Run {
       // A chunk that got no answer has to arrive before the recording: one
       // still unsent is this attempt's failure, and nothing is submitted.
       if (this.unsent.length > 0) await this.send()
+      if (this.abort.signal.aborted) return
       if (this.unsent.length > 0) {
         failure = new PlatformClientError("E_UNREACHABLE")
+      } else if (recording === null) {
+        break
       } else {
         try {
-          await this.options.client.submit(this.options.run, recording)
+          await this.options.client.submit(run, recording)
           break
         } catch (error) {
           failure = error
@@ -313,10 +370,10 @@ export class Run {
     this.move(RUN_PHASE.REPLAYING)
     try {
       const result = await this.options.client.awaitResult(
-        this.options.run.sessionId,
+        run.sessionId,
         // The run's own token: the page may have signed out, or somebody
         // else in, since the run started.
-        { signal: this.abort.signal, token: this.options.run.token },
+        { signal: this.abort.signal, token: run.token },
       )
       this.settle(result)
     } catch (error) {
@@ -339,26 +396,33 @@ export class Run {
     })
   }
 
-  /** From a host-drawn control, and from nowhere else. */
-  press(action: string, value: number): void {
-    if (this.ended || this.state.phase !== RUN_PHASE.PLAYING) return
-    this.frame.virtualInput(action, value)
-  }
-
-  /** The player leaving. The run ends where they left it, and is submitted. */
+  /**
+   * The player leaving. The run ends where they left it and is submitted as
+   * abandoned. Before it plays, there is nothing to submit, so it stops.
+   */
   end(): void {
-    this.frame.end()
+    if (this.handle === null) {
+      if (this.state.phase === RUN_PHASE.LOADING) this.destroy()
+      return
+    }
+    this.handle.stop("abandoned")
   }
 
-  /** Stops everything: the frame, and any request still to be sent. */
+  /** Stops everything: the game, and any request still to be sent. */
   destroy(): void {
     this.abort.abort()
-    this.frame.destroy()
+    this.handle?.destroy()
   }
 
   private move(phase: RunPhase): void {
     if (this.abort.signal.aborted) return
-    this.state = { phase, errorCode: null, detail: null, result: null }
+    this.state = {
+      phase,
+      errorCode: null,
+      detail: null,
+      refusalDetail: null,
+      result: null,
+    }
     this.options.onState?.(this.state)
   }
 
@@ -368,6 +432,7 @@ export class Run {
       phase: RUN_PHASE.DONE,
       errorCode: null,
       detail: null,
+      refusalDetail: null,
       result,
     }
     this.options.onState?.(this.state)
@@ -375,19 +440,25 @@ export class Run {
 
   /**
    * Final: nothing is sent after a failure and the state never leaves it,
-   * so a page shown a failure is never shown a result after it. The frame
-   * stays, for the page to take down, because it may be showing the end of
-   * the run.
+   * so a page shown a failure is never shown a result after it. A game still
+   * playing is stopped where it stands, so nobody plays on into a run that
+   * can no longer count; what it drew stays, for the page to take down.
    */
-  private fail(code: ClientErrorCode | string, detail: string | null): void {
+  private fail(
+    code: ClientErrorCode | string,
+    detail: string | null,
+    refusalDetail: Readonly<Record<string, unknown>> | null = null,
+  ): void {
     if (this.abort.signal.aborted) return
     this.state = {
       phase: RUN_PHASE.FAILED,
       errorCode: code,
       detail,
+      refusalDetail,
       result: null,
     }
     this.abort.abort()
+    this.handle?.stop("abandoned")
     this.options.onState?.(this.state)
   }
 
@@ -397,18 +468,24 @@ export class Run {
    * rather than leaving it waiting forever behind a rejection nobody holds.
    */
   private failWith(error: unknown): void {
-    if (
-      error instanceof PlatformRefusal ||
-      error instanceof PlatformClientError
-    ) {
-      this.fail(error.code, error.message)
+    if (error instanceof PlatformRefusal) {
+      this.fail(error.code, error.message, error.detail ?? null)
+      return
+    }
+    if (error instanceof PlatformClientError) {
+      this.fail(
+        error.code,
+        error.cause === undefined
+          ? error.message
+          : `${error.message}: ${causeOf(error.cause)}`,
+      )
       return
     }
     this.fail("E_UNEXPECTED", String(error))
   }
 }
 
-function tickOf(input: unknown): number {
-  const tick = (input as { readonly tick?: unknown } | null)?.tick
-  return typeof tick === "number" ? tick : 0
+function causeOf(cause: unknown): string {
+  if (cause instanceof Error) return String(cause)
+  return typeof cause === "string" ? cause : JSON.stringify(cause)
 }

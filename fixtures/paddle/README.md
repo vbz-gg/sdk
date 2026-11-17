@@ -1,29 +1,35 @@
 # paddle
 
-A game whose controls are its own.
+A game steered by tilting the device, and the SDK's subject for tilt.
 
-`inputs.controls` is `{ mode: "custom" }`, so the host draws nothing. The
-grab bar along the bottom is painted by `src/present/canvas.ts` and hit-tested
-by `src/sim/index.ts`, and both read the same `GRAB_TOP` constant - which is
-the whole contract of the custom path. A control drawn somewhere the
-simulation does not believe it is, is a control a player presses to no effect.
+Drops fall and the paddle slides the way the screen leans. `src/capture.ts`
+maps tilt through the engine's device helpers, as one input from -10 to 10
+with full deflection at 30 degrees, so the page module reports `needsMotion`
+and a page asks for motion in the Play button's click, the one place iOS lets
+it. The arrow keys move the paddle too, and Space puts it back in the middle.
+Space is there for the browser suite: it is the key that also presses a
+focused button, so a game mapping it is where a Play button that kept focus
+would show.
 
-Two things it exists to prove:
+A game that reads tilt starts no run without it, keys or not, so on a laptop
+the paddle starts nothing until the browser has a sensor to read. Chrome's
+DevTools give it one: the Sensors panel (the Command Menu's Show Sensors)
+sets the device's orientation, and the keys then play beside it.
 
-**The hit test belongs in `tick`.** A game may not construct an input event,
-so a renderer deciding which control was pressed and handing the answer to the
-simulation is the hole that rule closes. What the renderer gets is a pointer
-position; what it does with it is draw.
-
-**Two fingers have to be told apart.** Dragging the paddle while holding a
-second finger to widen it is a thing one shared pointer stream could not
-express: the coordinates interleaved and the first finger to lift sent the
-release the other was waiting on. The manifest binds `pointer0-*` and
-`pointer1-*`, and a third finger is bound by nobody and dropped, exactly as an
-unbound key is.
-
-It is also playable with the arrow keys, so it works on a desktop.
+What it exists to prove: that a game reading tilt is asked for it before
+anything is awaited, that a refusal or a missing sensor starts no run, that a
+recorded tilt replays to where the paddle went, and that a reading held still
+records nothing, because the helpers record a level only when it changes.
 
 ```bash
 bun run packages/sdk/src/cli/index.ts dev fixtures/paddle
+```
+
+A phone is another machine, and a browser grants tilt only to a secure page,
+so on a phone it is served over https on the laptop's own address, with a
+certificate the phone trusts for that address:
+
+```bash
+bun run packages/sdk/src/cli/index.ts dev fixtures/paddle \
+  --address 192.168.1.20 --https --cert cert.pem --key key.pem
 ```

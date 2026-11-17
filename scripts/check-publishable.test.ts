@@ -3,7 +3,9 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import {
+  BUNDLER_COMMENTS,
   exportTargets,
+  missingBundlerComments,
   PUBLIC_PACKAGES,
   problemsWith,
   RUNTIME_FILES,
@@ -25,6 +27,7 @@ function shipped(over: Partial<Shipped> = {}): Shipped {
       ...RUNTIME_FILES,
     ],
     imports: { problems: [], skipped: [] },
+    bundlerComments: [],
     ...over,
   }
 }
@@ -41,6 +44,34 @@ describe("what a tarball would do to a consumer", () => {
       shipped({ dependencies: { "@vbz/thing": "workspace:*" } }),
     )
     expect(problems.join("\n")).toContain("no consumer can install")
+  })
+
+  test("a loadGame import that lost a bundler comment is caught", () => {
+    const problems = problemsWith(
+      shipped({ bundlerComments: ["/* webpackIgnore: true */"] }),
+    )
+    expect(problems.join("\n")).toContain("webpackIgnore")
+    expect(problems.join("\n")).toContain(BUNDLER_COMMENTS.file)
+  })
+
+  test("a bundler comment counts only on the import itself", () => {
+    const both = BUNDLER_COMMENTS.comments.join(" ")
+    expect(missingBundlerComments(`return import(${both} url)`)).toEqual([])
+    // tsc keeps the comments where the source wrote them, and a build that
+    // moved one out of the call would tell a bundler nothing.
+    expect(missingBundlerComments(`${both}\nreturn import(url)`)).toEqual([
+      ...BUNDLER_COMMENTS.comments,
+    ])
+    expect(
+      missingBundlerComments("return import(/* webpackIgnore: true */ url)"),
+    ).toEqual(["/* @vite-ignore */"])
+  })
+
+  test("the built loadGame import carries both comments", async () => {
+    const built = await Bun.file(
+      join(import.meta.dir, "..", "packages", "sdk", BUNDLER_COMMENTS.file),
+    ).text()
+    expect(missingBundlerComments(built)).toEqual([])
   })
 
   test("a missing readme is caught, because npm drops it quietly", () => {

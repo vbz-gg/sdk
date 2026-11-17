@@ -11,13 +11,17 @@ that engine, the vbz.gg platform and the page a studio serves its game from.
 
 It publishes one package, `@vbz-gg/sdk`, which carries:
 
-- **the on-screen control schemes**, and the renderer that draws them, so the
-  pad you test against is the pad a player gets
-- **a page's client and host**, which sign a player in, frame the game, play a
-  run against the platform and show the board
-- **the build**, which turns a game into the two artifacts an upload carries
-- **a harness**, which frames your game locally the way it runs in production:
-  two origins, the sandbox, the CSP and a full-viewport page
+- **the page module**: what a game is built into for a studio's page to load,
+  and the contract between the two, so a page and a game built against
+  different releases still work together
+- **a page's client and host**, which sign a player in, load the game's page
+  module, play a run against the platform, replay a settled run for watching
+  and show the board
+- **the build and the checks**, which turn a game into the two modules an
+  upload carries and hold it to the engine's and the platform's rules first
+- **a harness**, which loads your game locally the way a studio's page does:
+  two origins, the platform's paths and headers, the policy a studio's page
+  sends, and a replay of every run
 
 Versions up to 0.2.0 were published as `@vbz-gg/game-base`, from a
 repository of that name, and the command was `game-base`. Later versions are
@@ -34,8 +38,8 @@ packages/sdk/            the published package
 packages/sdk/templates/  a game to copy and start from, shipped with it
 skill/vbz-game/          the agent skill for building one
 docs/sdk.md              how it works, from first principles
-fixtures/paddle/         a small game that draws its own controls
-e2e/                     the browser suite, driving the harness for real
+fixtures/paddle/         a small game steered by tilt
+e2e/                     the browser suite, driving the harness and a studio's page for real
 scripts/                 this repository's own tooling
 ```
 
@@ -49,7 +53,7 @@ bun run lint           # biome check .
 bun run lint:fix
 bun test               # the unit suite
 bun run test:coverage  # the same tests, then the 99% floor over packages/*/src
-bun run test:e2e       # the browser suite: a real sandboxed frame, a real pad
+bun run test:e2e       # the browser suite: the harness and a studio's page, for real
 bun run check:publishable   # pack the package and read what a consumer gets
 ```
 

@@ -28,7 +28,9 @@ jobs:
 
   browser:
     name: the browser suite
-    runs-on: ubuntu-latest
+    # Playwright 1.56.1 installs no browsers on Ubuntu 26.04, which ubuntu-latest
+    # now is, so a job that drives a browser names the release it supports.
+    runs-on: ubuntu-24.04
 
     env:
       CI: "true"
@@ -41,14 +43,16 @@ jobs:
 
       - run: bun install --frozen-lockfile
 
-      # Chromium is a few hundred megabytes, so it is cached by the version
-      # the lockfile pins rather than downloaded on every run.
-      - name: cache the browser
+      # Chromium, Firefox and WebKit are several hundred megabytes, so they
+      # are cached by the version the lockfile pins rather than downloaded on
+      # every run. Firefox and WebKit run the one spec each engine decides for
+      # itself: whether a studio's policy lets a game's modules in.
+      - name: cache the browsers
         id: browser-cache
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-chromium-${{ hashFiles('bun.lock') }}
+          key: playwright-${{ hashFiles('bun.lock') }}
 
       # Through the workspace's own binary, never `bunx playwright`, which
       # resolves the newest `playwright` from the registry and downloads a
@@ -56,8 +60,8 @@ jobs:
       - if: steps.browser-cache.outputs.cache-hit != 'true'
         run: bun run --cwd e2e install:browsers
 
-      # The system libraries even on a cache hit: the browser binary needs
-      # them and the cache does not carry them.
+      # The system libraries even on a cache hit: the browsers need them and
+      # the cache does not carry them.
       - if: steps.browser-cache.outputs.cache-hit == 'true'
         run: bun run --cwd e2e install:browser-deps
 

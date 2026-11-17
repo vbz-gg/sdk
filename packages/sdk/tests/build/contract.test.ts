@@ -1,18 +1,24 @@
 import { describe, expect, test } from "bun:test"
 import {
-  assertFrameImportsOnlySim,
+  assertPresentImportsOnlySim,
   assertRewritten,
   assertSimSelfContained,
   assertSize,
   countQuoted,
   decodeArtifact,
   rewriteSimImport,
-  simPathFor,
 } from "../../src/build/contract"
 import { BuildRefusal } from "../../src/build/errors"
+import {
+  ARTIFACT_PATH,
+  PRESENT_PATH,
+  presentPathFor,
+  simPathFor,
+} from "../../src/build/paths"
 
+const GAME = "0b6f3c1e-2d4a-4e8b-9c7d-5a1f2e3b4c6d"
 const HASH = "a".repeat(64)
-const SIM_PATH = simPathFor(HASH)
+const SIM_PATH = simPathFor(GAME, HASH)
 
 function code(refusal: () => unknown): string {
   try {
@@ -45,10 +51,12 @@ describe("decoding an artifact", () => {
 
 describe("size", () => {
   test("over the cap is refused, at the cap is not", () => {
-    expect(code(() => assertSize(new Uint8Array(11), 10, "frame"))).toBe(
+    expect(code(() => assertSize(new Uint8Array(11), 10, "page module"))).toBe(
       "E_ARTIFACT_TOO_LARGE",
     )
-    expect(() => assertSize(new Uint8Array(10), 10, "frame")).not.toThrow()
+    expect(() =>
+      assertSize(new Uint8Array(10), 10, "page module"),
+    ).not.toThrow()
   })
 })
 
@@ -71,35 +79,35 @@ describe("the simulation is self-contained", () => {
   })
 })
 
-describe("the frame imports the simulation and nothing else", () => {
+describe("the page module imports the simulation and nothing else", () => {
   /**
-   * The frame carrying its own copy of the simulation is the whole thing this
-   * contract exists to prevent, and it is the one case every other check
-   * passes.
+   * The page module carrying its own copy of the simulation is the whole
+   * thing this contract exists to prevent, and it is the one case every other
+   * check passes.
    */
-  test("a frame with no import is refused", () => {
-    expect(code(() => assertFrameImportsOnlySim("console.log(1)"))).toBe(
-      "E_FRAME_IMPORT_MISSING",
+  test("a page module with no import is refused", () => {
+    expect(code(() => assertPresentImportsOnlySim("console.log(1)"))).toBe(
+      "E_PRESENT_IMPORT_MISSING",
     )
   })
 
-  test("a frame importing anything else is refused", () => {
+  test("a page module importing anything else is refused", () => {
     expect(
       code(() =>
-        assertFrameImportsOnlySim(
+        assertPresentImportsOnlySim(
           `import a from "cw2:sim"\nimport b from "pixi.js"`,
         ),
       ),
-    ).toBe("E_FRAME_IMPORT_UNEXPECTED")
+    ).toBe("E_PRESENT_IMPORT_UNEXPECTED")
   })
 
   /** A dynamic import chooses its module at runtime, past a static scan. */
   test("a dynamic import is refused", () => {
     expect(
       code(() =>
-        assertFrameImportsOnlySim(`const m = await import("cw2:sim")`),
+        assertPresentImportsOnlySim(`const m = await import("cw2:sim")`),
       ),
-    ).toBe("E_FRAME_DYNAMIC_IMPORT")
+    ).toBe("E_PRESENT_DYNAMIC_IMPORT")
   })
 
   /**
@@ -110,15 +118,15 @@ describe("the frame imports the simulation and nothing else", () => {
   test("the specifier appearing as data is refused, not rewritten", () => {
     expect(
       code(() =>
-        assertFrameImportsOnlySim(
+        assertPresentImportsOnlySim(
           `import a from "cw2:sim"\nconst label = "cw2:sim"`,
         ),
       ),
-    ).toBe("E_FRAME_SPECIFIER_AMBIGUOUS")
+    ).toBe("E_PRESENT_SPECIFIER_AMBIGUOUS")
   })
 
-  test("a conforming frame reports how many imports it has", () => {
-    expect(assertFrameImportsOnlySim(`import a from "cw2:sim"`)).toBe(1)
+  test("a conforming page module reports how many imports it has", () => {
+    expect(assertPresentImportsOnlySim(`import a from "cw2:sim"`)).toBe(1)
   })
 
   test("counting a quoted literal sees both quote styles", () => {
@@ -128,9 +136,9 @@ describe("the frame imports the simulation and nothing else", () => {
 })
 
 describe("rewriting the simulation import", () => {
-  test("the specifier becomes the content address", () => {
-    const out = rewriteSimImport(`import a from "cw2:sim"`, SIM_PATH)
-    expect(out).toBe(`import a from "${SIM_PATH}"`)
+  test("the specifier becomes the game's content address", () => {
+    const out = rewriteSimImport(`import a from "cw2:sim"`, GAME, HASH)
+    expect(out).toBe(`import a from "/g/${GAME}/sim/${HASH}.js"`)
   })
 
   /**
@@ -141,44 +149,64 @@ describe("rewriting the simulation import", () => {
   test("every occurrence moves, not just the first", () => {
     const out = rewriteSimImport(
       `import a from "cw2:sim"\nimport {b} from "cw2:sim"`,
-      SIM_PATH,
+      GAME,
+      HASH,
     )
     expect(out).not.toContain("cw2:sim")
     expect(countQuoted(out, SIM_PATH)).toBe(2)
   })
 
   test("a single-quoted import moves too", () => {
-    const out = rewriteSimImport(`import a from 'cw2:sim'`, SIM_PATH)
+    const out = rewriteSimImport(`import a from 'cw2:sim'`, GAME, HASH)
     expect(out).toContain(SIM_PATH)
   })
 
   /**
-   * The path is built from a hash the caller computed. Taking one from a
-   * submission would let a bundle name some other module entirely.
+   * The path is built here, from a game id and a hash the caller computed.
+   * Parts taken from a submission would let a bundle name some other module,
+   * or another game's.
    */
-  test("a path that is not a content address is refused", () => {
-    for (const path of [
-      "https://elsewhere.invalid/sim.js",
-      "/sim/short.js",
-      `/frame/${HASH}.js`,
-      `/sim/${HASH.toUpperCase()}.js`,
-    ]) {
+  test("a game id or a hash that is not one is refused", () => {
+    for (const [game, hash] of [
+      ["../other", HASH],
+      [GAME.toUpperCase(), HASH],
+      ["", HASH],
+      [GAME, "short"],
+      [GAME, HASH.toUpperCase()],
+      [GAME, `${HASH}/../x`],
+    ] as const) {
       expect(
-        code(() => rewriteSimImport(`import a from "cw2:sim"`, path)),
+        code(() => rewriteSimImport(`import a from "cw2:sim"`, game, hash)),
       ).toBe("E_REWRITE_FAILED")
     }
   })
 
   test("a content address is root-relative, so the bytes carry no domain", () => {
-    expect(simPathFor(HASH)).toBe(`/sim/${HASH}.js`)
-    expect(simPathFor(HASH).startsWith("/")).toBe(true)
+    expect(SIM_PATH).toBe(`/g/${GAME}/sim/${HASH}.js`)
+    expect(SIM_PATH.startsWith("/")).toBe(true)
   })
 
   /** The rewrite is re-scanned, so the transform is verified not trusted. */
-  test("a frame that could not be rewritten is refused", () => {
+  test("a page module that could not be rewritten is refused", () => {
     expect(
-      code(() => rewriteSimImport("export const nothing = 1", SIM_PATH)),
-    ).toBe("E_FRAME_IMPORT_MISSING")
+      code(() => rewriteSimImport("export const nothing = 1", GAME, HASH)),
+    ).toBe("E_PRESENT_IMPORT_MISSING")
+  })
+})
+
+describe("where a game's modules are served", () => {
+  /**
+   * Every path names its game, so a studio's CSP can name its own game's
+   * path and no other game's file loads into its page.
+   */
+  test("each kind sits under its game", () => {
+    expect(presentPathFor(GAME, HASH)).toBe(`/g/${GAME}/present/${HASH}.js`)
+    expect(PRESENT_PATH.test(presentPathFor(GAME, HASH))).toBe(true)
+    expect(PRESENT_PATH.test(SIM_PATH)).toBe(false)
+    expect(ARTIFACT_PATH.test(SIM_PATH)).toBe(true)
+    expect(ARTIFACT_PATH.test(presentPathFor(GAME, HASH))).toBe(true)
+    expect(ARTIFACT_PATH.test(`/g/${GAME}/frame/${HASH}.js`)).toBe(false)
+    expect(ARTIFACT_PATH.test(`/sim/${HASH}.js`)).toBe(false)
   })
 })
 
@@ -199,6 +227,19 @@ describe("verifying the rewrite", () => {
   test("a result naming some other module is refused", () => {
     expect(
       code(() => assertRewritten(`import a from "/sim/other.js"`, SIM_PATH, 1)),
+    ).toBe("E_REWRITE_FAILED")
+  })
+
+  /** What it compares against has to be a game's sim path in the first place. */
+  test("a result checked against a path that is not a sim path is refused", () => {
+    expect(
+      code(() =>
+        assertRewritten(
+          `import a from "/sim/${HASH}.js"`,
+          `/sim/${HASH}.js`,
+          1,
+        ),
+      ),
     ).toBe("E_REWRITE_FAILED")
   })
 

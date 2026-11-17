@@ -1,7 +1,8 @@
 /**
  * The two widgets, against a document: the sign-in button opens the window
- * in the click and says why when it did not work, and the board table shows
- * the board the platform answered, the reader's own row included.
+ * in the click, says why when it did not work, and follows the client's
+ * player, and the board table shows the board the platform answered, the
+ * reader's own row included.
  */
 
 import {
@@ -15,8 +16,12 @@ import {
 import { GlobalRegistrator } from "@happy-dom/global-registrator"
 import type { Board, BoardRow } from "../../src/api/index"
 import { mountBoard, mountSignIn } from "../../src/host/widgets"
-import type { BoardOptions } from "../../src/platform/client"
+import {
+  type BoardOptions,
+  createPlatformClient,
+} from "../../src/platform/client"
 import { PlatformClientError, PlatformRefusal } from "../../src/platform/errors"
+import { FakePage, settle as settlePage } from "../platform/fake-page"
 
 beforeAll(() => {
   GlobalRegistrator.register()
@@ -36,7 +41,11 @@ beforeEach(() => {
 
 type Player = { readonly id: string; readonly displayName: string }
 
-/** A client whose sign-in answers when the test says. */
+/**
+ * A client whose sign-in answers when the test says. It tells nobody when
+ * its player changes, so what the widget draws after its own clicks is the
+ * widget's own doing.
+ */
 function signInClient(start: Player | null = null) {
   let player = start
   let answer: { resolve: (p: Player) => void; reject: (e: unknown) => void } = {
@@ -44,8 +53,10 @@ function signInClient(start: Player | null = null) {
     reject: () => {},
   }
   const calls: string[] = []
+  let following = 0
   return {
     calls,
+    following: () => following,
     finish: (next: Player) => {
       player = next
       answer.resolve(next)
@@ -53,6 +64,12 @@ function signInClient(start: Player | null = null) {
     fail: (error: unknown) => answer.reject(error),
     client: {
       player: () => player,
+      onPlayerChange: () => {
+        following += 1
+        return () => {
+          following -= 1
+        }
+      },
       signIn: () => {
         calls.push("signIn")
         return new Promise<Player>((resolve, reject) => {
@@ -130,8 +147,88 @@ describe("the sign-in button", () => {
     fake.finish({ id: "p-2", displayName: "Grace" })
     widget.update()
     expect(place.querySelector(".gb-signin-name")?.textContent).toBe("Grace")
+    expect(fake.following()).toBe(1)
     widget.destroy()
     expect(place.children).toHaveLength(0)
+    expect(fake.following()).toBe(0)
+  })
+
+  /**
+   * The page calls nothing: the widget follows the client. A run started
+   * with a token the platform no longer honours makes the client forget the
+   * player, as a stand-in that restarted and lost the sign-in does, and the
+   * box shows nobody signed in, so Play's "sign in first" matches it.
+   */
+  test("follows the client: a player whose token stopped working shows signed out", async () => {
+    const SIGN_IN = "https://signin.vbz.example"
+    const page = new FakePage()
+    const client = createPlatformClient({
+      apiOrigin: "https://api.vbz.example",
+      signInOrigin: SIGN_IN,
+      pageKey: "vbz_pk_widget",
+      environment: page,
+    })
+    mountSignIn(place, { client })
+    page.answers.push({
+      status: 200,
+      body: {
+        token: "t-1",
+        expiresIn: 7_776_000,
+        player: { id: "p-1", displayName: "Ada" },
+      },
+    })
+    button().click()
+    await settlePage()
+    const href = new URL(page.popup?.location.href ?? "")
+    page.post({
+      origin: SIGN_IN,
+      source: page.popup,
+      data: {
+        type: "vbz.signin",
+        code: "c",
+        state: href.searchParams.get("state"),
+      },
+    })
+    await settlePage()
+    expect(button().textContent).toBe("Sign out")
+    expect(place.querySelector(".gb-signin-name")?.textContent).toBe("Ada")
+
+    page.answers.push({
+      status: 401,
+      body: { error: "E_SIGN_IN_REQUIRED", message: "sign in" },
+    })
+    await client.startRun().catch(() => {})
+    expect(button().textContent).toBe("Sign in")
+    expect(place.querySelector(".gb-signin-name")?.hasAttribute("hidden")).toBe(
+      true,
+    )
+
+    // And a sign-out the page makes itself, with no widget click.
+    page.answers.push({
+      status: 200,
+      body: {
+        token: "t-2",
+        expiresIn: 7_776_000,
+        player: { id: "p-1", displayName: "Ada" },
+      },
+    })
+    button().click()
+    await settlePage()
+    page.post({
+      origin: SIGN_IN,
+      source: page.popup,
+      data: {
+        type: "vbz.signin",
+        code: "c",
+        state: new URL(page.popup?.location.href ?? "").searchParams.get(
+          "state",
+        ),
+      },
+    })
+    await settlePage()
+    expect(button().textContent).toBe("Sign out")
+    client.signOut()
+    expect(button().textContent).toBe("Sign in")
   })
 })
 
@@ -142,6 +239,7 @@ const row = (rank: number, name: string, score: number): BoardRow => ({
   counters: { score, ticks: 100 * rank },
   day: "2026-11-12",
   sessionId: `s-${name}`,
+  version: "1.2.0",
 })
 
 const BOARD: Board = {

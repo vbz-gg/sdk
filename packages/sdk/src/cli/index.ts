@@ -3,28 +3,32 @@
  * `vbz`, the commands an author runs.
  *
  * `build` produces the three files an upload carries. `dev` serves the game
- * the way production serves it, on two origins, so the first time a game meets
- * a sandboxed cross-origin frame is on a laptop.
+ * the way production serves it, on two origins, so the first time a game's
+ * page module is imported from another origin is on a laptop.
  *
  * Entry points are excluded from the coverage floor, so everything with a
  * decision in it lives beside this file rather than in it.
  */
 
-import { mkdir, rm, writeFile } from "node:fs/promises"
-import { join } from "node:path"
-import { DIST_DIR, DIST_FILES } from "../build/dist.js"
-import { buildGameArtifacts, type GameSource } from "../build/index.js"
+import type { GameSource } from "../build/index.js"
 import {
-  DEFAULT_FRAME_PORT,
+  DEFAULT_BUNDLES_PORT,
   DEFAULT_HOST_PORT,
+  HARNESS_GAME_ID,
+  HARNESS_SEED,
   startHarness,
+  startSite,
 } from "../harness/index.js"
-import { type Options, parseArgs } from "./args.js"
-import { readManifestFromSim } from "./manifest.js"
+import { DEFAULT_ADDRESS, type Options, parseArgs } from "./args.js"
+import { buildGame, buildLines, writeBuild } from "./build.js"
+import { devSettings } from "./dev.js"
+import { failureLine } from "./failure.js"
 import { createGame } from "./new.js"
 import {
   API_ORIGIN_VARIABLE,
   DEFAULT_API_ORIGIN,
+  failureLines,
+  PublishError,
   publish,
   publishSettings,
   STUDIO_KEY_VARIABLE,
@@ -34,68 +38,81 @@ import {
 const USAGE = `vbz - build and run a game for vbz.gg
 
   vbz new     [dir]   copy a game that already conforms, and rename it
-  vbz build   [dir]   write dist/sim.js, dist/frame.js and dist/manifest.json
+  vbz build   [dir]   write dist/sim.js, dist/present.js and dist/manifest.json
+  vbz check   [dir]   run the engine's checks and hold src/capture.ts to the manifest
   vbz dev     [dir]   serve the game the way production does
   vbz publish [dir]   upload dist/ and wait for the platform's verdict
 
-  --sim <path>     the simulation's entry   (default src/sim/index.ts)
-  --frame <path>   the frame's entry        (default src/frame.ts)
-  --host <port>    the page that frames it  (default ${DEFAULT_HOST_PORT})
-  --frame-port <p> the game's own origin    (default ${DEFAULT_FRAME_PORT})
+  --sim <path>       the simulation's entry   (default src/sim/index.ts)
+  --present <path>   the page module's entry  (default src/present.ts)
+  --capture <path>   the input mapping        (default src/capture.ts)
+  --host <port>      dev: the page that loads it   (default ${DEFAULT_HOST_PORT})
+  --bundles-port <p> dev: the game's code origin   (default ${DEFAULT_BUNDLES_PORT})
+  --address <host>   dev: where both listen, and the host their origins name
+                     (default ${DEFAULT_ADDRESS}); another machine's needs --https
+  --https            dev: serve https, with --cert <file> and --key <file> (PEM)
+  --site             dev: serve the game's site/ against a stand-in for the
+                     platform, which plays one local player and ranks nothing
   --game <id>      publish: the game to upload to
   --api <origin>   publish: the platform    (default ${DEFAULT_API_ORIGIN},
                    or ${API_ORIGIN_VARIABLE})
 
-  publish reads the studio's secret key from ${STUDIO_KEY_VARIABLE}, and exits 0
-  only when the version went live.
+  publish reads the studio's secret key from ${STUDIO_KEY_VARIABLE}. It exits 0
+  when the version passed its checks and is published, and prints which runs
+  it serves; anything else, a version an operator took down included, is 1.
 `
 
 function sourceOf(options: Options): GameSource {
   return {
     root: options.dir,
     simEntry: options.simEntry,
-    frameEntry: options.frameEntry,
+    presentEntry: options.presentEntry,
+    captureEntry: options.captureEntry,
   }
 }
 
-/**
- * Writes the three files an upload carries.
- *
- * The frame is written unrewritten, with its `cw2:sim` specifier intact. The
- * host rewrites it to the simulation's content address on the way in, so a
- * frame that arrived already pointing somewhere would be a frame naming a
- * module nobody checked.
- */
+/** Writes the three files an upload carries, and says what it wrote. */
 async function build(options: Options): Promise<void> {
-  const { sim, frame } = await buildGameArtifacts(sourceOf(options))
-  const manifest = await readManifestFromSim(sim)
-  const dist = join(options.dir, DIST_DIR)
-  await rm(dist, { recursive: true, force: true })
-  await mkdir(dist, { recursive: true })
-  await writeFile(join(dist, DIST_FILES.sim), sim)
-  await writeFile(join(dist, DIST_FILES.frame), frame)
-  await writeFile(
-    join(dist, DIST_FILES.manifest),
-    `${JSON.stringify(manifest, null, 2)}\n`,
-  )
-  process.stdout.write(
-    `sim ${sim.byteLength} bytes, frame ${frame.byteLength} bytes\n`,
-  )
+  const built = await buildGame(sourceOf(options))
+  await writeBuild(options.dir, built)
+  for (const line of buildLines(built)) process.stdout.write(`${line}\n`)
 }
 
 async function dev(options: Options): Promise<void> {
-  // Built first, so the manifest beside the artifacts is this build's.
+  // Checked first, so a flag that cannot work stops before anything builds.
+  const settings = await devSettings(options)
+  // Built next, so the manifest beside the artifacts is this build's.
   await build(options)
+  if (settings.site) {
+    const site = await startSite({
+      source: sourceOf(options),
+      gameId: HARNESS_GAME_ID,
+      seed: HARNESS_SEED,
+      hostPort: settings.hostPort,
+      bundlesPort: settings.bundlesPort,
+      listen: settings.listen,
+      log: (line) => process.stdout.write(`${line}\n`),
+    })
+    process.stdout.write(
+      `\n  site     ${site.siteOrigin}\n` +
+        `  bundles  ${site.bundlesOrigin}\n` +
+        `  api      ${site.apiOrigin}  (a stand-in: one local player, no replay, no ranking)\n` +
+        `  sign-in  ${site.signInOrigin}\n\n` +
+        "  Ctrl-C to stop.\n",
+    )
+    return
+  }
   const harness = await startHarness({
     source: sourceOf(options),
-    hostPort: options.hostPort,
-    framePort: options.framePort,
+    hostPort: settings.hostPort,
+    bundlesPort: settings.bundlesPort,
+    listen: settings.listen,
   })
   process.stdout.write(
-    `\n  play    ${harness.hostOrigin}\n` +
-      `  game    ${harness.frameOrigin}\n` +
-      `  sim     ${harness.built.simSha256.slice(0, 12)}\n` +
-      `  frame   ${harness.built.frameSha256.slice(0, 12)}\n\n` +
+    `\n  play     ${harness.hostOrigin}\n` +
+      `  bundles  ${harness.bundlesOrigin}\n` +
+      `  sim      ${harness.built.simSha256.slice(0, 12)}\n` +
+      `  present  ${harness.built.presentSha256.slice(0, 12)}\n\n` +
       "  Ctrl-C to stop.\n",
   )
 }
@@ -116,6 +133,17 @@ export async function main(argv: readonly string[]): Promise<number> {
     case "build":
       await build(options)
       return 0
+    case "check": {
+      // Loaded here and by no other command: the engine's checks read code
+      // with TypeScript, which a game has only once its own install has run,
+      // and `vbz new` runs before that.
+      const { checkGame, checkLines } = await import("./check.js")
+      const checked = await checkGame(sourceOf(options))
+      for (const line of checkLines(checked, options.captureEntry)) {
+        process.stdout.write(`${line}\n`)
+      }
+      return checked.ok ? 0 : 1
+    }
     case "dev":
       await dev(options)
       // Resolves only when the process is killed: the servers are the point.
@@ -126,12 +154,21 @@ export async function main(argv: readonly string[]): Promise<number> {
         { dir: options.dir, game: options.game, api: options.api },
         process.env,
       )
-      const status = await publish(settings, {
-        fetch: (url, init) => fetch(url, init),
-        sleep: (ms) => Bun.sleep(ms),
-        now: () => Date.now(),
-        log: (line) => process.stdout.write(`${line}\n`),
-      })
+      let status: Awaited<ReturnType<typeof publish>>
+      try {
+        status = await publish(settings, {
+          fetch: (url, init) => fetch(url, init),
+          sleep: (ms) => Bun.sleep(ms),
+          now: () => Date.now(),
+          log: (line) => process.stdout.write(`${line}\n`),
+        })
+      } catch (error) {
+        if (!(error instanceof PublishError)) throw error
+        for (const line of failureLines(error)) {
+          process.stderr.write(`${line}\n`)
+        }
+        return 1
+      }
       const verdict = verdictOf(status)
       for (const line of verdict.lines) process.stdout.write(`${line}\n`)
       return verdict.exitCode
@@ -148,7 +185,7 @@ if (import.meta.main) {
       if (code !== 0) process.exit(code)
     })
     .catch((error: unknown) => {
-      process.stderr.write(`${String(error)}\n`)
+      process.stderr.write(`${failureLine(error)}\n`)
       process.exit(1)
     })
 }

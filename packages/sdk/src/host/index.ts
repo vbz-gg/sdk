@@ -1,20 +1,28 @@
 /**
- * Hosting a game on a page: the frame, its controls, a platform run through
- * them, and the two widgets a game's page needs.
+ * Putting a game on a studio's page: loading its page module, a platform run
+ * through it, a settled run replayed, and the two widgets a game's page needs.
  *
  * Plain modules with no DOM at load time, like `/platform`, so a page may
- * import this while rendering on a server. It imports the engine's parent
- * bridge, which the frame needs, and nothing the CLI or the harness uses.
+ * import this while rendering on a server. It holds no engine: a game's page
+ * module carries its own, and this reaches it through the module's `mount`.
  */
 
 export {
-  type Host,
-  type HostHandlers,
-  type HostOptions,
-  mountHost,
-} from "./host.js"
-export { type HostedControls, hostedControls } from "./manifest.js"
-export { type PlayedRun, type PlayOptions, playRun } from "./play.js"
+  alteredBuiltins,
+  type GameAddress,
+  type LoadedGame,
+  type LoadOptions,
+  loadGame,
+  SIMULATION_BUILTINS,
+} from "./load.js"
+export {
+  type PlayedRun,
+  type PlayOptions,
+  playRun,
+  type RunLocks,
+  runLockName,
+} from "./play.js"
+export { type WatchedGame, type WatchOptions, watchRun } from "./watch.js"
 export {
   type BoardWidgetOptions,
   type MountedBoard,

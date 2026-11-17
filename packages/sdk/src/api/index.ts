@@ -16,7 +16,9 @@
  * bundle.
  *
  * Within `/v1` a change only adds: a field, a route, a refusal code. Anything
- * that would break a page already shipped against these is a new route.
+ * that would break a page already shipped against these is a new route. That
+ * holds from the day vbz-gg/platform's `AGENTS.md` marks the platform
+ * deployed; until then a shape may still change in place, here first.
  */
 
 /** The header a page sends its page key in. */
@@ -45,7 +47,12 @@ export type PublicRefusalCode =
   // Any route.
   /** The body or a query parameter is not the shape the route takes. */
   | "E_BAD_REQUEST"
-  /** No route at that path. */
+  /**
+   * No route at that path, or nothing there this reader may have: a run that
+   * does not exist, has not settled, is another player's or another
+   * studio's, or is from a day still open and not the reader's own. Each is
+   * answered alike, so the difference tells a reader nothing.
+   */
   | "E_NOT_FOUND"
   /** The platform failed. The answer says nothing more, on purpose. */
   | "E_INTERNAL"
@@ -67,21 +74,42 @@ export type PublicRefusalCode =
   /** A member writing to a studio an operator disabled. */
   | "E_STUDIO_DISABLED"
   | "E_VERSION_EXISTS"
+  /**
+   * A version that is not `MAJOR.MINOR.PATCH`: a prerelease or build suffix,
+   * a leading zero, or a part above 2^31 - 1.
+   */
+  | "E_VERSION_INVALID"
+  /**
+   * A version that does not move forward: a new release line below a version
+   * the game already has, or a patch below one already in its line. Its
+   * `detail` is a `VersionNotNewerDetail`.
+   */
+  | "E_VERSION_NOT_NEWER"
+  /**
+   * A patch whose manifest changes a field its release line fixes, such as
+   * `inputs`, `counters` or `rankBy`. New rules are a new minor or major. Its
+   * `detail` is a `PatchChangesRulesDetail`.
+   */
+  | "E_PATCH_CHANGES_RULES"
+  /**
+   * The player sent five submissions refused as tampered on this game within
+   * 24 hours, and may not start a run of it until the bar ends. Its `detail`
+   * is a `PlayerBarredDetail`.
+   */
+  | "E_PLAYER_BARRED"
   /** The studio's uploads over the last 24 hours, all its games together. */
   | "E_QUOTA_EXCEEDED"
   | "E_MANIFEST_INVALID"
-  | "E_CONTROLS_SCHEME_UNKNOWN"
-  | "E_CONTROLS_SLOT_UNKNOWN"
   /** The manifest declares a data pack the simulation reads, which the platform cannot replay yet. */
   | "E_PACKS_UNSUPPORTED"
   | "E_ARTIFACT_NOT_UTF8"
   | "E_ARTIFACT_TOO_LARGE"
   | "E_SIM_NOT_SELF_CONTAINED"
-  | "E_FRAME_IMPORT_MISSING"
-  | "E_FRAME_IMPORT_UNEXPECTED"
-  | "E_FRAME_DYNAMIC_IMPORT"
-  | "E_FRAME_SPECIFIER_AMBIGUOUS"
-  /** The platform could not rewrite the frame's import. Not reached in practice. */
+  | "E_PRESENT_IMPORT_MISSING"
+  | "E_PRESENT_IMPORT_UNEXPECTED"
+  | "E_PRESENT_DYNAMIC_IMPORT"
+  | "E_PRESENT_SPECIFIER_AMBIGUOUS"
+  /** The platform could not rewrite the page module's import. Not reached in practice. */
   | "E_REWRITE_FAILED"
   // Player sign-in.
   | "E_SIGNIN_GRANT_INVALID"
@@ -93,6 +121,13 @@ export type PublicRefusalCode =
   | "E_NO_GAME"
   /** A ranked start, and the game has no round today. */
   | "E_NO_SEED_TODAY"
+  /**
+   * A ranked start while the day's line is paused: an operator took down its
+   * highest published patch, and nothing falls back to an older one. Ranked
+   * play resumes when a newer patch of the line passes its checks, or with
+   * the next day's seed. A practice run may still start.
+   */
+  | "E_RANKED_PAUSED"
   | "E_PRACTICE_OFF"
   /**
    * A ranked run asked of a player who has started every ranked run the game
@@ -111,20 +146,89 @@ export type PublicRefusalCode =
   | "E_CHUNKS_INCOMPLETE"
   | "E_CHECKPOINT_CONTRADICTED"
   | "E_TIME_IMPOSSIBLE"
+  /**
+   * An input whose name the version's manifest does not declare, or whose
+   * value is outside the range the manifest declares for it. The engine's
+   * `checkInputs` and `checkInputSpan` report both as this code.
+   */
+  | "E_INPUT_UNDECLARED"
+  /**
+   * An input no recording can hold: a tick or a value that is not a whole
+   * number, a value of -0, no name, or a tick past the run's end or outside
+   * the span a chunk covers. Not a value outside its range, which is
+   * `E_INPUT_UNDECLARED`.
+   */
+  | "E_INPUT_RANGE"
+  /** More inputs than any player makes in the ticks the log covers. */
+  | "E_INPUT_BUDGET"
+  /** A request body over the route's cap, refused before it is read. */
+  | "E_BODY_TOO_LARGE"
+  /**
+   * A chunk that would take the run's committed bytes, or a recording, over
+   * `StartedRun.limits.runBytes`.
+   */
+  | "E_RUN_TOO_LARGE"
+
+/** `E_VERSION_NOT_NEWER`'s detail: what the upload had to be above. */
+export interface VersionNotNewerDetail {
+  /** The highest version already in the upload's line, or null for a new line. */
+  readonly highestInLine: string | null
+  /** The highest version the game has, rejected versions not counted. */
+  readonly highestInGame: string | null
+}
+
+/** `E_PATCH_CHANGES_RULES`'s detail: which fixed fields moved, against what. */
+export interface PatchChangesRulesDetail {
+  /** The line, `MAJOR.MINOR`. */
+  readonly line: string
+  /** The version that set the line's contract: its earliest not rejected. */
+  readonly comparedWith: string
+  /** The fixed fields this upload changes, as `lineChanges` names them. */
+  readonly fields: readonly string[]
+  /** The version to publish these rules as instead: the next minor, `.0`. */
+  readonly nextMinor: string
+}
+
+/** `E_PLAYER_BARRED`'s detail. */
+export interface PlayerBarredDetail {
+  /** ISO 8601: when the player may start a run of this game again. */
+  readonly until: string
+}
+
+/**
+ * Every refusal whose `detail` has a declared shape, by code. A refusal not
+ * named here carries a `detail` for a log, with no shape promised.
+ */
+export interface RefusalDetails {
+  readonly E_VERSION_NOT_NEWER: VersionNotNewerDetail
+  readonly E_PATCH_CHANGES_RULES: PatchChangesRulesDetail
+  readonly E_PLAYER_BARRED: PlayerBarredDetail
+}
 
 /** Where a version is in being checked. */
 export type VersionState = "pending" | "rejected" | "published"
 
-/** What the version a page should run today is. */
+/** A version a page can load before a click: its page module and its manifest. */
 export interface PageGameVersion {
   readonly id: string
   readonly version: string
   /** The manifest as uploaded. */
   readonly manifest: unknown
   readonly manifestSha256: string
-  /** The game document to put in the page's sandboxed frame. */
-  readonly frameUrl: string
+  /**
+   * The engine's 64-bit canonical hash of the manifest, which a run pins and
+   * a page module reports, so a page can check it loaded this version's.
+   */
+  readonly manifestHash: string
+  /**
+   * The version's page module, absolute: `https://<bundles host>/g/<gameId>/present/<sha256>.js`.
+   * `loadGame` in `@vbz-gg/sdk/host` imports it.
+   */
+  readonly presentUrl: string
 }
+
+/** Whether ranked runs can start today. */
+export type RankedPlay = "open" | "paused"
 
 /** `GET /v1/game`: the game a page key names, and today's round. */
 export interface PageGame {
@@ -161,8 +265,25 @@ export interface PageGame {
      * for a game that does not use the day's seed.
      */
     readonly seedCommit: string | null
-    readonly version: PageGameVersion
+    /** The release line the day's seed pinned, `MAJOR.MINOR`. */
+    readonly line: string
+    /**
+     * `paused` while an operator has taken down the line's highest published
+     * patch: a ranked start answers `E_RANKED_PAUSED` until a newer patch of
+     * the line passes its checks, or until the next day's seed.
+     */
+    readonly ranked: RankedPlay
+    /**
+     * The version a ranked start plays now, the line's highest published
+     * patch. Null only while `ranked` is `paused`.
+     */
+    readonly version: PageGameVersion | null
   } | null
+  /**
+   * The version a practice start plays now, the newest playable version of
+   * any line. Null when the game offers no practice or has nothing playable.
+   */
+  readonly practiceVersion: PageGameVersion | null
 }
 
 /** `POST /v1/games/:gameId/versions`: an upload, accepted for checking. */
@@ -175,15 +296,32 @@ export interface UploadedVersion {
    */
   readonly studioId: string
   readonly version: string
+  /** The release line the version joined, `MAJOR.MINOR`. */
+  readonly line: string
   /** Always pending here: the checks decide, after the upload is answered. */
   readonly state: VersionState
   readonly simSha256: string
-  readonly frameSha256: string
-  readonly frameSourceSha256: string
+  /** The page module as stored: its `cw2:sim` import already rewritten. */
+  readonly presentSha256: string
+  /** The page module as uploaded, before the rewrite. */
+  readonly presentSourceSha256: string
   readonly manifestHash: string
   readonly manifestSha256: string
+  /** `https://<bundles host>/g/<gameId>/sim/<sha256>.js`, once published. */
   readonly simUrl: string
-  readonly frameUrl: string
+  /** `https://<bundles host>/g/<gameId>/present/<sha256>.js`, once published. */
+  readonly presentUrl: string
+}
+
+/**
+ * Which runs a version serves now. `ranked`: `today` when it is the day's
+ * line's ranked version, `from-next-seed` when its line is newer than the
+ * day's and the next day's seed would pin it, `none` otherwise. `practice`:
+ * whether a practice start plays it now.
+ */
+export interface VersionServing {
+  readonly ranked: "today" | "from-next-seed" | "none"
+  readonly practice: boolean
 }
 
 /** A version as a studio's build system reads it back. */
@@ -191,6 +329,8 @@ export interface VersionStatus {
   readonly gameVersionId: string
   readonly gameId: string
   readonly version: string
+  /** The release line, `MAJOR.MINOR`. */
+  readonly line: string
   readonly state: VersionState
   /** The code the checks refused it with, when they did. */
   readonly rejectedCode: string | null
@@ -202,8 +342,29 @@ export interface VersionStatus {
   } | null
   /** ISO 8601. Null until the checks finish. */
   readonly checkedAt: string | null
-  /** Set while an operator has taken the version down. */
+  /**
+   * Set while an operator has taken the version down. Nothing else takes a
+   * version down: a studio supersedes one by publishing a newer one.
+   */
   readonly suspended: boolean
+  readonly serving: VersionServing
+  /**
+   * What publishing this version does to its line's scores. As a version
+   * publishes, the platform replays up to 50 of its release line's most
+   * recent settled ranked runs, played on the line's other versions, under
+   * this version's rules code, and counts the runs whose end tick, terminal
+   * or counters come out different. It decides nothing: the version
+   * publishes whatever the count says, and the studio is told. `compared` is
+   * 0 for a line's first version, which has no runs of its own line to
+   * replay. Null while the version is pending or rejected, or when the
+   * platform has not measured it.
+   */
+  readonly patchScores: {
+    /** The line's runs replayed under this version's rules code. */
+    readonly compared: number
+    /** Of those, the runs that ended differently. */
+    readonly differing: number
+  } | null
   readonly createdAt: string
 }
 
@@ -245,13 +406,26 @@ export interface StartRunRequest {
 }
 
 /**
+ * The byte caps a run's writes are held to. A page splits a chunk larger
+ * than `chunkBytes`, and ends a run before what it committed reaches
+ * `runBytes`, rather than having either refused.
+ */
+export interface RunLimits {
+  /** The most one `POST /v1/runs/:id/chunks` body may hold. */
+  readonly chunkBytes: number
+  /** The most a run's chunks may hold together, and the most a recording may. */
+  readonly runBytes: number
+}
+
+/**
  * `POST /v1/runs`: a run of the key's game, started or found again.
  *
  * Starting again before any of a run has reached the server answers the same
- * run, which is what a refresh is. Once part of it has, starting again closes
- * it, settles it from what it committed, and answers a new run. `tickHz`,
- * `config` and the game's manifest hash are plain JSON here; the engine's own
- * types narrow them on the page.
+ * run, on the version it started on, which is what a refresh is: it may be an
+ * older patch than a fresh start would pick. Once part of it has, starting
+ * again closes it, settles it from what it committed, and answers a new run.
+ * `tickHz`, `config` and the game's manifest hash are plain JSON here; the
+ * engine's own types narrow them on the page.
  */
 export interface StartedRun {
   readonly sessionId: string
@@ -268,23 +442,20 @@ export interface StartedRun {
     /** The version this run plays. */
     readonly id: string
     /**
-     * The game document to put in the page's sandboxed frame for this run.
-     * A practice run can play a version no round names, so this is the only
-     * place a page learns where its frame is.
+     * This run's own page module, absolute. A resumed run plays the version
+     * it started on, which may not be the one `GET /v1/game` names, so this
+     * is the module a page has to play it with.
      */
-    readonly frameUrl: string
-    /** Compared against the frame's own before a tick runs. */
+    readonly presentUrl: string
+    /** Compared against the page module's own before a tick runs. */
     readonly manifestHash: string
-    /**
-     * The manifest of the version this run plays, as uploaded. A practice
-     * run can play a newer version than today's round, so this, rather
-     * than `GET /v1/game`'s, is what says which controls to draw.
-     */
+    /** The manifest of the version this run plays, as uploaded. */
     readonly manifest: unknown
     readonly tickHz: number
     readonly maxTicks: number
     readonly maxWallSeconds: number
   }
+  readonly limits: RunLimits
   /** The player's token, renewed. Keep this one and drop the last. */
   readonly token: string
   readonly expiresIn: number
@@ -297,7 +468,7 @@ export interface StartedRun {
  * `throughTick` is the highest tick the chunk commits, and the next chunk may
  * carry nothing at or below it. The engine takes a tick's inputs before it
  * runs that tick and writes its checkpoint after, so while a run plays a page
- * commits through the tick before the last one the frame reported, or its
+ * commits through the tick before the last one the game reported, or its
  * highest input tick if that is higher, and through the end tick once the run
  * has ended. Committing the last reported tick while the run plays gets the
  * next chunk refused for an input at that tick.
@@ -306,14 +477,14 @@ export interface RunChunk {
   /** 0 for the first chunk, then 1, 2 and on. */
   readonly seq: number
   readonly throughTick: number
-  /** The frame's checkpoints since the last chunk. */
+  /** The run's checkpoints since the last chunk. */
   readonly checkpoints: ReadonlyArray<{
     readonly tick: number
     readonly hash: string
   }>
-  /** The engine's input events since the last chunk, as the frame sent them. */
+  /** The engine's input events since the last chunk, as the page recorded them. */
   readonly inputs: readonly unknown[]
-  /** The frame's counters. Stored, and never ranked. */
+  /** The counters the page showed. Stored, and never ranked. */
   readonly counters?: Readonly<Record<string, number>>
 }
 
@@ -344,6 +515,11 @@ export interface BoardRow {
   readonly counters: Readonly<Record<string, number>>
   readonly day: string
   readonly sessionId: string
+  /**
+   * The exact version the run was played on. A day's rows all come from one
+   * release line, but each patch of it is its own row's version.
+   */
+  readonly version: string
 }
 
 /** `GET /v1/board`: one page of a game's board. */
@@ -376,7 +552,7 @@ export type RunFault = "mismatch" | "log_fault" | "platform_fault"
 /**
  * `GET /v1/runs/:id/result`: the player's own run and what its replay
  * decided. Only that player reads it, with their token; to anybody else it is
- * the 404 a missing run is. It never carries the seed.
+ * the 404 a missing run is, `E_NOT_FOUND`. It never carries the seed.
  *
  * `submitted` waits for a replay. `expired` is a run closed without a submit:
  * one that sent chunks is then replayed from them and moves on, and one that
@@ -409,9 +585,11 @@ export interface RunResult {
 }
 
 /**
- * `GET /v1/runs/:id`: a settled run, with what a frame needs to play it
- * back. A run from a day still open is its player's alone. `inputs` are the
- * engine's own input events, which the engine reads.
+ * `GET /v1/runs/:id`: a settled run, with what a page module needs to play it
+ * back. A run from a day still open is its player's alone; to anybody else,
+ * as for a run that does not exist or has not settled, the answer is
+ * `E_NOT_FOUND`. `inputs` are the engine's own input events, which the
+ * engine reads.
  */
 export interface WatchedRun {
   readonly sessionId: string
@@ -426,6 +604,16 @@ export interface WatchedRun {
   readonly seed: string
   readonly config: unknown
   readonly inputs: readonly unknown[]
+  /** The run's own version's page module, absolute. */
+  readonly presentUrl: string
+  /** The run's own version's manifest hash, which its page module must report. */
+  readonly manifestHash: string
+  /**
+   * How many ticks to replay: the validator's `min(max(endTick, 1), cap)`,
+   * so an abandoned run stops where its player left it. Null when the run
+   * has nothing to replay.
+   */
+  readonly replayTicks: number | null
 }
 
 /**
@@ -449,7 +637,7 @@ export interface PlatformRoutes {
   }
   readonly "POST /v1/games/:gameId/versions": {
     readonly auth: "secret-key"
-    /** Multipart: `manifest` (JSON), `sim` and `frame` (JavaScript). */
+    /** Multipart: `manifest` (JSON), `sim` and `present` (JavaScript). */
     readonly body: "multipart"
     readonly response: UploadedVersion
   }

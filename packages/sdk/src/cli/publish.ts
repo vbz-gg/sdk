@@ -4,9 +4,13 @@
  *
  * It is meant for a studio's build system, so everything it needs comes from
  * flags and the environment, and its exit code is the verdict: 0 when the
- * version went live, 1 for anything else. The studio's secret key is read
- * from the environment only. A flag would put it in shell history and in the
- * process list, where anybody on the machine can read it.
+ * version passed its checks and is published, with which runs it serves
+ * printed, and 1 for anything else, a version an operator took down included.
+ * It prints the release line a version joined, and a refusal's `detail` where
+ * the platform gives one, such as which fixed fields a patch changed. The
+ * studio's secret key is read from the environment only. A flag would put it
+ * in shell history and in the process list, where anybody on the machine can
+ * read it.
  *
  * Every decision is here rather than in the entry point, because the entry
  * point is excluded from the coverage floor.
@@ -17,16 +21,22 @@ import { join } from "node:path"
 import type {
   ApiErrorBody,
   PageKey,
+  PatchChangesRulesDetail,
   PlatformRoutes,
   SecretKey,
   UploadedVersion,
+  VersionNotNewerDetail,
+  VersionServing,
   VersionState,
   VersionStatus,
 } from "../api/index.js"
 import { DIST_DIR, DIST_FILES } from "../build/dist.js"
 
-/** Where a studio's platform answers, unless a flag or the environment says. */
-export const DEFAULT_API_ORIGIN = "https://studio.vbz.gg"
+/**
+ * The platform's API, unless a flag or the environment names another.
+ * `https://studio.vbz.gg` is the studio dashboard, not the API.
+ */
+export const DEFAULT_API_ORIGIN = "https://api.vbz.gg"
 
 /** The environment variable holding the studio's secret key. */
 export const STUDIO_KEY_VARIABLE = "VBZ_STUDIO_KEY"
@@ -98,6 +108,8 @@ export class PublishError extends Error {
     readonly refusal?: string,
     /** The HTTP status the platform answered with, when it answered. */
     readonly status?: number,
+    /** What the refusal was about, when the platform said. */
+    readonly detail?: Readonly<Record<string, unknown>>,
   ) {
     super(`${message} (${code}${refusal === undefined ? "" : `, ${refusal}`})`)
   }
@@ -219,11 +231,11 @@ function badOrigin(raw: string, why: string): PublishError {
   )
 }
 
-/** The three files an upload carries, as `vbz build` wrote them. */
+/** The three files an upload carries, as the bytes `vbz build` wrote. */
 export interface BuiltGame {
-  readonly manifest: string
+  readonly manifest: Uint8Array<ArrayBuffer>
   readonly sim: Uint8Array<ArrayBuffer>
-  readonly frame: Uint8Array<ArrayBuffer>
+  readonly present: Uint8Array<ArrayBuffer>
 }
 
 /** Reads `dist/`, naming a file that is missing. */
@@ -242,12 +254,12 @@ export async function readBuild(dir: string): Promise<BuiltGame> {
       throw error
     }
   }
-  const [manifest, sim, frame] = await Promise.all([
+  const [manifest, sim, present] = await Promise.all([
     read(DIST_FILES.manifest),
     read(DIST_FILES.sim),
-    read(DIST_FILES.frame),
+    read(DIST_FILES.present),
   ])
-  return { manifest: new TextDecoder().decode(manifest), sim, frame }
+  return { manifest, sim, present }
 }
 
 /** What a publish needs from the world, so a test can stand in for each. */
@@ -277,17 +289,24 @@ export async function publish(
   const built = await readBuild(settings.dir)
   deps.log(`uploading ${join(settings.dir, DIST_DIR)} to ${settings.apiOrigin}`)
 
+  // Every part is a file, sent as its bytes. A text part is not: an encoder
+  // following the HTML standard, as Bun 1.4's and Node's do, rewrites each
+  // line feed in one as CRLF, and Bun 1.3's did not.
   const form = new FormData()
-  form.append("manifest", built.manifest)
+  form.append(
+    "manifest",
+    new Blob([built.manifest], { type: "application/json" }),
+    DIST_FILES.manifest,
+  )
   form.append(
     "sim",
     new Blob([built.sim], { type: "text/javascript" }),
     DIST_FILES.sim,
   )
   form.append(
-    "frame",
-    new Blob([built.frame], { type: "text/javascript" }),
-    DIST_FILES.frame,
+    "present",
+    new Blob([built.present], { type: "text/javascript" }),
+    DIST_FILES.present,
   )
 
   const uploaded: ResponseOf<"POST /v1/games/:gameId/versions"> = asUploaded(
@@ -303,7 +322,7 @@ export async function publish(
     ),
   )
   deps.log(
-    `uploaded version ${uploaded.version} as ${uploaded.gameVersionId}; the platform is checking it`,
+    `uploaded version ${uploaded.version} as ${uploaded.gameVersionId}, in release line ${uploaded.line}; the platform is checking it`,
   )
 
   const versionUrl = `${settings.apiOrigin}/v1/studios/${encodeURIComponent(uploaded.studioId)}/versions/${encodeURIComponent(uploaded.gameVersionId)}`
@@ -412,6 +431,7 @@ async function call(
         `the platform refused: ${body.message}`,
         body.error,
         response.status,
+        body.detail,
       )
     }
     throw new PublishError(
@@ -432,7 +452,8 @@ function isErrorBody(value: unknown): value is ApiErrorBody {
   return (
     isRecord(value) &&
     typeof value.error === "string" &&
-    typeof value.message === "string"
+    typeof value.message === "string" &&
+    (value.detail === undefined || isRecord(value.detail))
   )
 }
 
@@ -447,7 +468,8 @@ function asUploaded(value: unknown): UploadedVersion {
     isRecord(value) &&
     typeof value.gameVersionId === "string" &&
     typeof value.studioId === "string" &&
-    typeof value.version === "string"
+    typeof value.version === "string" &&
+    typeof value.line === "string"
   ) {
     return value as unknown as UploadedVersion
   }
@@ -467,21 +489,35 @@ const VERSION_STATES: ReadonlySet<string> = new Set<VersionState>([
   "published",
 ])
 
+const RANKED_SERVING: ReadonlySet<string> = new Set<VersionServing["ranked"]>([
+  "today",
+  "from-next-seed",
+  "none",
+])
+
 /**
  * A version's state, checked in every field the verdict reads. A missing
- * `suspended` would otherwise read as served, and a missing `firstFailure`
- * would crash the line that prints it.
+ * `suspended` would otherwise read as served, a missing `serving` would print
+ * nothing about which runs play it, a missing `firstFailure` would crash the
+ * line that prints it, and a `patchScores` that is not two counts would
+ * print a measurement the platform never made.
  */
 function asStatus(value: unknown): VersionStatus {
   if (
     isRecord(value) &&
     typeof value.gameVersionId === "string" &&
     typeof value.version === "string" &&
+    typeof value.line === "string" &&
     typeof value.state === "string" &&
     VERSION_STATES.has(value.state) &&
     typeof value.suspended === "boolean" &&
+    isRecord(value.serving) &&
+    typeof value.serving.ranked === "string" &&
+    RANKED_SERVING.has(value.serving.ranked) &&
+    typeof value.serving.practice === "boolean" &&
     (value.rejectedCode === null || typeof value.rejectedCode === "string") &&
-    (value.firstFailure === null || isFailure(value.firstFailure))
+    (value.firstFailure === null || isFailure(value.firstFailure)) &&
+    (value.patchScores === null || isPatchScores(value.patchScores))
   ) {
     return value as unknown as VersionStatus
   }
@@ -489,6 +525,16 @@ function asStatus(value: unknown): VersionStatus {
     PUBLISH_ERROR.ANSWER_UNREADABLE,
     "the platform's answer about the version is not a version's state",
   )
+}
+
+function isCount(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0
+}
+
+function isPatchScores(value: unknown): boolean {
+  if (!isRecord(value)) return false
+  const { compared, differing } = value
+  return isCount(compared) && isCount(differing) && differing <= compared
 }
 
 function isFailure(value: unknown): boolean {
@@ -506,9 +552,46 @@ export interface Verdict {
   readonly exitCode: 0 | 1
 }
 
+/** Which runs a published version serves, as a build log says it. */
+const RANKED_LINES: Readonly<Record<VersionServing["ranked"], string>> = {
+  today:
+    "ranked runs: today's, from the next start, since it is the highest published patch of the day's release line",
+  "from-next-seed":
+    "ranked runs: from the next day's seed, which pins its line; today's ranked runs stay on the day's line",
+  none: "ranked runs: none, because its line is not the day's and a newer line is published, or a higher patch of its line is",
+}
+
+function practiceLine(practice: boolean): string {
+  return practice
+    ? "practice runs: from the next start, since it is the newest playable version"
+    : "practice runs: none, because a newer version is playable or the game offers no practice"
+}
+
 /**
- * The verdict a build log shows. Only a version players can be served exits
- * 0: one an operator has taken down is published and still not live.
+ * What the platform measured of a published version against its line's
+ * recent ranked runs, in its own terms, or nothing when it has not measured
+ * it. The count decides nothing; it is printed for the studio to read.
+ */
+function patchScoreLines(status: VersionStatus): string[] {
+  const scores = status.patchScores
+  if (scores === null) return []
+  if (scores.compared === 0) {
+    return [
+      `patch check: line ${status.line} has no settled ranked runs yet to compare this version with`,
+    ]
+  }
+  const runs = scores.compared === 1 ? "run" : "runs"
+  const end = scores.differing === 1 ? "ends" : "end"
+  return [
+    `patch check: ${scores.differing} of ${scores.compared} recent ranked ${runs} on line ${status.line} ${end} differently under this version`,
+  ]
+}
+
+/**
+ * The verdict a build log shows. A version that passed its checks and is
+ * published exits 0, with which runs it serves and what the platform
+ * measured of it against its line's runs; one an operator has taken down is
+ * published and still exits 1, because no player is served it.
  */
 export function verdictOf(status: VersionStatus): Verdict {
   if (status.state === "pending") {
@@ -519,11 +602,20 @@ export function verdictOf(status: VersionStatus): Verdict {
       return {
         lines: [
           `published version ${status.version}, but an operator has taken it down, so no player is served it`,
+          ...patchScoreLines(status),
         ],
         exitCode: 1,
       }
     }
-    return { lines: [`published version ${status.version}`], exitCode: 0 }
+    return {
+      lines: [
+        `published version ${status.version}, in release line ${status.line}`,
+        RANKED_LINES[status.serving.ranked],
+        practiceLine(status.serving.practice),
+        ...patchScoreLines(status),
+      ],
+      exitCode: 0,
+    }
   }
   const lines = [
     `rejected version ${status.version}: ${status.rejectedCode ?? "no code given"}`,
@@ -533,4 +625,59 @@ export function verdictOf(status: VersionStatus): Verdict {
     lines.push(`first failure: ${check}, ${code}: ${message}`)
   }
   return { lines, exitCode: 1 }
+}
+
+function isStrings(value: unknown): value is readonly string[] {
+  return Array.isArray(value) && value.every((v) => typeof v === "string")
+}
+
+function isPatchChangesRules(
+  detail: Readonly<Record<string, unknown>>,
+): detail is Readonly<Record<string, unknown>> & PatchChangesRulesDetail {
+  return (
+    typeof detail.line === "string" &&
+    typeof detail.comparedWith === "string" &&
+    isStrings(detail.fields) &&
+    typeof detail.nextMinor === "string"
+  )
+}
+
+function isVersionNotNewer(
+  detail: Readonly<Record<string, unknown>>,
+): detail is Readonly<Record<string, unknown>> & VersionNotNewerDetail {
+  const versionOrNull = (value: unknown) =>
+    value === null || typeof value === "string"
+  return (
+    versionOrNull(detail.highestInLine) && versionOrNull(detail.highestInGame)
+  )
+}
+
+/**
+ * What a refusal's `detail` says, for the two refusals whose detail tells an
+ * author what to do next. Any other detail is printed as the platform sent
+ * it, for a log; a detail that is not the shape its code promises is printed
+ * that way too, rather than read half right.
+ */
+function detailLines(
+  refusal: string | undefined,
+  detail: Readonly<Record<string, unknown>> | undefined,
+): string[] {
+  if (detail === undefined) return []
+  if (refusal === "E_PATCH_CHANGES_RULES" && isPatchChangesRules(detail)) {
+    return [
+      `release line ${detail.line} fixes ${detail.fields.join(", ")}, as ${detail.comparedWith} set them`,
+      `publish these rules as ${detail.nextMinor} instead`,
+    ]
+  }
+  if (refusal === "E_VERSION_NOT_NEWER" && isVersionNotNewer(detail)) {
+    return [
+      `the highest version in its release line is ${detail.highestInLine ?? "none yet"}, and the highest the game has is ${detail.highestInGame ?? "none yet"}`,
+    ]
+  }
+  return [`detail: ${JSON.stringify(detail)}`]
+}
+
+/** What a publish that stopped prints: why, and what the platform's detail says. */
+export function failureLines(error: PublishError): string[] {
+  return [error.message, ...detailLines(error.refusal, error.detail)]
 }

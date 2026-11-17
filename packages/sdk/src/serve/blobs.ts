@@ -1,29 +1,35 @@
 /**
- * Serving a game's two artifacts over HTTP.
+ * Serving a game's two modules over HTTP, the way the platform's edge does.
  *
- * A handler rather than a server, so it is testable without a port and so the
- * frame document can be mounted on the same origin - which it must be, because
- * the frame's rewritten import is root-relative and resolves against the frame
- * document's own URL.
+ * In production a published version's rules code and page module sit in a
+ * public bucket behind a CDN, under `/g/<gameId>/sim/<sha256>.js` and
+ * `/g/<gameId>/present/<sha256>.js`, answered with the headers below. This
+ * handler answers the same paths with the same headers, so the harness and
+ * the platform's development `bundles` role give a page the answer it will
+ * meet from the edge.
+ *
+ * A handler rather than a server, so it is testable without a port and so a
+ * caller can mount it beside whatever else an origin serves.
  */
 
-/** The two shapes a blob path may take. Anything else never reaches a store. */
-export const BLOB_PATH = /^\/(sim|frame)\/[0-9a-f]{64}\.js$/
+import { ARTIFACT_PATH } from "../build/paths.js"
+
+/** The paths a bundle server answers. Anything else never reaches a store. */
+export const BLOB_PATH = ARTIFACT_PATH
 
 export const JS_CONTENT_TYPE = "text/javascript; charset=utf-8"
 
-/** Every blob is named by the digest of its own body, so it never changes. */
+/** Every module is named by the digest of its own body, so it never changes. */
 export const BLOB_CACHE_CONTROL = "public, max-age=31536000, immutable"
 
 /**
- * The headers every blob response carries, hit or miss.
+ * The headers every response carries, hit or miss.
  *
- * `access-control-allow-origin: *` is not laziness. The frame document runs
- * under `sandbox="allow-scripts"` with no `allow-same-origin`, so its origin
- * is the string `null` and there is no origin to put in a list. Without this
- * the frame loads nothing, posts no `ready`, and shows a blank game with no
- * error in the parent, which is a trap worth meeting locally rather than in
- * production.
+ * `access-control-allow-origin: *`, because a page module is imported by a
+ * studio's page from another origin and every module import is a CORS
+ * request. What these files hold is public: a published game's code. Which
+ * page may run it is the studio's Content-Security-Policy to say, naming its
+ * own game's path, rather than this server's.
  *
  * The miss carries it too. A 404 without CORS is reported to the page as a
  * network failure, which sends whoever hit it looking at the wrong layer.
@@ -34,8 +40,23 @@ const CORS_HEADERS: Record<string, string> = {
   "cross-origin-resource-policy": "cross-origin",
 }
 
-/** Reads a stored artifact by its path, without the leading slash. */
+/** Reads a stored module by its path, without the leading slash. */
 export type BlobReader = (key: string) => Promise<Uint8Array | undefined>
+
+/** The digest a module's path names, which is its entity tag. */
+function etagOf(pathname: string): string {
+  const file = pathname.slice(pathname.lastIndexOf("/") + 1)
+  return `"${file.slice(0, -".js".length)}"`
+}
+
+/** Whether `If-None-Match` names this tag, or anything. */
+function matches(header: string | null, etag: string): boolean {
+  if (header === null) return false
+  return header
+    .split(",")
+    .map((tag) => tag.trim().replace(/^W\//, ""))
+    .some((tag) => tag === "*" || tag === etag)
+}
 
 export function createBlobServer(
   read: BlobReader,
@@ -54,10 +75,18 @@ export function createBlobServer(
     const body = await read(pathname.slice(1))
     if (body === undefined) return text(404, "not found")
 
-    const headers: Record<string, string> = {
+    const etag = etagOf(pathname)
+    const cached: Record<string, string> = {
       ...CORS_HEADERS,
-      "content-type": JS_CONTENT_TYPE,
       "cache-control": BLOB_CACHE_CONTROL,
+      etag,
+    }
+    if (matches(request.headers.get("if-none-match"), etag)) {
+      return new Response(null, { status: 304, headers: cached })
+    }
+    const headers: Record<string, string> = {
+      ...cached,
+      "content-type": JS_CONTENT_TYPE,
       // Makes a wrong content-type a deterministic refusal rather than a
       // browser-dependent guess.
       "x-content-type-options": "nosniff",

@@ -225,13 +225,14 @@ describe("what a copy is", () => {
       // An author runs `bun install` first; a temp directory has no node
       // modules above it, so the engine is linked in rather than installed.
       await symlink(resolve("node_modules"), join(dir, "node_modules"))
-      const { sim, frame } = await buildGameArtifacts({
+      const { sim, present } = await buildGameArtifacts({
         root: dir,
         simEntry: "src/sim/index.ts",
-        frameEntry: "src/frame.ts",
+        presentEntry: "src/present.ts",
+        captureEntry: "src/capture.ts",
       })
       expect(sim.byteLength).toBeGreaterThan(1000)
-      expect(frame.byteLength).toBeGreaterThan(sim.byteLength)
+      expect(present.byteLength).toBeGreaterThan(sim.byteLength)
       // The renamed id travelled into the built simulation rather than
       // staying a string in a file nobody reads.
       expect(new TextDecoder().decode(sim)).toContain("fresh-game")

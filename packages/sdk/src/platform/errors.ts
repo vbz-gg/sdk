@@ -5,11 +5,16 @@
  * `PublicRefusalCode`, the status it always comes with, a sentence a person
  * can read and a detail for a log. A `PlatformClientError` is this client
  * failing before or around a request: a popup the browser blocked, a request
- * that got no answer, a frame serving another game. Both carry a `code` a page
+ * that got no answer, a game's code that did not load. Both carry a `code` a page
  * switches on, and the two code sets never overlap.
  */
 
 import type { PublicRefusalCode } from "../api/index.js"
+import type {
+  MOUNT_ERROR,
+  PageModule,
+  PageModuleProblemCode,
+} from "../game/contract.js"
 
 export class PlatformRefusal extends Error {
   readonly code: PublicRefusalCode
@@ -46,23 +51,66 @@ export const CLIENT_ERROR = {
   E_UNREACHABLE: "the platform did not answer",
   /** An answer that is not JSON, or a failure with no code in it. */
   E_ANSWER_UNREADABLE: "the platform's answer could not be read",
-  /** The frame reported another manifest than the one the run was issued for. */
+  /** The game's page module did not load: the network, the page's CSP, or an address that is not https. */
+  E_GAME_UNLOADABLE:
+    "the game's code did not load from its address; check the network and that the page's Content-Security-Policy allows the game's path, then reload the page to try again",
+  /** What the page module exports is not a page module; the detail names the field. */
+  E_GAME_MODULE_INVALID: "the game's page module is not one this page can play",
+  /** The page module speaks a contract version this page's SDK does not drive. */
+  E_GAME_CONTRACT_UNKNOWN:
+    "the game's page module was built for a newer @vbz-gg/sdk than this page's; update the page's @vbz-gg/sdk",
+  /** The game's input mapping names an input or a device its manifest does not allow. */
+  E_CAPTURE_INVALID:
+    "the game's input mapping does not match the inputs its manifest declares",
+  /** A script on the page replaced a built-in the rules code calls; the detail names it. */
+  E_PAGE_ALTERS_BUILTINS:
+    "a script on this page replaced a built-in the game's rules code calls, so the page would play a different game from the one the platform replays",
+  /** The page module, or the run's, is another version than the one expected. */
   E_WRONG_GAME:
-    "the frame serves another version of the game than the one this run plays",
+    "the game's page module is another version of the game than the one this run plays",
   /** The run's tick rate is not one the engine runs at. */
   E_TICK_RATE_UNSUPPORTED: "the run's tick rate is not 30, 60 or 120",
-  /** The frame's recording did not parse as JSON. */
-  E_RECORDING_UNREADABLE: "the frame's recording could not be read",
-  /** The frame posted an error of its own. */
-  E_FRAME_FAILED: "the game's frame reported an error",
-  /** The frame speaks another version of the engine's frame protocol. */
-  E_FRAME_PROTOCOL:
-    "the game's frame speaks another version of the frame protocol than this page's engine",
-  /** The manifest is not an object a host can read controls from. */
-  E_MANIFEST_UNREADABLE: "the game's manifest could not be read",
-  /** The manifest names a scheme, or a slot, this SDK does not draw. */
-  E_SCHEME_UNDRAWABLE:
-    "the game's manifest names on-screen controls this SDK does not draw",
+  /** The run's own module reads tilt, and the tap that started it did not ask. */
+  E_MOTION_NEEDS_TAP:
+    "this run's game reads tilt, which a browser grants only from a tap; tap Play again to carry on with the same run",
+  /*
+   * The five below are the engine's refusals of tilt, by its own names. A
+   * game that reads tilt starts no run without it, so `playRun` fails the run
+   * with whichever the click's request answered, before a run is started.
+   */
+  /** The page is not https, or localhost, and a browser gives tilt only to a secure page. */
+  E_MOTION_INSECURE:
+    "this game is steered by tilting, and a browser gives tilt only to an https page, so no run was started; open the game at its https address",
+  /** The browser has no orientation events, or cannot say which way its screen is turned. */
+  E_MOTION_UNSUPPORTED:
+    "this game is steered by tilting, and this browser cannot read tilt, so no run was started; play it on a phone or tablet in a current browser",
+  /**
+   * The player did not allow tilt, or was asked outside a tap. iOS remembers
+   * the refusal for the site and answers every later request with it without
+   * asking, until the site's data is cleared in the browser's settings.
+   */
+  E_MOTION_DENIED:
+    "this game is steered by tilting, and tilt was not allowed, so no run was started; tap Play and allow it, or if the browser does not ask again, clear this site's data in the browser's settings and reload the page",
+  /** The page's own permissions policy keeps the motion sensors from the game. */
+  E_MOTION_BLOCKED:
+    "this game is steered by tilting, and this page does not allow the motion sensors, so no run was started; only the page's owner can change that, so tell the game's studio",
+  /** No reading arrived: a laptop or a desktop, or a device whose browser keeps its sensors from the site. */
+  E_MOTION_NO_SENSOR:
+    "this game is steered by tilting, and no tilt reading came from this device, so no run was started; play it on a phone or tablet, with motion sensors allowed for this site in the browser's settings",
+  /**
+   * The browser has no Web Locks, so it cannot keep a run to one tab: Safari
+   * before 15.4, or a page that is not https. Nothing was started.
+   */
+  E_BROWSER_UNSUPPORTED:
+    "this browser cannot keep a run to one tab; play on an https page in Safari 15.4 or later, or another current browser",
+  /**
+   * Another tab or window of this browser is playing this game in this mode,
+   * so nothing was started: a start would close its run.
+   */
+  E_RUN_OPEN_ELSEWHERE:
+    "a run of this game in this mode is being played in another tab or window; finish it there first",
+  /** The run's replay covers no ticks, so there is nothing to show. */
+  E_NOTHING_TO_WATCH: "the run has nothing to replay",
   /** The manifest declares a data pack the simulation reads. */
   E_SIM_PACKS:
     "the game's manifest declares a data pack its simulation reads, which the platform cannot store or replay yet",
@@ -78,6 +126,28 @@ export type ClientErrorCode = keyof typeof CLIENT_ERROR
  */
 type Shared = Extract<ClientErrorCode, PublicRefusalCode>
 export const NO_CODE_IS_BOTH: [Shared] extends [never] ? true : Shared = true
+
+/** Every refusal a page module's `requestMotion` can answer. */
+type MotionRefusalCode = Extract<
+  Awaited<ReturnType<PageModule["requestMotion"]>>,
+  { readonly granted: false }
+>["code"]
+
+/**
+ * Fails to compile when a page module can report a code this table does not
+ * explain: a problem or a mount failure of its own, or a refusal of tilt,
+ * which `playRun` fails a run with. So every code a run fails with outside
+ * the engine's mount errors and the platform's own is one a page can look up
+ * here.
+ */
+type FromTheModule =
+  | PageModuleProblemCode
+  | (typeof MOUNT_ERROR)[keyof typeof MOUNT_ERROR]
+  | MotionRefusalCode
+type Unexplained = Exclude<FromTheModule, ClientErrorCode>
+export const EVERY_MODULE_CODE_IS_EXPLAINED: [Unexplained] extends [never]
+  ? true
+  : Unexplained = true
 
 export class PlatformClientError extends Error {
   readonly code: ClientErrorCode
