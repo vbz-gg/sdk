@@ -79,6 +79,23 @@ function refuseWith(error: unknown): void {
  * the run has ended and the report has come back.
  */
 async function publish(ended: LocalEnd): Promise<void> {
+  if (ended.recording === null) {
+    // Ended while its tilt prompt was open: no tick ran and nothing was
+    // recorded, so there is nothing to replay or save.
+    reportBlock.textContent =
+      "nothing was played, so there is nothing to replay"
+    runBlock.textContent = JSON.stringify({
+      result: {
+        tick: ended.tick,
+        counters: ended.counters,
+        reason: ended.reason,
+      },
+      recording: null,
+      report: null,
+    })
+    document.body.dataset.run = "recorded"
+    return
+  }
   const recording = JSON.stringify(ended.recording)
   save.href = URL.createObjectURL(
     new Blob([recording], { type: "application/json" }),

@@ -182,7 +182,7 @@ describe("a local run's seed", () => {
     expect(made.seed).toMatch(/^local:[0-9a-f]{32}$/)
     await settle()
     given.end()
-    expect(seen.ended[0]?.recording.seed).toBe(`local:${"a".repeat(64)}`)
+    expect(seen.ended[0]?.recording?.seed).toBe(`local:${"a".repeat(64)}`)
   })
 })
 
@@ -220,9 +220,9 @@ describe("playing a local run", () => {
       expect(seen.ended).toHaveLength(1)
       const ended = seen.ended[0] as LocalEnd
       expect(ended).toMatchObject({ tick: 2_000, reason: "completed" })
-      expect(ended.recording.inputs).toHaveLength(2)
-      expect(ended.recording.seed).toBe("local:s")
-      expect(ended.recording.config).toEqual({ endAt: 2_000 })
+      expect(ended.recording?.inputs).toHaveLength(2)
+      expect(ended.recording?.seed).toBe("local:s")
+      expect(ended.recording?.config).toEqual({ endAt: 2_000 })
       expect(asked).toEqual([])
     } finally {
       globalThis.fetch = real
@@ -356,11 +356,12 @@ describe("what a local run refuses", () => {
 
   /**
    * The player leaves while the tilt prompt is open, and the page starts the
-   * next run in the same element. Whatever the first prompt answers later,
-   * the first run mounts nothing there, takes no focus and reports nothing:
-   * it never started, and the element is the second run's.
+   * next run in the same element. The page hears at once that the first
+   * ended, as a run of no ticks with nothing recorded, and whatever the
+   * first prompt answers later, the first run mounts nothing there, takes
+   * no focus and reports nothing more: the element is the second run's.
    */
-  test("ended while its tilt prompt is open, it leaves the element to the next run", async () => {
+  test("ended while its tilt prompt is open, it ends at tick 0 at once and leaves the element to the next run", async () => {
     for (const answer of [
       { granted: true },
       { granted: false, code: MOTION_REFUSALS.DENIED, detail: "no" },
@@ -385,6 +386,12 @@ describe("what a local run refuses", () => {
         ...first.handlers,
       })
       run.end()
+      // Heard in the same turn, before anything is awaited.
+      expect(first.seen.ended).toEqual([
+        { tick: 0, reason: "abandoned", counters: {}, recording: null },
+      ])
+      // Ending it again says nothing more.
+      run.end()
       await settle()
 
       // The next run, in the same element, on a game that asks for nothing.
@@ -406,7 +413,9 @@ describe("what a local run refuses", () => {
       await settle()
       await settle()
       scheduler.run(10, FRAME_MS)
-      expect(first.seen).toMatchObject({ ended: [], errors: [], frames: 0 })
+      expect(first.seen.ended).toHaveLength(1)
+      expect(first.seen).toMatchObject({ errors: [], frames: 0 })
+      expect(run.recorded()).toEqual([])
       // Nothing of the first run's reached the element or took focus.
       expect(stage.childElementCount).toBe(drawn)
       expect(stage.getAttribute("aria-label")).toBe("Second")
@@ -414,6 +423,28 @@ describe("what a local run refuses", () => {
       expect(second.seen.errors).toEqual([])
       expect(second.seen.frames).toBe(10)
     }
+  })
+
+  /** Taken down instead, it says nothing at all, then or later. */
+  test("destroyed while its tilt prompt is open, it reports nothing", async () => {
+    let grant: (access: MotionAccess) => void = () => {}
+    const asking: PageModule = {
+      ...moduleOf(MANIFEST, { granted: true }),
+      requestMotion: () =>
+        new Promise<MotionAccess>((resolve) => {
+          grant = resolve
+        }),
+    }
+    const game = await loaded(asking, new ManualScheduler(), devices())
+    const { seen, handlers } = listener()
+    const run = playLocal(stage, { game, scripted: "ignore", ...handlers })
+    run.destroy()
+    run.end()
+    grant({ granted: true })
+    await settle()
+    await settle()
+    expect(seen).toMatchObject({ ended: [], errors: [], frames: 0 })
+    expect(stage.childElementCount).toBe(0)
   })
 
   /**

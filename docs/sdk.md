@@ -335,11 +335,12 @@ without it, as `playRun` does. A contract-1 module cannot say its tick rate or
 its config, and is refused with `E_LOCAL_PLAY_UNSUPPORTED`; a game with a
 required setting that has no default, played with no config, with
 `E_CONFIG_REQUIRED`. `end()` ends a run where it stands and `onEnded` follows
-with its recording. An `end()` while the tilt prompt is still open comes
-before any run started, so whatever the prompt answers nothing is mounted,
-nothing takes focus and nothing is reported, as `playRun` does for a player
-who leaves before the platform answers: the element is the page's again at
-once, for the next run.
+with its recording, so a page always hears how a run ended. An `end()` while
+the tilt prompt is still open comes before any run started: `onEnded`
+follows at once with an empty run, tick 0, no counters and a null
+recording, and whatever the prompt answers afterwards, nothing is mounted,
+nothing takes focus and nothing more is reported, so the element is the
+page's again at once, for the next run.
 
 A local run can never pass for a ranked or practice run. Its seed always
 starts `local:`, whatever the page passes, and every seed the platform issues

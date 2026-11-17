@@ -49,7 +49,13 @@ export type LocalRecording = Recording & {
 
 /** How a local run ended, with its recording. */
 export interface LocalEnd extends Omit<MountedEnd, "recording"> {
-  readonly recording: LocalRecording
+  /**
+   * The run's recording; or null for a run the page ended before it
+   * started, while its tilt prompt was still open, which played no tick and
+   * recorded nothing. Then `tick` is 0, `reason` is `abandoned` and
+   * `counters` is empty.
+   */
+  readonly recording: LocalRecording | null
 }
 
 /** Why a local run did not start, or stopped: the module's code, or the client's. */
@@ -116,10 +122,11 @@ export interface LocalRun {
   /**
    * The player leaving: the run ends where it stands, and `onEnded` follows.
    * Before the game is mounted, while the tilt prompt is open, no run has
-   * started, so there is none to end: whatever the prompt answers, nothing
-   * is mounted, nothing takes focus, and neither `onEnded` nor `onError`
-   * follows, as with `destroy()`. The element is the page's again at once,
-   * for the next run.
+   * started: `onEnded` follows at once with an empty run, tick 0 and no
+   * recording, so the page always hears how a run ended, and whatever the
+   * prompt answers later, nothing is mounted, nothing takes focus and
+   * nothing more is reported. The element is the page's again at once, for
+   * the next run.
    */
   end(): void
   /** Takes everything down, and reports nothing more. */
@@ -324,8 +331,22 @@ export function playLocal(
     motion,
     recorded: () => handle?.recorded() ?? [],
     end: () => {
+      if (stopped) return
       stopped = true
-      handle?.stop("abandoned")
+      if (handle !== null) {
+        handle.stop("abandoned")
+        return
+      }
+      // Ended before it started: nothing was played, and the page hears so
+      // now rather than whenever the prompt is answered.
+      if (!destroyed) {
+        options.onEnded({
+          tick: 0,
+          reason: "abandoned",
+          counters: {},
+          recording: null,
+        })
+      }
     },
     destroy: () => {
       stopped = true

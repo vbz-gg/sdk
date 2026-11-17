@@ -54,8 +54,10 @@ playButton.onclick = () => {
   local play, and `E_CONFIG_REQUIRED` for a game with a required setting that
   has no default when the page names no config.
 - `run.end()` while the tilt prompt is still open comes before any run
-  started: nothing is mounted and nothing is reported, whatever the prompt
-  answers, so the next run may take the element at once.
+  started: `onEnded` follows at once with an empty run, tick 0, no counters
+  and a `recording` of null, and whatever the prompt answers afterwards,
+  nothing is mounted and nothing more is reported, so the next run may take
+  the element at once.
 - A local run's recording can never pass for a ranked one. Its seed is no
   seed the platform issued, so the platform refuses it as played on a seed
   no run was issued (`E_PINNED_MISMATCH`) and stores nothing, and the

@@ -11,7 +11,7 @@
 import { expect, test } from "@playwright/test"
 import { CLIENT_ERROR } from "../../packages/sdk/src/platform/errors"
 import { open } from "../src/run"
-import { answerTilt, tiltAsked } from "../src/tilt"
+import { answerTilt, tiltAsked, tiltSensor } from "../src/tilt"
 
 /**
  * A run's clock starts only once the game's presentation is ready, so a
@@ -95,3 +95,43 @@ for (const how of ["fails", "throws"] as const) {
     await expect(page.locator("#stage > *")).toHaveCount(0)
   })
 }
+
+/**
+ * End pressed while the tilt prompt is still open: no run started, and the
+ * page still hears how it ended, at once, as a run of no ticks with nothing
+ * to replay. Whatever the prompt answers afterwards mounts nothing in the
+ * element, which may already be the next run's.
+ */
+test("End during the tilt prompt ends at tick 0 at once, and the late answer mounts nothing", async ({
+  context,
+  page,
+}) => {
+  await tiltSensor(context, page)
+  await page.addInitScript(() => {
+    const scope = window as unknown as { __grant?: () => void }
+    const orientation = DeviceOrientationEvent as unknown as {
+      requestPermission: () => Promise<string>
+    }
+    orientation.requestPermission = () =>
+      new Promise((resolve) => {
+        scope.__grant = () => resolve("granted")
+      })
+  })
+  await open(page, "paddle")
+  await page.getByRole("button", { name: "Start" }).click()
+  await expect(page.locator("#status")).toHaveText("playing")
+  await page.getByRole("button", { name: "End" }).click()
+  await expect(page.locator("#status")).toHaveText("abandoned at tick 0")
+  await expect(page.locator("body")).toHaveAttribute("data-run", "recorded")
+  await expect(page.locator("#report")).toHaveText(
+    "nothing was played, so there is nothing to replay",
+  )
+
+  // The prompt answers late: nothing is mounted, and nothing more is said.
+  await page.evaluate(() =>
+    (window as unknown as { __grant: () => void }).__grant(),
+  )
+  await page.waitForTimeout(1_000)
+  await expect(page.locator("#stage > *")).toHaveCount(0)
+  await expect(page.locator("#status")).toHaveText("abandoned at tick 0")
+})
