@@ -21,7 +21,6 @@ import {
 } from "../harness/index.js"
 import { DEFAULT_ADDRESS, type Options, parseArgs } from "./args.js"
 import { buildGame, buildLines, writeBuild } from "./build.js"
-import { checkGame, checkLines } from "./check.js"
 import { devSettings } from "./dev.js"
 import { failureLine } from "./failure.js"
 import { createGame } from "./new.js"
@@ -135,6 +134,10 @@ export async function main(argv: readonly string[]): Promise<number> {
       await build(options)
       return 0
     case "check": {
+      // Loaded here and by no other command: the engine's checks read code
+      // with TypeScript, which a game has only once its own install has run,
+      // and `vbz new` runs before that.
+      const { checkGame, checkLines } = await import("./check.js")
       const checked = await checkGame(sourceOf(options))
       for (const line of checkLines(checked, options.captureEntry)) {
         process.stdout.write(`${line}\n`)

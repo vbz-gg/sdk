@@ -485,6 +485,12 @@ its release line and the line's contract hash, `contractSha256`, so a patch
 can be compared with the line it joins before it is uploaded. It exits 0
 only when everything passes.
 
+The engine's checks read the rules code with TypeScript's own parser, so
+`vbz check` needs `typescript` installed in the game, and the template's
+`devDependencies` carry it. No other command needs it. `vbz new` runs before
+a game has installed anything, so the CLI loads the checks only when `check`
+is the command it was given.
+
 ## Where a game's code runs
 
 A game's code is the studio's, and so is everything it imports, which nobody

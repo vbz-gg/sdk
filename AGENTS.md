@@ -214,6 +214,23 @@ commands run beside a studio's secret key and cloud credentials.
 command has a test that plants a variable and holds the game's code to never
 seeing it.
 
+## What a command loads
+
+**Only `vbz check` loads `@clockwork2/engine/validate`, and only once it
+runs**, through an `import()` in the entry point. Everything the entry point
+imports statically is loaded before it reads which command it was given, and
+the engine's checks import `typescript`, an optional peer of the engine. A
+game has TypeScript once its own install has run, which is after `vbz new`,
+and `bunx @vbz-gg/sdk new` runs from an install holding the kit and the
+engine alone. The same goes for anything importing `pixi.js` or `three`.
+`tests/cli/startup.test.ts` walks what the entry point loads, as `tsc` emits
+it, into the installed engine.
+
+The kit declares no peer on `typescript`. The engine declares it, with the
+range its checks need, wherever the engine is installed, and the template's
+`devDependencies` carry it, so `vbz check` finds it in any game `vbz new`
+made.
+
 ## The publish command
 
 **`vbz publish` reads the studio's secret key from `VBZ_STUDIO_KEY` only.**
