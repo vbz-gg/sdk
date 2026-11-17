@@ -67,6 +67,9 @@ vbz publish <dir> --game <id>   upload dist/ and wait for the verdict
 `build` refuses a version that is not plain `MAJOR.MINOR.PATCH`. `check`
 also prints the version, its release line and the line's contract hash, so
 you can tell before an upload whether a patch keeps what its line fixes.
+`check --ranked` is how to test that a recording replays to the state it
+recorded before you publish: the platform runs only part of those checks on
+an upload, and none of the ones that test record and replay.
 
 `dev` is your game's page on your laptop. The game's two modules and its
 files folder are served on one port at the paths and with the headers
@@ -98,9 +101,10 @@ VBZ_STUDIO_KEY=vbz_sk_... vbz publish . --game <game id>
 
 It exits 0 when the version passed its checks and is published, and prints
 the release line it joined and which runs it serves: today's ranked runs,
-the next day's, or none, and practice or not. Once the platform has measured
-it, it also prints how many of the line's recent ranked runs end differently
-under the new version, which decides nothing and is there for you to read.
+the next day's, or none, and practice or not. Before the verdict the
+platform replays at most 3 of the line's most recent ranked runs under the
+new version, and with the verdict the command prints how many end
+differently, which decides nothing and is there for you to read.
 Anything else exits 1: a
 rejection prints the code and the first check that failed, a refusal prints
 the platform's detail, such as the fields a patch may not change, and a

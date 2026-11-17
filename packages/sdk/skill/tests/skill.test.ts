@@ -33,6 +33,7 @@ import {
   MAX_RUN_BYTES,
   MAX_SIM_BYTES,
   MAX_VERSION_PART,
+  PATCH_SCORE_RUNS,
   REPLAY_ANSWER_MARGIN_MS,
   REPLAY_CPU_BUDGET_MS,
   REPLAY_MEMORY_MB,
@@ -108,49 +109,89 @@ function section(markdown: string, heading: string): string {
   return markdown.slice(start, end === -1 ? undefined : end)
 }
 
+/** One union `/api` declares, as its source writes it. */
+interface ApiUnion {
+  /** Every string literal it names. */
+  readonly literals: ReadonlySet<string>
+  /** Those whose own doc comment says "No longer reached". */
+  readonly retired: ReadonlySet<string>
+}
+
+/** What a member's doc comment says when nothing reaches the code any more. */
+const RETIRED = "No longer reached"
+
 /**
- * The string literals of every union `/api` declares, by the union's name,
- * read from its source with TypeScript's parser. `/api` is types only, so a
- * union there has no value to import, and a copy of one here would drift
- * from it with nothing failing.
+ * The doc comment a union's member carries: the `/** ... *\/` block that
+ * ends directly before the `|` opening it, with nothing but white space
+ * between. A `//` comment heading a group of members, or one trailing the
+ * member before on its own line, is nobody's doc, and neither is a block
+ * with a `//` comment after it. Empty when the member has none.
  */
-async function apiUnions(): Promise<ReadonlyMap<string, ReadonlySet<string>>> {
-  const path = join(PACKAGE, "src", "api", "index.ts")
-  const source = ts.createSourceFile(
-    path,
-    await readFile(path, "utf8"),
-    ts.ScriptTarget.Latest,
-  )
-  const unions = new Map<string, ReadonlySet<string>>()
+function memberDoc(text: string, from: number): string {
+  // Leading comments start after the first line break, so a comment on the
+  // line of the member before is that member's trailing one, not in here.
+  const last = (ts.getLeadingCommentRanges(text, from) ?? []).at(-1)
+  if (last?.kind !== ts.SyntaxKind.MultiLineCommentTrivia) return ""
+  const comment = text.slice(last.pos, last.end)
+  return comment.startsWith("/**") ? comment : ""
+}
+
+/**
+ * Every union a source declares, by the union's name, read with
+ * TypeScript's parser: each string literal it names, and those whose own doc
+ * comment says "No longer reached".
+ */
+function unionsOf(path: string, text: string): ReadonlyMap<string, ApiUnion> {
+  const source = ts.createSourceFile(path, text, ts.ScriptTarget.Latest)
+  const unions = new Map<string, ApiUnion>()
   for (const statement of source.statements) {
     if (
       ts.isTypeAliasDeclaration(statement) &&
       ts.isUnionTypeNode(statement.type)
     ) {
       const literals = new Set<string>()
+      const retired = new Set<string>()
+      // A member's doc comment sits before the `|` that opens it, so it is
+      // read from where the member before it ends.
+      let after = statement.type.pos
       for (const member of statement.type.types) {
         if (
           ts.isLiteralTypeNode(member) &&
           ts.isStringLiteral(member.literal)
         ) {
           literals.add(member.literal.text)
+          if (memberDoc(text, after).includes(RETIRED)) {
+            retired.add(member.literal.text)
+          }
         }
+        after = member.end
       }
-      unions.set(statement.name.text, literals)
+      unions.set(statement.name.text, { literals, retired })
     }
   }
   return unions
 }
 
+/**
+ * Every union `/api` declares. `/api` is types only, so a union there has no
+ * value to import, and a copy of one here would drift from it with nothing
+ * failing.
+ */
+async function apiUnions(): Promise<ReadonlyMap<string, ApiUnion>> {
+  const path = join(PACKAGE, "src", "api", "index.ts")
+  return unionsOf(path, await readFile(path, "utf8"))
+}
+
 /** `/api`'s unions and the guide's refusal list, each read once a run. */
 const API_UNIONS = await apiUnions()
-function apiUnion(name: string): ReadonlySet<string> {
-  const literals = API_UNIONS.get(name)
-  if (literals === undefined) throw new Error(`/api declares no union ${name}`)
-  return literals
+function apiUnion(name: string): ApiUnion {
+  const union = API_UNIONS.get(name)
+  if (union === undefined) throw new Error(`/api declares no union ${name}`)
+  return union
 }
-const PUBLIC_REFUSALS = apiUnion("PublicRefusalCode")
-const CHECK_CODES = apiUnion("VersionCheckCode")
+const PUBLIC_REFUSALS = apiUnion("PublicRefusalCode").literals
+const CHECK_CODES = apiUnion("VersionCheckCode").literals
+const RETIRED_CHECK_CODES = apiUnion("VersionCheckCode").retired
 const REFUSAL_LIST = section(await read("SKILL.md"), "When ingest refuses")
 
 describe("the guide's front matter", () => {
@@ -342,6 +383,7 @@ const EVERY_CHECK_CODE = {
   E_PAGE_MODULE_INVALID: true,
   E_PAGE_MODULE_THREW: true,
   E_PAGE_MODULE_DIVERGED: true,
+  E_REPLAY_MODULE: true,
   E_REPLAY_OVER_BUDGET: true,
   E_REPLAY_THREW: true,
   E_REPLAY_REACHED_OUT: true,
@@ -401,6 +443,65 @@ describe("the platform's refusals of a version", () => {
         `${code}: true`,
       )
       expect(`${code}: ${ingest.includes(`\`${code}\``)}`).toBe(`${code}: true`)
+    }
+  })
+
+  /**
+   * Only the block directly before a member is its doc. Read from all that
+   * lies between two members, a group heading or a comment trailing the
+   * member before would mark the next code as no longer reached, and the
+   * guide would be held to calling a live code dead.
+   */
+  test("a member's doc is the block directly before it, and no other comment", () => {
+    const source = [
+      "export type Codes =",
+      "  // No longer reached: a heading over a group, which is nobody's doc.",
+      "  /** Reached. */",
+      '  | "E_HEADED"',
+      '  | "E_BEFORE" // No longer reached, said of the member before.',
+      '  | "E_AFTER"',
+      "  /** No longer reached. */",
+      '  | "E_RETIRED"',
+      "  /** No longer reached, and a line comment comes after it. */",
+      "  // an aside",
+      '  | "E_ASIDE"',
+    ].join("\n")
+    const union = unionsOf("codes.ts", source).get("Codes")
+    expect([...(union?.literals ?? [])]).toEqual([
+      "E_HEADED",
+      "E_BEFORE",
+      "E_AFTER",
+      "E_RETIRED",
+      "E_ASIDE",
+    ])
+    expect([...(union?.retired ?? [])]).toEqual(["E_RETIRED"])
+  })
+
+  /**
+   * A code no check reaches any more stays in the union, so nothing that
+   * switches on it breaks, and the guide says it is no longer reached, so an
+   * author does not look for a failure that cannot happen. A code still
+   * reached is never explained as one that is not.
+   */
+  test("a code no check reaches any more is explained as no longer reached, and only such a code", async () => {
+    expect(RETIRED_CHECK_CODES.size).toBeGreaterThan(0)
+    const retired = /no\s+longer\s+reached/i
+    for (const item of REFUSAL_LIST.split(/\n(?=- )/)) {
+      for (const code of item.match(/E_[A-Z0-9_]+/g) ?? []) {
+        if (!CHECK_CODES.has(code)) continue
+        expect(`${code}: ${retired.test(item)}`).toBe(
+          `${code}: ${RETIRED_CHECK_CODES.has(code)}`,
+        )
+      }
+    }
+    const ingest = await read("references", "ingest.md")
+    for (const paragraph of ingest.split(/\n\n/)) {
+      for (const code of CHECK_CODES) {
+        if (!paragraph.includes(`\`${code}\``)) continue
+        expect(`${code}: ${retired.test(paragraph)}`).toBe(
+          `${code}: ${RETIRED_CHECK_CODES.has(code)}`,
+        )
+      }
     }
   })
 
@@ -496,7 +597,7 @@ describe("one replay's budget", () => {
       `${minutes(CHECKS_CONTAINER_WAIT_MS)} minutes for the checks container`,
     )
     expect(text).toContain(
-      `the ${minutes(REPLAY_WALL_BUDGET_MS)} minutes of wall time the replay-service check's one replay may take`,
+      `the ${minutes(REPLAY_WALL_BUDGET_MS)} minutes of wall time one replay may take`,
     )
     expect(text).toContain(
       `${REPLAY_ANSWER_MARGIN_MS / 1000} seconds the platform waits past it for the answer`,
@@ -507,6 +608,48 @@ describe("one replay's budget", () => {
     expect(text).toContain(
       `${minutes(CHECK_WAIT_HEADROOM_MS)} minute of headroom`,
     )
+  })
+})
+
+describe("a patch's replays", () => {
+  /**
+   * A studio reads how many of its line's runs a patch is replayed against,
+   * and the build log prints a count of them, so every count the prose
+   * gives is the one the platform takes from `/build`, and every printed
+   * example is one the platform could measure.
+   */
+  test("every count quoted for a patch's replays is PATCH_SCORE_RUNS", async () => {
+    const api = await readFile(join(PACKAGE, "src", "api", "index.ts"), "utf8")
+    const texts: Readonly<Record<string, string>> = {
+      "SKILL.md": await read("SKILL.md"),
+      "references/ingest.md": await read("references", "ingest.md"),
+      "docs/sdk.md": await readRepository("docs", "sdk.md"),
+      "README.md": await readFile(join(PACKAGE, "README.md"), "utf8"),
+      // The doc comments, as the prose they are.
+      "src/api/index.ts": api.replace(/\n\s*\* ?/g, " "),
+    }
+    const seen = { counts: 0, examples: 0 }
+    for (const [where, raw] of Object.entries(texts)) {
+      const text = raw.replace(/\s+/g, " ")
+      for (const match of text.matchAll(
+        /(?:at most|up to) (\d+) of (?:its|the) (?:release )?line's (?:most )?recent/g,
+      )) {
+        seen.counts += 1
+        expect(`${where}: ${match[1]}`).toBe(`${where}: ${PATCH_SCORE_RUNS}`)
+      }
+      for (const match of text.matchAll(
+        /patch check: (\d+) of (\d+) recent ranked runs?/g,
+      )) {
+        seen.examples += 1
+        const [differing, compared] = [Number(match[1]), Number(match[2])]
+        expect(`${where}: ${compared <= PATCH_SCORE_RUNS}`).toBe(
+          `${where}: true`,
+        )
+        expect(`${where}: ${differing <= compared}`).toBe(`${where}: true`)
+      }
+    }
+    expect(seen.counts).toBeGreaterThanOrEqual(4)
+    expect(seen.examples).toBeGreaterThanOrEqual(2)
   })
 })
 

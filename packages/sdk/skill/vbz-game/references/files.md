@@ -164,8 +164,8 @@ in the rules code: every replay starts the rules code afresh. A replay also
 has a budget of CPU time, wall time and memory, which only a replay
 measures, so no build checks it: `@vbz-gg/sdk/build` exports it as
 `REPLAY_CPU_BUDGET_MS`, `REPLAY_WALL_BUDGET_MS` and `REPLAY_MEMORY_MB`, and
-`references/ingest.md` under "6. One replay on the replay service" has the
-figures and the check that holds a version to them.
+`references/ingest.md` under "5. The rules code on the replay service" has
+the figures and what the platform checks there before a version publishes.
 
 ## Where it goes
 

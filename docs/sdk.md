@@ -109,9 +109,9 @@ author runs `/harness`, whose page loads the game with `/host` too.
 `/api` is types only: every route a game's page or a build system calls,
 keyed by method and path in `PlatformRoutes`, with its credential, its body
 and its answer, and `PublicRefusalCode`, every refusal those routes answer by
-name, and `VersionCheckCode`, every code the platform's own checks can end
-a version in, read back as its `rejectedCode` beside the engine's codes and
-never a refusal's body. A route whose
+name, and `VersionCheckCode`, every code the platform's own checks end a
+version in, or once did, read back as its `rejectedCode` beside the engine's
+codes and never a refusal's body. A route whose
 credential is `secret-key` takes what a build system sends, the studio's
 secret key, and the platform also takes a member's access token there, from
 its dashboard, when the member's role holds the permission the route's
@@ -184,7 +184,9 @@ its inputs from the player's devices alone, so `playRun` always passes
 replay stops, which is `Math.max(endTick, 1)` of the run it replays; with
 `draw: false` it builds no presentation at all and reports its checkpoints,
 for a browser that cannot draw the game, such as the platform's page-module
-check. `mount` refuses a run issued for another manifest (`E_WRONG_GAME`), a
+check, whose Firefox has no WebGL and no WebGPU: a game drawn with them gets
+ready there without drawing, and the check reports that and does not refuse
+it. `mount` refuses a run issued for another manifest (`E_WRONG_GAME`), a
 tick rate the game does not run at, a step limit on a played run, or a
 played run that does not say what to do with a scripted event, before
 anything is built. The clock starts only once the game is ready, so no tick
@@ -848,14 +850,24 @@ no build can check, because only a replay measures them: 5 minutes of CPU
 and 128 MB of memory (`REPLAY_MEMORY_MB`), the platform's figures for its
 replay service on Cloudflare, which the platform takes from here. The rules
 code as loaded, the data packs the manifest declares and the game's state
-share the memory. Before a version publishes, the platform's checks replay
-the bot's log once more on that service, and a version whose replay runs
-out of its CPU time, its wall time or its memory ends in
-`E_REPLAY_OVER_BUDGET`, which is the game's to fix; a service that gives no
-answer is the platform's, and the check is tried again. A player's run can
-be longer than the bot's. At 60 steps a second an hour of play is 216,000
-steps, and 5 minutes of CPU leaves about 1.4 ms for each; a ranked run whose
-replay runs out of any of the three is a `log_fault` and never ranks.
+share the memory. Before a version publishes, the platform's checks load
+the rules code with its data packs on that service and run a few steps with
+nothing pressed. A version whose rules code will not load there, or whose
+replay dies while it loads the rules code or its packs, ends in
+`E_REPLAY_MODULE`, with the service's own error text in its first failure,
+and one whose replay runs out of its CPU time, its wall time or its memory
+in those steps ends in `E_REPLAY_OVER_BUDGET`. Both are the game's to fix; a
+service that gives no answer is the platform's, and the check is tried
+again. The service is Cloudflare Workers, whose runtime refuses some work
+while a module loads with an error of its own, which Cloudflare lists on its
+[Hyperdrive troubleshooting page](https://developers.cloudflare.com/hyperdrive/observability/troubleshooting/):
+"Disallowed operation called within global scope. Asynchronous I/O (ex:
+fetch() or connect()), setting a timeout, and generating random values are
+not allowed within global scope." So the top level of the rules code, and
+of every library it bundles, does none of those. A player's run is longer
+than a few steps. At 60 steps a second an hour of play is 216,000 steps, and
+5 minutes of CPU leaves about 1.4 ms for each; a ranked run whose replay
+runs out of any of the three is a `log_fault` and never ranks.
 
 ## Drawing with null3d
 
@@ -1020,17 +1032,34 @@ the engine's `every-game` set of conformance checks over the built rules code,
 with every file the manifest declares laid out beside it, and holds
 `src/capture.ts` to the manifest with `checkCapture`. `vbz check --ranked`
 runs the engine's `ranked` set instead, which adds what only a ranked or
-practice run needs and the platform runs on an upload: two seeds pass through
-different states on one input log (`E_SEED_IGNORED`), and the manifest says
-how a run ranks (`E_RANK_UNDECLARED`), which a game played only on its own
-page may leave out. `vbz check` prints the version, its release line and the
+practice run needs: two seeds pass through different states on one input
+log (`E_SEED_IGNORED`), and the manifest says how a run ranks
+(`E_RANK_UNDECLARED`), which a game played only on its own page may leave
+out. `vbz check` prints the version, its release line and the
 line's contract hash, `contractSha256`, so a patch can be compared with the
 line it joins before it is uploaded. It exits 0 only when everything passes.
 
-The platform refuses an upload whose manifest declares no ranking under the
-same `E_RANK_UNDECLARED`, before it stores a byte. One check it runs that
-`vbz check` cannot is a replay on its replay service, which "The limits"
-describes.
+`vbz check --ranked` is the way to test record and replay before a version
+is published, because the platform runs only part of the ranked set on an
+upload: the checks that read the rules code and the manifest (banned APIs,
+no asynchronous work, the declared files and their budgets, the manifest,
+the served config and the ranking), `init` and 600 steps with nothing
+pressed, and the seed check. It does not run the engine's determinism,
+restore, counters, replay or performance checks, play the game in more than
+one engine, or compare what its page module reports with a replay, so
+nothing on an upload holds a version to replaying a recording to the state
+it recorded. A game that is not
+deterministic passes the upload and fails its players: their runs do not
+replay to what they saw, and never rank. The platform refuses an upload
+whose manifest declares no ranking under the same `E_RANK_UNDECLARED`,
+before it stores a byte. It also runs two checks `vbz check` cannot: it
+loads the page module in a browser with `loadGame` and mounts it in watch
+mode on a recording with nothing pressed for a few steps, where it has to
+get ready and not throw, and it loads the rules code on its replay service
+and runs a few steps, which "The limits" describes. A game the checks'
+browser cannot draw is mounted with `draw: false` and gets ready without
+drawing, and a page module of contract 1, which has no `draw: false`, is
+then loaded and not mounted.
 
 The engine's checks read the rules code with TypeScript's own parser, so
 `vbz check` needs `typescript` installed in the game, and the template's
@@ -1265,12 +1294,13 @@ command needs only the game's id. It waits up to 36 minutes,
 `CHECK_WAIT_MS`, the platform's worst case for one attempt with headroom,
 rounded up to whole minutes: 10 minutes for the ingest job to wait in the
 platform's queue (`CHECK_QUEUE_ALLOWANCE_MS`); 12 minutes for the checks
-container running the game in three engines, as long as the platform waits
-for one (`CHECKS_CONTAINER_WAIT_MS`); the 7.5 minutes of wall time the
-replay-service check's one replay may take (`REPLAY_WALL_BUDGET_MS`) and the
-10 seconds the platform waits past it for the answer
-(`REPLAY_ANSWER_MARGIN_MS`); 5 minutes for copying a published version's
-files to the public store before the verdict is written
+container, as long as the platform waits for one
+(`CHECKS_CONTAINER_WAIT_MS`); the 7.5 minutes of wall time one replay may
+take (`REPLAY_WALL_BUDGET_MS`), which the replay-service check and a patch's
+replays share, since they run beside each other, and the 10 seconds the
+platform waits past it for the answer (`REPLAY_ANSWER_MARGIN_MS`); 5
+minutes for copying a published version's files to the public store before
+the verdict is written
 (`CHECK_PUBLISH_ALLOWANCE_MS`), which nobody has timed; and 1 minute of
 headroom (`CHECK_WAIT_HEADROOM_MS`). The platform takes its own waits and
 the replay's budget from the same `/build` constants. The wait covers one
@@ -1296,16 +1326,19 @@ answer all exit 1 with a code that names which, and a refusal
 prints its `detail`: the fields a patch changed and the minor to publish
 instead, or the versions an upload had to be above.
 
-A published version also comes back with `patchScores`. As a version
-publishes, the platform replays up to 50 of its line's most recent settled
-ranked runs, played on the line's other versions, under the new rules code,
-and counts the runs whose end tick, terminal or counters come out different.
-That is the part of a patch's promise a manifest cannot show: a fix that
-changes what the same play scores. The count decides nothing, and the
-command prints it as the platform measured it, such as
-`patch check: 3 of 50 recent ranked runs on line 1.2 end differently under
+A published version also comes back with `patchScores`. Before the
+verdict, beside the replay-service check, the platform replays at most 3 of
+its line's most recent settled ranked runs (`PATCH_SCORE_RUNS`), played on
+the line's other versions, under the new rules code, and counts the runs
+whose end tick, terminal or counters come out different. That is the part
+of a patch's promise a manifest cannot show: a fix that changes what the
+same play scores. They are players' own recordings, and the only players'
+runs a version meets before it publishes. The count decides nothing. It is
+written with the verdict, so the command waits for it as it waits for the
+verdict and prints it as the platform measured it, such as
+`patch check: 2 of 3 recent ranked runs on line 1.2 end differently under
 this version`. A line's first version has no runs of its line to replay, and
-the command says so. While the platform has not measured a version,
+the command says so. When the platform has not measured a version,
 `patchScores` is null and nothing is printed.
 
 The two files routes and the version's upload each take the studio's secret
@@ -1366,7 +1399,7 @@ it too, which is what keeps the guide's tests out of the tarball.
 itself: its rules code and its page module both import it, and `/game`, which
 the page module bundles, builds the engine's host from it. So the engine that
 plays a run on a studio's page is the one the game was built and checked
-with, and the platform's page-module check plays it too. A regular dependency
+with, and the platform's page-module check runs it too. A regular dependency
 would let a game hold two copies on two versions, with `/game` driving one
 engine's host while the rules code carries another's manifest types. A
 studio's page needs no engine at all: `/host` and `/platform` import its

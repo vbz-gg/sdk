@@ -54,7 +54,7 @@ export const CLIENT_ERROR = {
    * game's, or a page origin the game does not allow.
    */
   E_SIGNIN_UNREACHABLE:
-    "the sign-in did not load in its box; check that the page's Content-Security-Policy has frame-src naming the sign-in origin, https://signin.vbz.gg, that the page is not shown inside another page whose origin is not its own, that the page key is the game's, and that the page's origin is one the game allows",
+    "the sign-in did not load in its box; check that the page's Content-Security-Policy has frame-src naming the sign-in origin the page's client was made with, that the page is not shown inside another page whose origin is not its own, that the page key is the game's, and that the page's origin is one the game allows",
   /** A player route, and no player is signed in on this page. */
   E_NOT_SIGNED_IN: "no player is signed in on this page",
   /** `fetch` threw: the request may or may not have reached the platform. */

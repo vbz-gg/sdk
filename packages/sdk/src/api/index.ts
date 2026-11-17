@@ -457,12 +457,19 @@ export interface VersionServing {
 }
 
 /**
- * Every code the platform's own checks can end a version in, beyond the
- * engine's: what `VersionStatus.rejectedCode` holds when one of them refused
- * it. The engine's checks end a version in the engine's own codes, its
- * `ERROR_CODES`, such as `E_SEED_IGNORED`. None of these is ever a refusal's
- * body, because the upload has been answered before any check runs. The
- * platform holds its table of its checks' codes to this union.
+ * Every code the platform's own checks end a version in, or once did, beyond
+ * the engine's: what `VersionStatus.rejectedCode` holds when one of them
+ * refused it. The engine's checks end a version in the engine's own codes,
+ * its `ERROR_CODES`, such as `E_SEED_IGNORED`. None of these is ever a
+ * refusal's body, because the upload has been answered before any check
+ * runs. The platform holds its table of its checks' codes to this union.
+ *
+ * The platform's checks no longer play a version's inputs through it: they
+ * run no cross-engine sweep, watch the page module for a few steps with
+ * nothing pressed and compare nothing it reports, and run the rules code on
+ * the replay service with nothing pressed. A code only
+ * that play could give says "No longer reached" and stays here, so a page or
+ * a build system that switches on it keeps compiling.
  */
 export type VersionCheckCode =
   // The manifest agreement, before the engine's checks.
@@ -470,10 +477,14 @@ export type VersionCheckCode =
   | "E_SIM_NO_MANIFEST"
   /** The uploaded manifest is not the one the rules code carries. */
   | "E_MANIFEST_MISMATCH"
-  // The cross-engine sweep.
-  /** Two JavaScript engines computed different states from the same bytes. */
+  // The cross-engine sweep, which the platform no longer runs.
+  /**
+   * Two JavaScript engines computed different states from the same bytes.
+   * No longer reached: no check plays a version in more than one engine.
+   */
   | "E_ENGINE_DIVERGED"
-  // The page module, in the checks' browser.
+  // The page module, loaded in the checks' browser and mounted in watch mode
+  // on a recording with nothing pressed, for a few steps.
   /**
    * The browser could not import the page module, or the rules code it
    * imports: a syntax error, a throw at the top level, or an import the
@@ -485,35 +496,49 @@ export type VersionCheckCode =
    * it, or its `mount` refused the run before a tick.
    */
   | "E_PAGE_MODULE_INVALID"
-  /** The page module failed while it was mounted or played. */
+  /** The page module failed while it was mounted, got ready or stepped. */
   | "E_PAGE_MODULE_THREW"
   /**
    * The page module played the bot's log to another state than the
-   * platform's own replay of the same log reached.
+   * platform's own replay of the same log reached. No longer reached: the
+   * checks compare nothing the page module reports.
    */
   | "E_PAGE_MODULE_DIVERGED"
-  // One replay on the replay service.
+  // The rules code on the replay service, the one every ranked and practice
+  // run is replayed on: loaded with its data packs and run for a few steps
+  // with nothing pressed.
   /**
-   * One replay of the bot's log on the platform's replay service, the one
-   * every ranked and practice run is replayed on, ran out of its CPU time,
-   * its wall time or its memory. The game's step is too heavy, or its rules
-   * code, data packs and state hold too much at once. A replay service that
-   * gave no answer is the platform's fault and is tried again, never this.
+   * The rules code would not load on the replay service, or the replay died
+   * while it loaded the rules code or its data packs. The first failure's
+   * message carries the service's own error text. The service is Cloudflare
+   * Workers, which refuses some work at a module's top level, such as
+   * setting a timeout or generating random values, and holds the rules code,
+   * its data packs and the game's state in `REPLAY_MEMORY_MB`. A replay
+   * service that gave no answer is the platform's fault and is tried again,
+   * never this.
+   */
+  | "E_REPLAY_MODULE"
+  /**
+   * The same replay ran out of its CPU time, its wall time or its memory
+   * while it ran the game's first steps: they cost too much, or the game's
+   * data and state are too large to hold. A replay service that gave no
+   * answer is the platform's fault and is tried again, never this.
    */
   | "E_REPLAY_OVER_BUDGET"
   // The same replay failing for a reason other than its budget, under the
   // code the replay service gave, which a run's own replay would give too.
-  /** The rules code threw while the replay service played the bot's log. */
+  /** The rules code threw while the replay service ran its first steps. */
   | "E_REPLAY_THREW"
   /**
    * The rules code reached for something the replay service's isolate does
-   * not have, such as the network.
+   * not have, such as the network, while it ran its first steps.
    */
   | "E_REPLAY_REACHED_OUT"
   /**
    * The replay service could not take the replay it was sent: the bot's
    * log would not decode under the version's manifest, or the request was
-   * over the size the service takes.
+   * over the size the service takes. No longer reached: the check sends no
+   * inputs, so there is no log for the service to refuse.
    */
   | "E_REPLAY_MALFORMED"
 
@@ -546,15 +571,18 @@ export interface VersionStatus {
   readonly suspended: boolean
   readonly serving: VersionServing
   /**
-   * What publishing this version does to its line's scores. As a version
-   * publishes, the platform replays up to 50 of its release line's most
-   * recent settled ranked runs, played on the line's other versions, under
-   * this version's rules code, and counts the runs whose end tick, terminal
-   * or counters come out different. It decides nothing: the version
-   * publishes whatever the count says, and the studio is told. `compared` is
-   * 0 for a line's first version, which has no runs of its own line to
-   * replay. Null while the version is pending or rejected, or when the
-   * platform has not measured it.
+   * What publishing this version does to its line's scores. Before the
+   * verdict, beside the replay-service check, the platform replays at most 3
+   * of its release line's most recent settled ranked runs
+   * (`PATCH_SCORE_RUNS` in `/build`), played on the line's other versions,
+   * under this version's rules code, and counts the runs whose end tick,
+   * terminal or counters come out different. It decides nothing: the
+   * version publishes whatever the count says, and the studio is told. The
+   * count is written with the verdict, so the read that first finds the
+   * version published carries it. `compared` is 0 for a line's first
+   * version, which has no runs of its own line to replay. Null while the
+   * version is pending, for a rejected version, and for one the platform has
+   * not measured.
    */
   readonly patchScores: {
     /** The line's runs replayed under this version's rules code. */

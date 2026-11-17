@@ -130,9 +130,10 @@ is where that breaks first:
   such as which way a spark flies.
 
 A game that ignores its seed passes every check the engine runs on every game
-and is still refused at upload. The engine's ranked set, which the platform
-runs on an upload and `vbz check --ranked` runs here, adds a seed check that plays one input log under two seeds,
-and a game that passes through the same states under both is rejected with
+and is still refused at upload. The engine's ranked set, which
+`vbz check --ranked` runs here, adds a seed check that plays one input log
+under two seeds, and the platform runs that check on an upload too: a game
+that passes through the same states under both is rejected with
 `E_SEED_IGNORED`, because every day would be the same puzzle and the daily
 board an all-time one. `clockwork2/references/determinism-rules.md`
 has the full rules, `dmath` and time included.
@@ -261,9 +262,13 @@ to result, and `references/ingest.md` what the platform checks.
 `bun run check` builds the game and runs the engine's conformance checks
 every game needs over the rules code, holds `src/capture.ts` to the manifest,
 and prints the version, its release line and the line's contract hash. It
-exits 0 only when all of that passes. `vbz check --ranked` runs the set the
-platform runs on an upload instead, which adds the seed check and that the
-manifest says how a run ranks.
+exits 0 only when all of that passes. `vbz check --ranked` runs the engine's
+ranked set instead, which adds the seed check and that the manifest says how
+a run ranks. Run it before every upload: it is how to test that a recording
+replays to the state it recorded. The platform runs only part of that set on
+an upload, and none of the checks that test record and replay, so a game
+that is not deterministic passes the upload and fails its players;
+`references/ingest.md` says what the platform runs.
 
 `bun run dev` is your game's page on your laptop: the game's two modules and
 its files folder on one origin, and a page on another that loads the page
@@ -319,24 +324,43 @@ end a version in these:
 - `E_SIM_NO_MANIFEST`, `E_MANIFEST_MISMATCH` - the built simulation exports
   no `MANIFEST`, or one that is not the uploaded `dist/manifest.json`. Build
   again rather than editing either by hand.
-- `E_ENGINE_DIVERGED` - JavaScriptCore, V8 and SpiderMonkey computed
-  different states from the same bytes: something the simulation calls is
-  not the same on every engine, which the engine's guide covers.
 - `E_PAGE_MODULE_UNLOADABLE`, `E_PAGE_MODULE_INVALID`,
-  `E_PAGE_MODULE_THREW`, `E_PAGE_MODULE_DIVERGED` - the page module would
-  not load in the checks' browser, was not one a page plays, failed while it
-  played, or played the bot's log to another state than the replay of it.
-- `E_REPLAY_OVER_BUDGET` - one replay of the bot's log on the platform's
-  replay service ran out of its CPU time, its wall time or its memory: 5
-  minutes of CPU, 7.5 minutes of wall time and 128 MB of memory, the
-  platform's figures for one replay on Cloudflare. Make a step cheaper, or
-  hold less at once in the rules code, its data packs and its state; every
-  ranked run's replay has the same budget.
-- `E_REPLAY_THREW`, `E_REPLAY_REACHED_OUT`, `E_REPLAY_MALFORMED` - the same
-  replay failed for another reason, and every player's run would too: the
-  rules code threw or reached for something the replay service does not
-  have, such as the network, or the service could not take the replay it
-  was sent. The first failure's message says where.
+  `E_PAGE_MODULE_THREW` - the page module would not load in the checks'
+  browser, was not one a page plays, or failed while it was mounted in
+  watch mode on a recording with nothing pressed, got ready or ran a few
+  steps. A game the checks' browser cannot draw, because it has no WebGL
+  and no WebGPU, is mounted with `draw: false` and gets ready without
+  drawing; that is reported, never refused.
+- `E_REPLAY_MODULE` - the rules code would not load on the platform's
+  replay service, which loads it with its data packs and runs a few steps
+  with nothing pressed, or the replay died while it loaded them. The first
+  failure's message carries the service's own error text. The service is
+  Cloudflare Workers, whose runtime refuses some work at a module's top
+  level with an error of its own, which Cloudflare lists on its Hyperdrive
+  troubleshooting page: "Disallowed operation called within global scope.
+  Asynchronous I/O (ex: fetch() or connect()), setting a timeout, and
+  generating random values are not allowed within global scope." So the top
+  level of the rules code, and of every library it bundles, does none of
+  those. The rules code, its data
+  packs and the game's state share 128 MB of memory there.
+- `E_REPLAY_OVER_BUDGET` - the same replay ran out of its CPU time, its wall
+  time or its memory in those steps: 5 minutes of CPU, 7.5 minutes of wall
+  time and 128 MB of memory, the platform's figures for one replay on
+  Cloudflare. Make `init` and a step cheaper, or hold less at once in the
+  rules code, its data packs and its state; every ranked run's replay has
+  the same budget for every step the run took.
+- `E_REPLAY_THREW`, `E_REPLAY_REACHED_OUT` - the same replay failed for
+  another reason, and every player's run would too: the rules code threw or
+  reached for something the replay service does not have, such as the
+  network, in its first steps. The first failure's message says where.
+- `E_ENGINE_DIVERGED`, `E_PAGE_MODULE_DIVERGED`, `E_REPLAY_MALFORMED` - no
+  longer reached. They were JavaScriptCore, V8 and SpiderMonkey computing
+  different states from the same bytes, the page module playing the bot's
+  log to another state than its replay, and a log the replay service could
+  not take; the checks no longer play a version in three engines, compare
+  what its page module reports with a replay, or send the replay service a
+  log. They stay in the SDK's types so code that names them keeps
+  compiling.
 
 `references/ingest.md` has the whole path from an upload to a listing.
 
@@ -421,7 +445,8 @@ newer patch passes, and practice carries on.
   submission carries.
 - `vbz check <dir>` - the engine's checks and the input mapping, with the
   version, its release line and the line's contract hash. `--ranked` runs
-  the set a ranked or practice run needs, as the platform does.
+  the set a ranked or practice run needs, which tests record and replay;
+  the platform runs only part of it.
 - `vbz dev <dir>` - your game's page, locally, on two origins, with a report
   on every run.
 - `vbz publish <dir> --game <id>` - upload `dist/`, each file of the
