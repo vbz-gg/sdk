@@ -377,8 +377,10 @@ its keyboard when the sign-in focuses its first field. Then it makes a PKCE
 challenge and a state and points the frame at `/authorize`, naming the page's
 own origin as `redirect_uri`. The sign-in frames only for that exact origin:
 it sends `frame-ancestors` naming it, so a browser refuses to show it under
-any other page, or under a page that is itself framed by another site, since
-every ancestor is checked.
+a page of any other origin, or under the page that asked when that page is
+itself shown inside another page whose origin is not the one that asked,
+since every ancestor is checked, and each against the exact origin, so
+another origin on the same site is refused too.
 
 The client takes a message only from the frame it holds, on the sign-in
 origin, carrying the state it sent, and the platform posts three, declared in
@@ -405,7 +407,8 @@ sign-in is kept per site that framed it, because a cookie set in a frame on
 another site is kept for that site alone (`SameSite=None; Partitioned`), so a
 player who signed in on one studio's site types a code again on another's,
 and Safari may ask for one more often. A framed sign-in shows no address bar.
-And a page framed by another site, a portal, cannot show the box. A page
+And a page shown inside another page whose origin is not its own, such as
+a portal's, cannot show the box. A page
 sent with `Cross-Origin-Opener-Policy: same-origin` and
 `Cross-Origin-Embedder-Policy`, for a game that needs threads, shows the box
 and stays cross-origin isolated (measured in Chromium and Firefox), because

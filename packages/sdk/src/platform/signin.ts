@@ -9,8 +9,9 @@
  * opens its keyboard.
  *
  * A browser that refused the frame, because the page's policy names no
- * `frame-src` for the sign-in, or the page is framed by another site, or
- * the sign-in would not frame for this page, still fires `load` on the
+ * `frame-src` for the sign-in, or the page is shown inside another page
+ * whose origin is not the one that asked, or the sign-in would not frame
+ * for this page, still fires `load` on the
  * iframe (measured in Chromium 141 and 153, and Firefox 142 for a
  * `frame-ancestors` refusal), so the only sign of a sign-in that works is
  * the `vbz.signin.ready` message it posts as it loads.

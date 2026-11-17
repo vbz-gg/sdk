@@ -412,7 +412,7 @@ const NO_STORE = { "cache-control": "no-store" }
 
 /**
  * The policy, letting the portal frame the page when `?portal=1` says it
- * is: a studio's page embedded in another site, which the recommended
+ * is: a studio's page shown inside a page of another origin, which the recommended
  * policy's `frame-ancestors 'none'` would refuse outright.
  */
 function framedBy(url: URL, csp: string): string {

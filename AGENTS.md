@@ -409,10 +409,10 @@ What only a browser can settle, and what each spec found:
   fired `load` in Chromium and `error` in Firefox. A later page the browser
   will not show, a form step the sign-in answers framed for nobody, gets
   `E_SIGNIN_UNREACHABLE` too, because every page the frame loads owes a
-  ready. A studio's page framed by
-  a portal on another origin asks for the sign-in and the browser refuses to
-  show it, since every ancestor is held to `frame-ancestors`, so it too gets
-  `E_SIGNIN_UNREACHABLE`. Chromium and Firefox, measured; WebKit is in the
+  ready. A studio's page shown inside a portal's page on another origin of
+  the same site asks for the sign-in and the browser refuses to show it,
+  since every ancestor is held to `frame-ancestors` by exact origin, so it
+  too gets `E_SIGNIN_UNREACHABLE`. Chromium and Firefox, measured; WebKit is in the
   project and unmeasured here.
 - Watching an abandoned run stops at its end tick.
 - Tilt through Chromium's orientation override: the first reading is recorded

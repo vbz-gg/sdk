@@ -211,13 +211,15 @@ test("a later page of the sign-in the browser will not show gets E_SIGNIN_UNREAC
 
 /**
  * The sign-in frames for the exact origin that asked, and a browser holds
- * every ancestor to `frame-ancestors`, not only the parent. A studio's page
- * embedded in a portal on another origin asks for the sign-in, gets it, and
- * the browser refuses to show it, so the box gives up as it does for a page
- * that names no `frame-src`. That is a cost of the exact-origin rule, and
- * this is it measured.
+ * every ancestor to `frame-ancestors`, not only the parent, and each by its
+ * exact origin. A studio's page shown inside a portal's page asks for the
+ * sign-in, gets it, and the browser refuses to show it, so the box gives up
+ * as it does for a page that names no `frame-src`. The portal here is
+ * another origin on the same site as the studio's page, 127.0.0.1 on
+ * another port, so being the same site saves nothing. That is a cost of the
+ * exact-origin rule, and this is it measured.
  */
-test("a studio's page framed by another site cannot show the sign-in, and says so", async ({
+test("a studio's page shown inside a page of another origin cannot show the sign-in, and says so", async ({
   page,
 }) => {
   test.setTimeout(60_000)

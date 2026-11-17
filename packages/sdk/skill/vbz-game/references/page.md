@@ -30,8 +30,9 @@ signInButton.onclick = () => platform.signIn() // from the click, nothing awaite
   The player closes the box with its Cancel button or Escape, and
   `closeSignIn()` closes it from the page; each rejects with
   `E_SIGNIN_CANCELLED`. The sign-in frames only for your page's exact origin,
-  so the page's policy names it in `frame-src`, and a page that is itself
-  framed by another site cannot show it: either way the box stays empty and
+  so the page's policy names it in `frame-src`, and a page shown inside
+  another page whose origin is not its own, the same site's included, cannot
+  show it: either way the box stays empty and
   `signIn()` rejects with `E_SIGNIN_UNREACHABLE` after 15 seconds.
 - A player stays signed in to the sign-in on your site alone: signing in on
   another studio's site asks for a code again. Safari may ask for one more
@@ -192,7 +193,7 @@ in `@vbz-gg/sdk/api`. A `PlatformClientError` is the client's:
 | Code | What it means |
 |---|---|
 | `E_SIGNIN_CANCELLED` | The sign-in's box was closed before a player signed in: its Cancel button, Escape, or the page's `closeSignIn()`. `mountSignIn` shows nothing for it. |
-| `E_SIGNIN_UNREACHABLE` | A page of the sign-in, the first or a later step, did not say it loaded in its box within 15 seconds of loading. The browser refused to frame it, which it shows as an empty box and tells the page nothing of: the page's policy has no `frame-src` naming the sign-in origin, the page is framed by another site, the page key is not the game's, or the page's origin is not one the game allows. `vbz dev --site` says in its terminal which, for the stand-in's sign-in. |
+| `E_SIGNIN_UNREACHABLE` | A page of the sign-in, the first or a later step, did not say it loaded in its box within 15 seconds of loading. The browser refused to frame it, which it shows as an empty box and tells the page nothing of: the page's policy has no `frame-src` naming the sign-in origin, the page is shown inside another page whose origin is not its own, the page key is not the game's, or the page's origin is not one the game allows. `vbz dev --site` says in its terminal which, for the stand-in's sign-in. |
 | `E_NOT_SIGNED_IN` | A run route, and no player is signed in on this page. Nothing was sent. |
 | `E_UNREACHABLE` | No answer. The request may or may not have arrived; a run write can be sent again. |
 | `E_ANSWER_UNREADABLE` | An answer that is not JSON, or a failure without a code. |
