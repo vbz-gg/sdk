@@ -343,8 +343,10 @@ line the version joined, a refusal's `detail` (the fields a patch changed and
 the minor to publish instead, or the versions an upload had to be above), and
 once the checks pass, which runs the version serves and how many of its
 line's recent ranked runs end differently under it. A published version
-always carries that count, so an answer saying published without one is
-`E_PUBLISH_ANSWER_UNREADABLE`, never a verdict printed without it.
+always carries that count and a pending or rejected one never does, so an
+answer breaking either half is `E_PUBLISH_ANSWER_UNREADABLE`. The verdict
+reads `asStatus`'s `CheckedStatus`, whose type holds a published version to
+its count, so no runtime check repeats it there.
 
 **The wait for a verdict is derived, never written as a number.**
 `CHECK_WAIT_MS` is `checkWaitOf` over the queue's and the public-store

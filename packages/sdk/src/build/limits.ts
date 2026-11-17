@@ -143,10 +143,10 @@ const SECONDS_IN_AN_HOUR = 60 * 60
 /**
  * What one step of an hour's play at `tickHz` steps a second may cost its
  * replay: `REPLAY_CPU_BUDGET_MS` over that hour's steps, in microseconds of
- * one CPU, rounded up.
+ * one CPU, rounded down, so the hour's steps at this cost fit the budget.
  */
 function stepBudgetUs(tickHz: TickRate): number {
-  return Math.ceil(
+  return Math.floor(
     (REPLAY_CPU_BUDGET_MS * 1000) / (SECONDS_IN_AN_HOUR * tickHz),
   )
 }
@@ -156,15 +156,15 @@ function stepBudgetUs(tickHz: TickRate): number {
  * code that they play at upload, by the game's tick rate, in microseconds
  * of one CPU: what one step of an hour of the game's own play at its own
  * rate may cost its replay, `REPLAY_CPU_BUDGET_MS` over that hour's steps,
- * rounded up. That is 2,778 at 30 steps a second, 1,389 at 60 and 695 at
- * 120, so a game whose steps fit its rate's allowance plays an hour in one
- * replay's CPU budget. The engine's checks an upload runs are given this
- * for every step they play, beside `CHECK_INIT_BUDGET_MS` for each time
- * they load the rules code; checks that run out are tried again, and only
- * once every attempt has run out is the version refused,
- * `E_CHECKS_OVER_BUDGET`. Keyed by the engine's `TickRate`, so a rate the
- * engine adds fails to compile here until this table gives it an allowance.
- * The platform takes its allowance from here.
+ * rounded down. That is 2,777 at 30 steps a second, 1,388 at 60 and 694 at
+ * 120, so an hour of the game's steps at its rate, each within its
+ * allowance, fits one replay's CPU budget. The engine's checks an upload
+ * runs are given this for every step they play, and start-up apart from
+ * the steps, `CHECK_INIT_BUDGET_MS` for each time they load the rules code;
+ * checks that run out are tried again, and only once every attempt has run
+ * out is the version refused, `E_CHECKS_OVER_BUDGET`. Keyed by the engine's
+ * `TickRate`, so a rate the engine adds fails to compile here until this
+ * table gives it an allowance. The platform takes its allowance from here.
  */
 export const CHECK_STEP_BUDGET_US: Readonly<Record<TickRate, number>> = {
   30: stepBudgetUs(30),
@@ -180,8 +180,8 @@ export const CHECK_STEP_BUDGET_US: Readonly<Record<TickRate, number>> = {
  * they play: the headless check once, and the seed check up to six times,
  * once for each of its three logs under each of two seeds. The platform
  * counts the loads exactly and allows each this beside the steps'
- * `CHECK_STEP_BUDGET_US`. A replay pays the same start once, out of
- * `REPLAY_CPU_BUDGET_MS`.
+ * `CHECK_STEP_BUDGET_US`. A replay pays its start once too, from the same
+ * `REPLAY_CPU_BUDGET_MS` as its steps.
  */
 export const CHECK_INIT_BUDGET_MS = 5_000
 
@@ -206,7 +206,7 @@ export const CHECK_READY_MS = 60_000
  * included, which a test on the platform holds under it. Every part of the
  * check is held to a timeout sized from the step allowance at the game's
  * rate, the allowance for each load and measurements in the checks image.
- * The platform takes its wait
- * from here and keeps its container's own deadline under it.
+ * The platform takes its wait from here and keeps its container's own
+ * deadline under it.
  */
 export const CHECKS_CONTAINER_WAIT_MS = 10 * 60_000

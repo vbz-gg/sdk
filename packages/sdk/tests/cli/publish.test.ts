@@ -31,6 +31,7 @@ import { parseArgs } from "../../src/cli/args.js"
 import { TEMPLATE_DIR } from "../../src/cli/new.js"
 import {
   API_ORIGIN_VARIABLE,
+  asStatus,
   CHECK_POLL_MS,
   CHECK_WAIT_HEADROOM_MS,
   CHECK_WAIT_MS,
@@ -47,6 +48,7 @@ import {
   publishSettings,
   readBuild,
   STUDIO_KEY_VARIABLE,
+  type Verdict,
   verdictOf,
 } from "../../src/cli/publish.js"
 
@@ -150,6 +152,11 @@ function status(
     createdAt: "2026-11-11T05:59:00.000Z",
     ...overrides,
   }
+}
+
+/** The verdict on an answer, read as the command reads one, through `asStatus`. */
+function verdictFor(answer: VersionStatus): Verdict {
+  return verdictOf(asStatus(answer))
 }
 
 function json(body: unknown, init: number = 200): Response {
@@ -705,7 +712,7 @@ describe("waiting for the checks", () => {
 
 describe("the verdict a build log shows", () => {
   test("published exits 0, and says its line and which runs it serves", () => {
-    const verdict = verdictOf(status("published"))
+    const verdict = verdictFor(status("published"))
     expect(verdict.exitCode).toBe(0)
     expect(verdict.lines[0]).toBe(
       "published version 1.2.0, in release line 1.2",
@@ -722,7 +729,7 @@ describe("the verdict a build log shows", () => {
    * day that changed. It still exits 0: the version passed and is published.
    */
   test("a version that serves no run yet still exits 0, and says when it will", () => {
-    const waiting = verdictOf(
+    const waiting = verdictFor(
       status("published", {
         serving: { ranked: "from-next-seed", practice: false },
       }),
@@ -731,7 +738,7 @@ describe("the verdict a build log shows", () => {
     expect(waiting.lines[1]).toMatch(/^ranked runs: from the next day's seed/)
     expect(waiting.lines[2]).toMatch(/^practice runs: none/)
 
-    const older = verdictOf(
+    const older = verdictFor(
       status("published", { serving: { ranked: "none", practice: false } }),
     )
     expect(older.exitCode).toBe(0)
@@ -745,7 +752,7 @@ describe("the verdict a build log shows", () => {
    * runs the version serves.
    */
   test("a published version says how many of its line's recent ranked runs end differently", () => {
-    const verdict = verdictOf(
+    const verdict = verdictFor(
       status("published", { patchScores: { compared: 3, differing: 2 } }),
     )
     expect(verdict.exitCode).toBe(0)
@@ -754,20 +761,20 @@ describe("the verdict a build log shows", () => {
       "patch check: 2 of 3 recent ranked runs on line 1.2 end differently under this version",
     )
     expect(
-      verdictOf(
+      verdictFor(
         status("published", { patchScores: { compared: 1, differing: 1 } }),
       ).lines[3],
     ).toBe(
       "patch check: 1 of 1 recent ranked run on line 1.2 ends differently under this version",
     )
     expect(
-      verdictOf(
+      verdictFor(
         status("published", { patchScores: { compared: 0, differing: 0 } }),
       ).lines[3],
     ).toBe(
       "patch check: line 1.2 has no settled ranked runs yet to compare this version with",
     )
-    const takenDown = verdictOf(
+    const takenDown = verdictFor(
       status("published", {
         suspended: true,
         patchScores: { compared: 3, differing: 0 },
@@ -779,22 +786,8 @@ describe("the verdict a build log shows", () => {
     )
   })
 
-  /**
-   * The command reads a published version's state only once it has checked
-   * it carries its count, so the verdict never prints a published version
-   * without one.
-   */
-  test("a published state with no count has no verdict", () => {
-    expect(() => verdictOf(status("published", { patchScores: null }))).toThrow(
-      "a published version's state carries its patch check",
-    )
-    expect(
-      verdictOf(status("published", { suspended: true })).lines,
-    ).toHaveLength(2)
-  })
-
   test("published and taken down exits 1, because no player is served it", () => {
-    const verdict = verdictOf(status("published", { suspended: true }))
+    const verdict = verdictFor(status("published", { suspended: true }))
     expect(verdict.exitCode).toBe(1)
     expect(verdict.lines[0]).toContain("taken it down")
   })
@@ -807,7 +800,7 @@ describe("the verdict a build log shows", () => {
   test("rejected exits 1 and names the code and the first failure", () => {
     const refused =
       "Disallowed operation called within global scope. Asynchronous I/O (ex: fetch() or connect()), setting a timeout, and generating random values are not allowed within global scope."
-    const verdict = verdictOf(
+    const verdict = verdictFor(
       status("rejected", {
         rejectedCode: "E_REPLAY_MODULE",
         firstFailure: {
@@ -825,13 +818,13 @@ describe("the verdict a build log shows", () => {
   })
 
   test("a rejection with no code or failure still says it was rejected", () => {
-    const verdict = verdictOf(status("rejected"))
+    const verdict = verdictFor(status("rejected"))
     expect(verdict.exitCode).toBe(1)
     expect(verdict.lines).toEqual(["rejected version 1.2.0: no code given"])
   })
 
   test("a version still being checked has no verdict", () => {
-    expect(() => verdictOf(status("pending"))).toThrow()
+    expect(() => verdictFor(status("pending"))).toThrow()
   })
 })
 
@@ -1601,6 +1594,31 @@ describe("a version's answer is checked in every field the verdict reads", () =>
       compared: 3,
       differing: 0,
     })
+  })
+
+  /**
+   * The other half of the rule: the platform writes a version's count with
+   * its verdict, and a version carries one exactly while it is published,
+   * so a pending or rejected answer that carries one is not the platform's
+   * either, and is not read.
+   */
+  test("a pending or rejected answer that carries a patch check is unreadable", async () => {
+    const scores = { compared: 3, differing: 1 }
+    for (const state of ["pending", "rejected"] as const) {
+      await writeDist(dir)
+      const net = world([
+        () => json(uploaded(), 201),
+        () => json(status(state, { patchScores: scores })),
+      ])
+      const refused = await refusalOf(publish(settings(), net.deps))
+      expect(refused.code).toBe(PUBLISH_ERROR.ANSWER_UNREADABLE)
+      expect(refused.message).toBe(
+        `the platform's answer says version 1.2.0 is ${state} and carries a patch check, which only a published version has (E_PUBLISH_ANSWER_UNREADABLE)`,
+      )
+      // The read is not tried again: an answer the platform cannot give is
+      // not one a later read would correct.
+      expect(net.sent).toHaveLength(2)
+    }
   })
 
   test("an upload answer that does not name its line is unreadable", async () => {

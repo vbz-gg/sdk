@@ -329,14 +329,15 @@ end a version in these:
 - `E_CHECKS_OVER_BUDGET` - the engine's checks the platform runs at upload
   ran out of time on the game's start or its steps. Each step they play is
   given what one step of an hour of the game's own play at its own rate may
-  cost its replay: 2,778 microseconds of one CPU a step at 30 steps a
-  second, 1,389 at 60 and 695 at 120. Each time they load the rules code,
-  once for the headless check and up to six times for the seed check,
-  importing it, reading its start packs and running `init` are given 5
-  seconds of one CPU a load. Written only once every attempt has run out, so
-  a moment's slowness on the platform's side refuses nothing.
-  `vbz check --ranked` prints what a step cost on your machine in its
-  `performance` check; make the step, or the start, cheaper.
+  cost its replay: 2,777 microseconds of one CPU a step at 30 steps a
+  second, 1,388 at 60 and 694 at 120, so an hour of the game's steps at its
+  rate fits one replay's CPU budget. Start-up is allowed apart from the
+  steps: each time they load the rules code, once for the headless check and
+  up to six times for the seed check, importing it, reading its start packs
+  and running `init` are given 5 seconds of one CPU a load. Written only
+  once every attempt has run out, so a moment's slowness on the platform's
+  side refuses nothing. `vbz check --ranked` prints what a step cost on your
+  machine in its `performance` check; make the step, or the start, cheaper.
 - `E_PAGE_MODULE_UNLOADABLE`, `E_PAGE_MODULE_INVALID`,
   `E_PAGE_MODULE_THREW` - the page module would not load in the checks'
   browser, was not one a page plays, or failed while it was mounted in

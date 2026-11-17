@@ -115,14 +115,15 @@ These checks play the game: `init` and 600 steps for the headless check, and
 the seed check's runs under two seeds, each on the rules code loaded afresh.
 The platform gives each step they play what one step of an hour of the
 game's own play at its own rate may cost its replay, 5 minutes of CPU over
-that hour's steps (`CHECK_STEP_BUDGET_US`): 2,778 microseconds of one CPU a
-step at 30 steps a second, 1,389 at 60 and 695 at 120, so a game whose steps
-fit plays an hour in one replay. Starting the game, importing the rules
-code, reading its start packs and running `init`, is given 5 seconds of one
-CPU a load (`CHECK_INIT_BUDGET_MS`), and the checks load it once for the
-headless check and up to six times for the seed check. Checks that run out
-of either are tried again, and only once every attempt has run out is the
-version refused, with `E_CHECKS_OVER_BUDGET`, so a moment's slowness on the
+that hour's steps (`CHECK_STEP_BUDGET_US`): 2,777 microseconds of one CPU a
+step at 30 steps a second, 1,388 at 60 and 694 at 120, so an hour of the
+game's steps at its rate, each within its allowance, fits one replay's CPU
+budget. Start-up is allowed apart from the steps: importing the rules code,
+reading its start packs and running `init` are given 5 seconds of one CPU a
+load (`CHECK_INIT_BUDGET_MS`), and the checks load it once for the headless
+check and up to six times for the seed check. Checks that run out of either
+are tried again, and only once every attempt has run out is the version
+refused, with `E_CHECKS_OVER_BUDGET`, so a moment's slowness on the
 platform's side refuses nothing. `vbz check --ranked` prints what a step
 cost on your machine in its `performance` check. Make the step cheaper, as
 section 5 says for a player's run, or the start: a large start pack parsed
