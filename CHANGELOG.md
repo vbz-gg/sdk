@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [0.7.1](https://github.com/vbz-gg/sdk/compare/v0.7.0...v0.7.1) (2026-11-17)
+
+
+### Bug Fixes
+
+* the ranking refusal's public code, the replay-service check's codes, the replay budget as constants, a longer publish wait ([#24](https://github.com/vbz-gg/sdk/issues/24)) ([f42b444](https://github.com/vbz-gg/sdk/commit/f42b444b322c5cc927855aa5986b9d9a69333b3d))
+
 ## [0.7.0](https://github.com/vbz-gg/sdk/compare/v0.6.0...v0.7.0) (2026-11-17)
 
 

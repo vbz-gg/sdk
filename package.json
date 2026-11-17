@@ -1,6 +1,6 @@
 {
   "name": "sdk",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "private": true,
   "type": "module",
   "description": "The SDK for building games that run on vbz.gg, and the pages studios serve them from",
