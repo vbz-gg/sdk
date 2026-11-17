@@ -20,6 +20,14 @@ import {
 } from "@clockwork2/engine"
 import { CLIENT_ERROR } from "../platform/errors.js"
 
+/**
+ * Why a config of the author's own and a ranked run's rules cannot both be
+ * asked for: a ranked run plays every setting at its default. Said by the
+ * harness, and by `vbz dev` before it builds anything, in these words.
+ */
+export const CONFIG_WITH_RANKED =
+  "--config plays a config of your own, and --ranked holds the page's runs to a ranked run, which plays every setting at its default; give one"
+
 /** Every setting the manifest requires and gives no default, as `params.<name>`. */
 export function unservedSettings(manifest: Manifest): string[] {
   const schema = manifest.params ?? {}

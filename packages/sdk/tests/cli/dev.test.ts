@@ -11,6 +11,7 @@ import { join } from "node:path"
 import { DEFAULT_ADDRESS, parseArgs } from "../../src/cli/args"
 import { devSettings } from "../../src/cli/dev"
 import { startHarness } from "../../src/harness"
+import { CONFIG_WITH_RANKED } from "../../src/harness/config"
 import { MANIFEST } from "../game/subject"
 
 const PEM = {
@@ -112,16 +113,23 @@ describe("where vbz dev listens", () => {
     expect(await refusal(["--config", "config.json", "--site"])).toContain(
       "give one",
     )
-    // With --ranked it is read here and refused by the harness, which says
-    // why in one place: tests/harness/serving.test.ts holds that.
-    expect(
-      (
-        await devSettings(
-          parseArgs(["dev", "--config", "config.json", "--ranked"]),
-          read,
-        )
-      ).config,
-    ).toEqual({ endAt: 5 })
+    // With --ranked it is refused before the file is read, and so before
+    // vbz dev builds anything, in the harness's own words.
+    const reads: string[] = []
+    let refused: unknown = null
+    try {
+      await devSettings(
+        parseArgs(["dev", "--config", "config.json", "--ranked"]),
+        async (path) => {
+          reads.push(path)
+          return await read(path)
+        },
+      )
+    } catch (error) {
+      refused = error
+    }
+    expect(String(refused)).toBe(`Error: ${CONFIG_WITH_RANKED}`)
+    expect(reads).toEqual([])
   })
 
   /**

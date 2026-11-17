@@ -11,6 +11,7 @@
  */
 
 import { readFile } from "node:fs/promises"
+import { CONFIG_WITH_RANKED } from "../harness/config.js"
 import type { Listen, Tls } from "../harness/servers.js"
 import type { Options } from "./args.js"
 
@@ -106,6 +107,11 @@ export async function devSettings(
     throw new Error(
       "--config names the harness page's config, and --site serves your own page, which names its own; give one",
     )
+  }
+  // The harness says the same, in the same words, for a caller that starts
+  // it directly; here it is said before anything is read or built.
+  if (options.config !== undefined && options.ranked) {
+    throw new Error(CONFIG_WITH_RANKED)
   }
   const config =
     options.config === undefined

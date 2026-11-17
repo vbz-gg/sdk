@@ -28,7 +28,7 @@ import {
 import { DIST_DIR, DIST_FILES } from "../build/dist.js"
 import type { GameSource } from "../build/index.js"
 import { type BuiltGame, blobKeys, buildAndAddress } from "./artifacts.js"
-import { givenConfig, servedOrRefused } from "./config.js"
+import { CONFIG_WITH_RANKED, givenConfig, servedOrRefused } from "./config.js"
 import { type DeclaredNeeds, pageCsp, versionNeeds } from "./csp.js"
 import { readBuiltManifest } from "./dist-manifest.js"
 import { HARNESS_STYLE, harnessPage } from "./page/document.js"
@@ -203,11 +203,7 @@ function configToPlay(
         : "give vbz dev a config to play with --config <file>, or give each setting a default in the manifest",
     )
   }
-  if (options.ranked) {
-    throw new Error(
-      "--config plays a config of your own, and --ranked holds the page's runs to a ranked run, which plays every setting at its default; give one",
-    )
-  }
+  if (options.ranked) throw new Error(CONFIG_WITH_RANKED)
   return givenConfig(manifest, options.config, "--config")
 }
 
