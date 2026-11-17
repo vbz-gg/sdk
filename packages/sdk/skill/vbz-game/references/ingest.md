@@ -116,7 +116,31 @@ watched run's `draw: false` is the SDK's way to play a page module without
 its presentation, so its checkpoints can still be compared with the
 replay's.
 
-## 6. Published
+## 6. One replay on the replay service
+
+The checks above run on a machine of their own, which is not where a run is
+replayed and has more memory than a replay gets. So before the version
+publishes, the platform replays the bot's log the checks play once more, on
+the replay service that replays every ranked and practice run. One replay
+there has 5 minutes of CPU and 128 MB of memory, the platform's figures for
+its replay service on Cloudflare, and a version whose replay cannot finish
+inside them is refused with `E_REPLAY_OVER_BUDGET`, before any player's run
+fails the same way. That is the game's to fix. A replay service that gives
+no answer is the platform's: the check is tried again, and the version stays
+pending.
+
+Passing says the bot's run fits, and a player's run can be longer. Every
+run's replay starts the rules code afresh, holds the data packs the manifest
+declares, and plays every step the run took, so:
+
+- **Make a step cheaper.** At 60 steps a second an hour of play is 216,000
+  steps, and 5 minutes of CPU leaves about 1.4 ms for each. A ranked run
+  whose replay runs out of either budget is a `log_fault` and never ranks.
+- **Hold less at once.** The rules code as loaded, its data packs and the
+  game's state share the 128 MB. Keep level data in packs rather than in
+  the rules code, and let the state drop what no later step reads.
+
+## 7. Published
 
 Nobody reviews in between: a version that passes every check is published.
 Its two modules and its files folder are copied to

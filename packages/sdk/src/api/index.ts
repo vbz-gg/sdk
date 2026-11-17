@@ -37,7 +37,8 @@ export interface ApiErrorBody {
 }
 
 /**
- * Every refusal a public route can answer, by name.
+ * Every refusal a public route can answer, by name, and the code a version's
+ * checks end in when it is over a limit of the platform's replay service.
  *
  * A client switches on the code, never on the status. The platform holds its
  * refusal tables to this union at compile time, so a code it can answer and
@@ -154,6 +155,17 @@ export type PublicRefusalCode =
   | "E_PACKS_TOO_LARGE"
   /** The platform could not rewrite the page module's import. Not reached in practice. */
   | "E_REWRITE_FAILED"
+  // A version's checks.
+  /**
+   * Never a refusal's body: the code a version's checks end in, read back as
+   * `VersionStatus.rejectedCode`, when one replay of the version's bot log on
+   * the platform's replay service could not finish inside the CPU time or
+   * the memory a replay has there. The game's step is too heavy, or its
+   * rules code, data packs and state hold too much at once. A replay service
+   * that gave no answer is the platform's fault and is tried again, never
+   * this.
+   */
+  | "E_REPLAY_OVER_BUDGET"
   // Player sign-in.
   | "E_SIGNIN_GRANT_INVALID"
   | "E_CODE_VERIFIER_INVALID"
@@ -464,7 +476,12 @@ export interface VersionStatus {
   /** The release line, `MAJOR.MINOR`. */
   readonly line: string
   readonly state: VersionState
-  /** The code the checks refused it with, when they did. */
+  /**
+   * The code the checks refused it with, when they did: one of the engine's
+   * checks' codes, such as `E_SEED_IGNORED`, one of the platform's own
+   * checks', or `E_REPLAY_OVER_BUDGET`. A string, because the engine and the
+   * platform each name their own checks' codes.
+   */
   readonly rejectedCode: string | null
   /** The first check that failed, when one did. */
   readonly firstFailure: {

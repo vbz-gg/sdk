@@ -336,6 +336,24 @@ describe("the platform's refusals of a version", () => {
   })
 
   /**
+   * A version over a limit of the replay service is refused by the
+   * platform's checks after the upload, where no `vbz build` can see it
+   * first, so the guide is the only place an author learns what to change.
+   */
+  test("every code a version's replay ends in is in the refusal list and in ingest.md", async () => {
+    const replay = [...(await publicRefusalCodes())].filter((code) =>
+      code.startsWith("E_REPLAY"),
+    )
+    expect(replay.length).toBeGreaterThan(0)
+    const list = section(await read("SKILL.md"), "When ingest refuses")
+    const ingest = await read("references", "ingest.md")
+    for (const code of replay) {
+      expect(list).toContain(`\`${code}\``)
+      expect(ingest).toContain(`\`${code}\``)
+    }
+  })
+
+  /**
    * An upload with no ranking was once explained under two spellings, one
    * the platform answers and one nothing raised. The platform answers the
    * engine's own code, the one `vbz check --ranked` reports.

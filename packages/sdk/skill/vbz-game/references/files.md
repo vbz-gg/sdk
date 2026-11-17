@@ -160,7 +160,10 @@ A file over its limit is `E_FILE_TOO_LARGE`, a folder over its limits
 `E_FILES_TOO_LARGE` or `E_FILES_TOO_MANY`, and `vbz build` holds each file
 to them by its size on disk before it reads a byte. The rules code and every
 pack together fit one replay, which is why level data goes in packs and not
-in the rules code: every replay starts the rules code afresh.
+in the rules code: every replay starts the rules code afresh. A replay also
+has CPU time and memory, which only a replay measures, so no build checks
+them; `references/ingest.md` under "6. One replay on the replay service" has
+the platform's figures and the check that holds a version to them.
 
 ## Where it goes
 

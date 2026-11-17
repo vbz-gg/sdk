@@ -393,7 +393,8 @@ package README's table matches too; every artifact refusal named anywhere in
 the guide, `docs/sdk.md` or the package README exists, and every one that
 exists is explained; every code the guide's refusal list and
 `references/ingest.md` name is one `PublicRefusalCode` or the engine names,
-read from the union's declaration with TypeScript's parser; a manifest
+read from the union's declaration with TypeScript's parser, and every
+public code a version's replay ends in is explained in both; a manifest
 with no ranking goes by one name everywhere, the engine's
 `E_RANK_UNDECLARED`; `references/page.md` explains every client code and no
 other; every prose copy of what a release line fixes (in `SKILL.md`,
@@ -408,8 +409,9 @@ other limit it quotes is the constant that decides it, every `Prng` method
 it quotes is on the engine's `Prng`, every file of the engine's guide it
 names is one the installed engine ships, and it calls that guide
 `clockwork2` and nothing older. Adding a client code fails it until
-`page.md` has a row, and adding a limit fails it until both tables have
-one.
+`page.md` has a row, adding a limit fails it until both tables have one,
+and adding an `E_REPLAY` code to `PublicRefusalCode` fails it until the
+refusal list and `references/ingest.md` explain it.
 
 ## Tests
 

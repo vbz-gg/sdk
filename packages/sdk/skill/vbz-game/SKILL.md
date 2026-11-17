@@ -311,6 +311,12 @@ than about determinism:
   `tiePolicy`, so a ranked run has nothing to be ordered by. A game played
   only on its own page may leave both out; `vbz check --ranked` reports the
   same code before an upload does.
+- `E_REPLAY_OVER_BUDGET` - the code the version's checks end in when one
+  replay of the bot's log on the platform's replay service did not finish
+  inside 5 minutes of CPU or 128 MB of memory, the platform's figures for
+  one replay on Cloudflare. Make a step cheaper, or hold less at once in the
+  rules code, its data packs and its state; every ranked run's replay has
+  the same budget.
 
 `references/ingest.md` has the whole path from an upload to a listing.
 

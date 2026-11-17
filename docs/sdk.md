@@ -109,8 +109,11 @@ author runs `/harness`, whose page loads the game with `/host` too.
 `/api` is types only: every route a game's page or a build system calls,
 keyed by method and path in `PlatformRoutes`, with its credential, its body
 and its answer, and `PublicRefusalCode`, every refusal those routes answer by
-name. It compiles to an empty module, so importing it adds nothing to a
-bundle, and a test holds it to exporting no value.
+name. One code in it is never a refusal's body: `E_REPLAY_OVER_BUDGET` is
+what a version's checks end in when its replay is over a limit of the
+replay service, read back as the version's `rejectedCode`. `/api` compiles
+to an empty module, so importing it adds nothing to a bundle, and a test
+holds it to exporting no value.
 
 The types live here and not in the platform so the dependency runs one way.
 The platform depends on this package and this package on nothing of the
@@ -833,6 +836,18 @@ a matter of how fast it records inputs: the engine guide's
 listing the folder's limits allow, which the platform takes as the body of
 the route that asks which files it lacks.
 
+One replay has two more limits, which no constant here holds because only a
+replay measures them: 5 minutes of CPU and 128 MB of memory, the platform's
+figures for its replay service on Cloudflare. The rules code as loaded, the
+data packs the manifest declares and the game's state share the memory.
+Before a version publishes, the platform's checks replay the bot's log once
+more on that service, and a version whose replay cannot finish inside them
+ends in `E_REPLAY_OVER_BUDGET`, which is the game's to fix; a service that
+gives no answer is the platform's, and the check is tried again. A player's
+run can be longer than the bot's. At 60 steps a second an hour of play is
+216,000 steps, and 5 minutes of CPU leaves about 1.4 ms for each; a ranked
+run whose replay runs out of either is a `log_fault` and never ranks.
+
 ## Drawing with null3d
 
 [null3d](https://github.com/null3d-engine/null3d) draws from workers with a
@@ -1000,7 +1015,9 @@ line's contract hash, `contractSha256`, so a patch can be compared with the
 line it joins before it is uploaded. It exits 0 only when everything passes.
 
 The platform refuses an upload whose manifest declares no ranking under the
-same `E_RANK_UNDECLARED`, before it stores a byte.
+same `E_RANK_UNDECLARED`, before it stores a byte. One check it runs that
+`vbz check` cannot is a replay on its replay service, which "The limits"
+describes.
 
 The engine's checks read the rules code with TypeScript's own parser, so
 `vbz check` needs `typescript` installed in the game, and the template's
