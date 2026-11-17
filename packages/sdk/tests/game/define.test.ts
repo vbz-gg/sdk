@@ -536,6 +536,27 @@ describe("getting ready before a run", () => {
     expect(again.seen.errors.map((e) => e.code)).toEqual(["E_ARG_INVALID"])
   })
 
+  /**
+   * The folder's address is checked before anything is drawn or fetched, and
+   * a run mounted on a game that could not get ready builds nothing: the
+   * loader a run would fetch its packs with only exists once it is ready.
+   */
+  test("a files folder that is not one is refused in ready, and a run on it builds nothing", async () => {
+    const drawing = waiting()
+    const { game } = moduleOf({ presentation: () => drawing.presentation })
+    const prepared = game.prepare(stage(), { files: "files/" })
+    expect((await prepared.ready)?.code).toBe("E_ARG_INVALID")
+    expect(drawing.presentation.mounts).toBe(0)
+
+    const { seen, handlers } = listener()
+    const { files: _, ...run } = options({ handlers, environment: devices() })
+    const handle = prepared.mount(run)
+    await settle()
+    expect(seen.errors.map((e) => e.code)).toEqual(["E_ARG_INVALID"])
+    expect(seen.frames).toEqual([])
+    expect(handle.recorded()).toEqual([])
+  })
+
   test("a device that cannot draw says so in ready, and nothing is drawn after", async () => {
     const drawing = waiting()
     const { game } = moduleOf({ presentation: () => drawing.presentation })

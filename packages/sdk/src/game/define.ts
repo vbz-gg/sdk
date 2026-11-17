@@ -193,23 +193,34 @@ function inert(options: RunMount): MountHandle {
   }
 }
 
+/** What a run needs of a game that got ready: where its packs come from. */
+interface Ready {
+  /** Fetches a demand pack from the files folder. */
+  readonly loader: PackLoader
+  /** The start packs, fetched and checked. */
+  readonly packs: ReadonlyMap<string, PackBytes>
+}
+
 /**
  * A game getting ready in an element: its presentation mounted and prepared,
- * its start packs fetched and checked. `ready` never rejects.
+ * its start packs fetched and checked. Neither promise rejects.
  */
 interface Readiness {
+  /** What `PreparedGame.ready` answers: null once ready, or why not. */
   readonly ready: Promise<MountError | null>
+  /** The same, carrying what a run needs once it is ready. */
+  readonly outcome: Promise<Ready | MountError>
   /** Whether it was asked to draw: a presentation, or none at all. */
   readonly draws: boolean
   /** Null when nothing is drawn. Mounted and prepared once `ready` is null. */
   readonly presentation: Presentation<unknown, HTMLElement> | null
   readonly context: PresentationContext
-  /** Fetches a demand pack from the files folder; null when the folder was refused. */
-  readonly loader: PackLoader | null
-  /** The start packs, once `ready` is null. */
-  packs(): ReadonlyMap<string, PackBytes>
   /** Takes the presentation down, once. */
   release(): void
+}
+
+function isReady(outcome: Ready | MountError): outcome is Ready {
+  return "loader" in outcome
 }
 
 function getReady<TView, TConfig>(
@@ -221,7 +232,6 @@ function getReady<TView, TConfig>(
   const context = contextFor(element, options.presentationContext)
   let released = false
   let presentation: Presentation<TView, HTMLElement> | null = null
-  let started: Map<string, PackBytes> = new Map()
   const release = () => {
     if (released) return
     released = true
@@ -235,11 +245,10 @@ function getReady<TView, TConfig>(
     release()
     return {
       ready: Promise.resolve(error),
+      outcome: Promise.resolve(error),
       draws: draw,
       presentation: null,
       context,
-      loader: null,
-      packs: () => started,
       release,
     }
   }
@@ -278,29 +287,31 @@ function getReady<TView, TConfig>(
         }),
       ),
   )
-  const fetched = loadPacks(parts.manifest, loader, "start")
+  const fetched: Promise<Ready | MountError> = loadPacks(
+    parts.manifest,
+    loader,
+    "start",
+  )
     .then((packs) => {
       // Checked here as well as when the run's session is built, so a pack
       // whose bytes are wrong is found before a run is asked for.
       PackSet.verify(parts.manifest.assets, packs)
-      started = packs
-      return null
+      return { loader, packs }
     })
     .catch((error: unknown) => mountErrorOf(error))
-  const ready = Promise.all([drawn, fetched]).then(([a, b]) => {
-    const failure = a ?? b
-    if (failure !== null) release()
-    return failure
+  const outcome = Promise.all([drawn, fetched]).then(([failure, packed]) => {
+    const settled = failure ?? packed
+    if (!isReady(settled)) release()
+    return settled
   })
   return {
-    ready,
+    ready: outcome.then((settled) => (isReady(settled) ? null : settled)),
+    outcome,
     draws: draw,
     get presentation() {
       return presentation as Presentation<unknown, HTMLElement> | null
     },
     context,
-    loader,
-    packs: () => started,
     release,
   }
 }
@@ -474,7 +485,7 @@ function runOnceReady<TView, TConfig>(
           unmount: () => readiness.release(),
         }
 
-  const start = (): void => {
+  const start = (ready: Ready): void => {
     let built: GameHost<TView, HTMLElement, TConfig>
     try {
       built = new GameHost<TView, HTMLElement, TConfig>({
@@ -489,11 +500,7 @@ function runOnceReady<TView, TConfig>(
         // them. A fixed count is right at one tick rate only.
         checkpointEvery: manifest.session.tickHz,
         presentationContext: readiness.context,
-        ...(readiness.loader === null
-          ? { packs: { preloaded: readiness.packs() } }
-          : {
-              packs: { preloaded: readiness.packs(), loader: readiness.loader },
-            }),
+        packs: { preloaded: ready.packs, loader: ready.loader },
         ...(options.scheduler === undefined
           ? {}
           : { scheduler: options.scheduler }),
@@ -574,13 +581,13 @@ function runOnceReady<TView, TConfig>(
     }
   }
 
-  void readiness.ready.then((failure) => {
+  void readiness.outcome.then((outcome) => {
     if (destroyed) return
-    if (failure !== null) {
-      handlers.onError(failure)
+    if (!isReady(outcome)) {
+      handlers.onError(outcome)
       return
     }
-    start()
+    start(outcome)
   })
 
   return {
