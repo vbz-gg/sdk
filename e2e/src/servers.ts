@@ -408,6 +408,12 @@ function subjectOf(url: URL): SubjectName | null {
 
 const NO_STORE = { "cache-control": "no-store" }
 
+/** Cross-origin isolation, which a game that shares memory between threads needs. */
+const ISOLATED = {
+  "cross-origin-opener-policy": "same-origin",
+  "cross-origin-embedder-policy": "require-corp",
+}
+
 Bun.serve({
   port: STUDIO_PORT,
   hostname: LOOPBACK.hostname,
@@ -424,13 +430,19 @@ Bun.serve({
           ...NO_STORE,
           "content-type": "text/html; charset=utf-8",
           // The policy the SDK recommends a studio's page sends, naming the
-          // one game this page plays.
+          // one game this page plays; or, `?frames=none`, the same with no
+          // frame-src, which a page that forgot the sign-in sends.
           "content-security-policy": pageCsp({
             bundlesOrigin: studioBundlesOrigin,
             gameId: SUBJECTS[name].gameId,
             connect: [standIn.apiOrigin],
-            signInOrigin: standIn.signInOrigin,
+            signInOrigin:
+              url.searchParams.get("frames") === "none"
+                ? null
+                : standIn.signInOrigin,
           }),
+          // `?isolate=1`: what a page sends when its game needs threads.
+          ...(url.searchParams.get("isolate") === "1" ? ISOLATED : {}),
         },
       })
     }

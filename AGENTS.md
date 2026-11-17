@@ -396,6 +396,17 @@ What only a browser can settle, and what each spec found:
   "Cancel" on its motion prompt (the button's name, measured on iPadOS 26.7),
   answered by a stand-in for `requestPermission` because Chromium has none,
   and a laptop's Chromium, which has orientation events and no sensor.
+- A player signs in through the box over the page, the stand-in's sign-in
+  framed as the platform's is, with focus in the frame from the click and on
+  the sign-in's button once it loads, no window opened and nothing calling
+  `requestStorageAccess`; and on a page sent with COOP same-origin and COEP
+  require-corp, which stays `crossOriginIsolated` with the frame in it.
+  Cancel, and Escape pressed inside the frame, close the box with
+  `E_SIGNIN_CANCELLED`. A page whose policy has no `frame-src` never asks
+  for the frame, reports a `frame-src` violation and gets
+  `E_SIGNIN_UNREACHABLE` once the ready time runs out; the refused frame
+  fired `load` in Chromium and `error` in Firefox. Chromium and Firefox,
+  measured; WebKit is in the project and unmeasured here.
 - Watching an abandoned run stops at its end tick.
 - Tilt through Chromium's orientation override: the first reading is recorded
   as it is, and after that a level only when it changes. A spec that plays
@@ -423,8 +434,8 @@ What only a browser can settle, and what each spec found:
   it failed on a machine with nothing global. The spec holds TypeScript
   unreachable from the installed engine before `vbz new` runs.
 
-Chromium runs every spec; Firefox and WebKit run the one about the policy,
-which is each engine's to decide. The fingers and the sensor override are
+Chromium runs every spec; Firefox and WebKit run the one about the policy
+and the one about the sign-in's box, which are each engine's to decide. The fingers and the sensor override are
 Chromium's own protocol.
 
 One thing about the tools themselves, measured rather than read:

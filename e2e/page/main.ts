@@ -165,7 +165,18 @@ async function runs(): Promise<void> {
   }
   signedIn()
   element("signin").addEventListener("click", () => {
-    client.signIn().then(signedIn, refused)
+    body.dataset.signin = "open"
+    client.signIn().then(
+      () => {
+        body.dataset.signin = "signed in"
+        signedIn()
+      },
+      (error: unknown) => {
+        const { code } = error as { code?: string }
+        body.dataset.signin = code ?? "refused"
+        say(`${code ?? "refused"}: ${String(error)}`)
+      },
+    )
   })
 
   let game: LoadedGame | null = null
