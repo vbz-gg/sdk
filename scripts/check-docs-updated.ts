@@ -2,9 +2,10 @@
  * Rejects a commit that changes what the documentation describes unless its
  * message carries a `Docs-Updated:` trailer.
  *
- * `docs/sdk.md`, the two READMEs and `skill/vbz-game/` are read by people
- * and by agents that follow them literally, so a stale sentence is worse than
- * a missing one. This repository sits between two others, and most of what it
+ * `docs/sdk.md`, the two READMEs and the agent guide the package ships at
+ * `packages/sdk/skill/vbz-game/` are read by people and by agents that follow
+ * them literally, so a stale sentence is worse than a missing one. This
+ * repository sits between two others, and most of what it
  * documents is a contract rather than a behaviour: which slots a scheme has,
  * what a frame may import, which headers make a sandboxed frame load. Nothing
  * can measure whether a paragraph about one of those is still true. The
@@ -47,12 +48,15 @@ export const MIN_VALUE_LENGTH = 10
  */
 export const MAX_TRAILER_LINE = 100
 
-/** Paths whose change can leave a doc, a skill file or a template behind. */
+/**
+ * Paths whose change can leave a doc, a guide file or a template behind. The
+ * agent guide ships in the package, at packages/sdk/skill/vbz-game, so the
+ * first pattern covers it and the guide's own tests alike.
+ */
 export const BEARING_PATTERNS: readonly RegExp[] = [
   /^packages\//,
   /^e2e\//,
   /^scripts\//,
-  /^skill\//,
   /^docs\//,
   // A fixture is the worked example a doc points at, so it is documentation
   // that happens to run. The template is one too, and it lives under
@@ -199,8 +203,9 @@ function main(): void {
 
   console.error(`\ncommit rejected: ${result.error}\n`)
   console.error(
-    "docs/sdk.md, the two READMEs and skill/vbz-game/ describe this SDK.",
+    "docs/sdk.md, the two READMEs and the agent guide in packages/sdk/skill/vbz-game/",
   )
+  console.error("describe this SDK.")
   console.error(
     "The trailer records that you re-read the ones covering what you changed and",
   )

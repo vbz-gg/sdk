@@ -1,17 +1,25 @@
 ---
 name: vbz-game
-description: Build a game that runs on vbz.gg, the backend that checks and ranks a game studio's scores, on top of a Clockwork 2 simulation - the two artifacts an upload carries, the manifest the platform reads without running anything, drawing your own controls and mapping keys, fingers and tilt to the inputs the manifest declares, and the page module a studio's page loads. Use when starting a game for vbz.gg, mapping inputs, writing the page module entry, testing against the harness, or working out why ingest refused an upload. For the simulation's own rules - fixed ticks, seeded randomness, dmath, snapshots - use the platform-game skill instead.
+description: Build a game that runs on vbz.gg, the backend that replays every run on a server to check and rank a game studio's scores, on top of a Clockwork 2 simulation. Covers why a run is replayed and what that asks of a game - one seeded Prng and never Math.random, and a game that ignores its seed being refused at upload - drawing your own controls and hit-testing them in tick, mapping keys, fingers and tilt to declared inputs through the engine's device helpers, choosing what to record, the two artifacts an upload carries, the manifest the platform reads without running anything, and the page module a studio's page loads. Use when starting a game for vbz.gg, adding randomness, mapping inputs, writing the page module entry, testing against the harness, or working out why ingest refused an upload. For the simulation's full rules - fixed ticks, Prng streams, dmath, snapshots, the twelve checks - use the engine's guide, clockwork2.
 ---
 
 # Building a game that runs on vbz.gg
 
-Two skills, and they do not overlap. **platform-game** is how to write a
-simulation that replays to the same state on somebody else's server: fixed
-ticks, `Prng`, `dmath`, snapshots, the twelve conformance checks. Read it
-first and keep it open. **This one** is everything between a conforming
-simulation and a game somebody can play on vbz: how it is laid out, how it is
-built, how a phone steers it, and what the platform checks before it will list
-it.
+Two guides. The engine's, **clockwork2**, is how to write a simulation that
+replays to the same state on somebody else's server: fixed ticks, `Prng`,
+`dmath`, snapshots, the twelve conformance checks. Read it first and keep it
+open. **This one** is everything between a conforming simulation and a game
+somebody can play on vbz: how it is laid out, how it is built, how a phone
+steers it, and what the platform checks before it will list it. It repeats
+the engine's guide in two places, briefly, because they are the two things an
+author gets wrong first: where randomness comes from, and what to record.
+
+A game made with `vbz new` keeps both guides in `.claude/skills/`, this one
+at `.claude/skills/vbz-game/` and the engine's at `.claude/skills/clockwork2/`,
+copied from the versions of the two packages it installed. The packages ship
+them at `node_modules/@vbz-gg/sdk/skill/vbz-game/` and
+`node_modules/@clockwork2/engine/skill/clockwork2/`. A path that starts
+`clockwork2/` is a file in the engine's guide.
 
 ## Start here
 
@@ -25,6 +33,12 @@ The copy builds and plays before a line of it is changed, so anything that
 breaks afterwards is something you just did. Its id is taken from the
 directory name and is **immutable once published**: changing it later is a
 different game with a different board.
+
+The copy also carries the two guides in `.claude/skills/`, and an `AGENTS.md`
+with the commands, the one rule and where the guides are, for an agent that
+reads that file rather than loading skills. After upgrading `@vbz-gg/sdk` or
+`@clockwork2/engine`, run `bunx vbz guides` from the game's root: it replaces
+both folders with the guides the installed versions ship.
 
 ## The shape of a game
 
@@ -54,6 +68,38 @@ and loaded by the validator, same bytes and same hash.
 `bun run build` writes all three files a submission carries:
 `dist/sim.js`, `dist/present.js` and `dist/manifest.json`.
 
+## Replays and randomness
+
+A score on vbz is what a server computed, not what the page showed. The page
+records the player's inputs and sends them, the platform replays them against
+your rules code on a server, with the seed and config it issued for the run,
+and the board takes the counters that replay reached. A run whose replay
+disagrees with the page never reaches the board. So everything the simulation
+does has to follow from the seed, the config and the inputs, and randomness
+is where that breaks first:
+
+- One `Prng` from `@clockwork2/engine`, made in `init` from the seed `init`
+  is given: `this.rng = new Prng(seed)`. Never `Math.random`, and never a
+  seed of your own from the clock, the URL or the device. The server has none
+  of them.
+- Each system draws from its own labelled sub-stream:
+  `this.spawn = this.rng.stream("spawn")`, then
+  `this.spawn.randomInt(0, 2)`, which includes both ends. With one stream, a
+  draw added to one system shifts every later draw in another, and every run
+  already recorded stops replaying.
+- The generator is part of the state. `snapshot()` holds
+  `this.rng.exportState()`, and `restore()` hands it back with
+  `this.rng.importState(state)`, which restores the sub-streams with it.
+- The renderer may use `Math.random` for anything the simulation never reads,
+  such as which way a spark flies.
+
+A game that ignores its seed passes all twelve of the engine's checks and is
+still refused at upload. The platform's seed-sensitivity check runs one input
+log under two seeds, and a game that reaches the same state under both is
+rejected with `E_SEED_IGNORED`, because every day would be the same puzzle
+and the daily board an all-time one. `clockwork2/references/determinism-rules.md`
+has the full rules, `dmath` and time included.
+
 ## Inputs
 
 A manifest declares each input the game records, by name and the whole numbers
@@ -69,18 +115,45 @@ inputs: {
 `src/capture.ts` says which keys, fingers, gamepad buttons and tilt drive each
 one, as the engine's `CaptureMapping`. It touches no DOM, so it can be checked
 without loading anything that draws, and the engine's `checkCapture` refuses a
-mapping that names an input the manifest does not declare.
+mapping that names an input the manifest does not declare. The engine's
+device helpers do the recording, from real devices, through that mapping.
 
 A mapping that reads tilt makes tilt required. A page starts no run on a
 device or in a browser that cannot give it, a laptop included, and keys
 mapped beside it do not change that. Try such a game on a laptop with the
 browser's sensor emulation.
 
-A game draws its own controls. Its renderer paints them, and the game records
-where a finger is and whether it is down, and **hit-tests in `tick`**, in the
-units its manifest declares. Not in the renderer: a game may not construct an
-input event, and a renderer that decided which control was pressed would be
-deciding the result on the client.
+A game draws its own controls. Its renderer paints them, the game records
+where a finger is and whether it is down, and the simulation **hit-tests in
+`tick`**, as the next section says.
+
+## Choosing what to record
+
+Every input a run records is sent, stored and replayed, and the platform
+refuses a run holding more than 16 inputs per tick, counted over the whole
+run (`E_INPUT_BUDGET`). What a game records is decided by the ranges in its
+manifest and by `src/capture.ts`:
+
+- Record changes, not streams. The device helpers record a level (where a
+  finger is, a stick, tilt) only when its value changes, and a press once
+  when it goes down and once when it comes up. Never push a reading of your
+  own every frame.
+- Declare the coarsest range that still tells the game what it needs. The
+  range is the recording's resolution: a finger measured in a thousand steps
+  crosses one on nearly every frame, and the template records one in coarse
+  steps across its field, which is all it needs to tell two buttons apart.
+- Hit-test in `tick`. Record where a finger is and whether it is down, in the
+  manifest's units, and let the simulation decide what was under it, against
+  the same rectangles the renderer draws from. A renderer that worked out
+  which control was pressed and recorded the answer would replay perfectly
+  and still have settled the result where nothing checks it.
+- Leave out what `tick` never reads, and give a stick or tilt a deadband, so
+  a resting hand records nothing.
+
+`clockwork2/references/inputs.md` has the rules in full and a measured table
+of what each kind of device costs over a five-minute run. The harness reports
+every run's inputs against the budget, so try a new mapping there before
+publishing.
 
 ## What the page module entry does
 
@@ -120,7 +193,7 @@ game's own page against a stand-in for the platform.
 
 ## When ingest refuses
 
-Every refusal carries a code. The ones that are about this skill rather than
+Every refusal carries a code. The ones that are about this guide rather than
 about determinism:
 
 - `E_SIM_NOT_SELF_CONTAINED` - the simulation imports something. It runs with
@@ -200,7 +273,11 @@ newer patch passes, and practice carries on.
 
 ## Commands
 
-- `vbz new <dir>` - a game that already conforms.
+- `vbz new <dir>` - a game that already conforms, with both guides in
+  `.claude/skills/` and an `AGENTS.md`.
+- `vbz guides <dir>` - replace the game's two guides with the ones its
+  installed `@vbz-gg/sdk` and `@clockwork2/engine` ship. It stops, writing
+  nothing, when either package or its guide is missing.
 - `vbz build <dir>` - the three files a submission carries.
 - `vbz check <dir>` - the engine's checks and the input mapping, with the
   version, its release line and the line's contract hash.

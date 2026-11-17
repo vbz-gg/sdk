@@ -18,6 +18,9 @@
  *   contract no release drives yet.
  * - **This package, packed and installed apart**, the way a studio gets it
  *   from npm, for the spec that bundles a page with it.
+ * - **A package registry** holding that tarball and one of the engine, for
+ *   the spec that makes a game with `vbz new` and `bunx` the way an author
+ *   does. Every other package it fetches from npm.
  * - **A control origin** a spec asks where everything is, and reads the
  *   bundles origins' request logs from.
  *
@@ -69,6 +72,7 @@ import {
   SUBJECTS,
   type SubjectName,
 } from "./env"
+import { hold, startRegistry } from "./registry"
 
 const ROOT = join(import.meta.dir, "..", "..")
 const PAGE = join(import.meta.dir, "..", "page")
@@ -146,21 +150,45 @@ for (const name of Object.keys(SUBJECTS) as SubjectName[]) {
  * This package as npm would hand it to a studio: packed, unpacked into a
  * `node_modules` of its own beside the engine, and nothing of this
  * repository's workspace in reach.
+ *
+ * The engine is packed too, from the copy installed here, which `npm pack`
+ * reproduces file for file. The two tarballs are what the registry below
+ * holds.
  */
 const nodeModules = join(work, "node_modules")
-await $`npm pack --pack-destination ${work}`
+const tarballs = join(work, "tarballs")
+await mkdir(tarballs, { recursive: true })
+const engineDir = await realpath(
+  join(ROOT, "node_modules", "@clockwork2", "engine"),
+)
+await $`npm pack --pack-destination ${tarballs}`
   .cwd(join(ROOT, "packages", "sdk"))
   .quiet()
-const tarball = [...new Bun.Glob("*.tgz").scanSync(work)][0]
-if (tarball === undefined) throw new Error("npm pack produced no tarball")
-await $`tar -xzf ${join(work, tarball)} -C ${work}`.quiet()
+await $`npm pack ${engineDir} --ignore-scripts --pack-destination ${tarballs}`
+  .cwd(work)
+  .quiet()
+const registryHolds = await Promise.all(
+  [...new Bun.Glob("*.tgz").scanSync(tarballs)].map((file) =>
+    hold(join(tarballs, file)),
+  ),
+)
+function tarballOf(name: string): string {
+  const found = registryHolds.find((pkg) => pkg.name === name)
+  if (found === undefined) throw new Error(`npm pack produced no ${name}`)
+  return found.tarball
+}
+const packed = {
+  sdk: tarballOf("@vbz-gg/sdk"),
+  engine: tarballOf("@clockwork2/engine"),
+}
+await $`tar -xzf ${packed.sdk} -C ${work}`.quiet()
 await mkdir(join(nodeModules, "@vbz-gg"), { recursive: true })
 await rename(join(work, "package"), join(nodeModules, "@vbz-gg", "sdk"))
 await mkdir(join(nodeModules, "@clockwork2"), { recursive: true })
-await symlink(
-  await realpath(join(ROOT, "node_modules", "@clockwork2", "engine")),
-  join(nodeModules, "@clockwork2", "engine"),
-)
+await symlink(engineDir, join(nodeModules, "@clockwork2", "engine"))
+
+const registryLog: string[] = []
+const registry = startRegistry(registryHolds, (line) => registryLog.push(line))
 
 /**
  * The template's source, copied into `work` and built there against a copy of
@@ -276,6 +304,7 @@ for (const module of Object.values(studioModules)) {
 }
 const studioLog: string[] = []
 requests.set("studio", studioLog)
+requests.set("registry", registryLog)
 /** Paths the next request for which fails, once, as a network would. */
 const failOnce = new Set<string>()
 const serveStudioBlob = createBlobServer(async (key) => studioBlobs.get(key))
@@ -433,6 +462,8 @@ Bun.serve({
         bundlesOrigin: studioBundlesOrigin,
         modules,
         nodeModules,
+        registry: registry.origin,
+        tarballs: packed,
       })
     }
     // The next request for a module's page module fails, once.

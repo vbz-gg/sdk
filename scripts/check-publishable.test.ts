@@ -1,12 +1,18 @@
 import { describe, expect, test } from "bun:test"
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 import {
   BUNDLER_COMMENTS,
+  type CommittedFile,
+  committedGuide,
   exportTargets,
+  type Git,
+  GUIDE,
+  guideDifferences,
   missingBundlerComments,
   PUBLIC_PACKAGES,
+  parseBatch,
   problemsWith,
   RUNTIME_FILES,
   type Shipped,
@@ -28,6 +34,7 @@ function shipped(over: Partial<Shipped> = {}): Shipped {
     ],
     imports: { problems: [], skipped: [] },
     bundlerComments: [],
+    guide: [],
     ...over,
   }
 }
@@ -105,6 +112,27 @@ describe("what a tarball would do to a consumer", () => {
    * with that line in its release log. Written the way npm publishes it,
    * the log says nothing.
    */
+  /**
+   * `vbz new` renames each of these on the way into a game. One the tarball
+   * lacks is a game without its ignore file, or without the file that tells
+   * an agent where the guides are, and nothing says so.
+   */
+  test("the template's files that a new game renames are held to shipping", () => {
+    for (const file of [
+      "templates/game/gitignore",
+      "templates/game/game-agents.md",
+      "templates/game/game-claude.md",
+    ]) {
+      expect(RUNTIME_FILES).toContain(file)
+      const problems = problemsWith(
+        shipped({ files: shipped().files.filter((f) => f !== file) }),
+      )
+      expect(problems).toEqual([
+        `@vbz-gg/sdk would ship no ${file}, which it reads at runtime`,
+      ])
+    }
+  })
+
   test("a command entry npm would rewrite at publish is caught", () => {
     const problems = problemsWith(
       shipped({ bin: { vbz: "./dist/cli/index.js" } }),
@@ -133,6 +161,17 @@ describe("what a tarball would do to a consumer", () => {
       }),
     )
     expect(problems.join("\n")).toContain("./controls")
+  })
+
+  test("a guide that differs from the committed one is a problem", () => {
+    const problems = problemsWith(
+      shipped({
+        guide: [
+          `${GUIDE}/SKILL.md in the tarball differs from the committed file`,
+        ],
+      }),
+    )
+    expect(problems.join("\n")).toContain(`${GUIDE}/SKILL.md`)
   })
 
   test("the checker names the package that is published", () => {
@@ -227,4 +266,193 @@ describe("what plain node makes of the exports map", () => {
       await rm(dir, { recursive: true, force: true })
     }
   }, 30_000)
+})
+
+describe("the guide the tarball carries", () => {
+  type Tree = Record<string, { text: string; executable?: boolean }>
+
+  /** Writes a tree of files under `root`, at paths inside the package. */
+  async function write(root: string, tree: Tree): Promise<string[]> {
+    for (const [path, file] of Object.entries(tree)) {
+      await mkdir(dirname(join(root, path)), { recursive: true })
+      await writeFile(join(root, path), file.text)
+      await chmod(join(root, path), file.executable === true ? 0o755 : 0o644)
+    }
+    return Object.keys(tree).sort()
+  }
+
+  const GOOD: Tree = {
+    [`${GUIDE}/SKILL.md`]: { text: "---\nname: vbz-game\n---\n" },
+    [`${GUIDE}/references/page.md`]: { text: "# The page\n" },
+  }
+
+  /** What git would hold for a tree, without a repository to hold it. */
+  function asCommitted(tree: Tree): Map<string, CommittedFile> {
+    return new Map(
+      Object.entries(tree).map(([path, file]) => [
+        path,
+        {
+          bytes: new TextEncoder().encode(file.text),
+          executable: file.executable === true,
+        },
+      ]),
+    )
+  }
+
+  /** Unpacks `inTarball` to a directory and compares it with `committed`. */
+  async function compare(
+    inTarball: Tree,
+    committed: Tree = GOOD,
+  ): Promise<string[]> {
+    const dir = await mkdtemp(join(tmpdir(), "sdk-guide-"))
+    try {
+      const shipped = await write(dir, {
+        "package.json": { text: "{}" },
+        ...inTarball,
+      })
+      return guideDifferences(dir, shipped, asCommitted(committed))
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  }
+
+  test("the committed guide, packed whole, has nothing to say", async () => {
+    expect(await compare(GOOD)).toEqual([])
+  })
+
+  test("a byte that differs is named, as an edit nobody committed is", async () => {
+    // npm packs the working tree, so an uncommitted edit is what ships.
+    const problems = await compare({
+      ...GOOD,
+      [`${GUIDE}/SKILL.md`]: { text: "---\nname: vbz-games\n---\n" },
+    })
+    expect(problems).toEqual([
+      `${GUIDE}/SKILL.md in the tarball differs from the committed file`,
+    ])
+  })
+
+  test("a committed file the tarball dropped is named", async () => {
+    // npm drops a file an ignore rule matches, and says nothing about it.
+    const problems = await compare({
+      [`${GUIDE}/SKILL.md`]: { text: "---\nname: vbz-game\n---\n" },
+    })
+    expect(problems).toEqual([
+      `${GUIDE}/references/page.md is committed and the tarball does not carry it`,
+    ])
+  })
+
+  test("an untracked file is named, because npm packs the disk", async () => {
+    // A scratch note left in the guide's folder ships, and `vbz new` would
+    // then copy it into every game.
+    const problems = await compare({
+      ...GOOD,
+      [`${GUIDE}/notes.txt`]: { text: "scratch" },
+    })
+    expect(problems).toEqual([
+      `${GUIDE}/notes.txt is in the tarball and is not committed`,
+    ])
+  })
+
+  test("the guide's tests shipping beside it are named", async () => {
+    const problems = await compare({
+      ...GOOD,
+      "skill/tests/skill.test.ts": { text: "test()" },
+    })
+    expect(problems).toEqual([
+      `skill/tests/skill.test.ts ships, and only ${GUIDE}/ belongs under skill/`,
+    ])
+  })
+
+  test("a file whose execute bit moved is named", async () => {
+    // `vbz new` copies the guide with the modes it shipped with, so a mode
+    // the tarball changed is a mode every new game gets.
+    const committed: Tree = {
+      ...GOOD,
+      [`${GUIDE}/scripts/run.sh`]: { text: "#!/bin/sh\n", executable: true },
+    }
+    const problems = await compare(
+      { ...GOOD, [`${GUIDE}/scripts/run.sh`]: { text: "#!/bin/sh\n" } },
+      committed,
+    )
+    expect(problems).toEqual([
+      `${GUIDE}/scripts/run.sh is executable when committed and not in the tarball`,
+    ])
+  })
+
+  test("no committed guide at all is a problem, not a pass", async () => {
+    // A listing that came back empty would otherwise compare nothing against
+    // nothing and agree.
+    const problems = await compare({}, {})
+    expect(problems).toEqual([
+      `no committed files under ${GUIDE}/ to compare with`,
+    ])
+  })
+
+  /**
+   * One process for the listing and one for every blob, however many files
+   * the guide holds. A process per file grows with the guide and costs a
+   * fork on every check.
+   */
+  test("the committed guide is read with two git processes, whatever its size", async () => {
+    const calls: string[] = []
+    const counting: Git = async (cwd, args, input) => {
+      calls.push(args.slice(0, 2).join(" "))
+      const child = Bun.spawn(["git", ...args], {
+        cwd,
+        stdin: input ?? "ignore",
+        stdout: "pipe",
+      })
+      const out = new Uint8Array(await new Response(child.stdout).arrayBuffer())
+      await child.exited
+      return out
+    }
+    const committed = await committedGuide(
+      join(import.meta.dir, "..", "packages", "sdk"),
+      counting,
+    )
+    expect(committed.size).toBeGreaterThan(3)
+    expect(calls).toEqual(["ls-files -s", "cat-file --batch"])
+  })
+
+  test("a batch answer is split by the size each header gives", () => {
+    // A blob may hold newlines, and the last byte of one is followed by the
+    // newline git adds, so the sizes decide where one ends.
+    const encode = (text: string) => new TextEncoder().encode(text)
+    const out = encode("aaa blob 6\nab\ncd\n\nbbb blob 0\n\nccc blob 2\n\n\n\n")
+    const blobs = parseBatch(out, ["aaa", "bbb", "ccc"])
+    expect(blobs.map((blob) => new TextDecoder().decode(blob))).toEqual([
+      "ab\ncd\n",
+      "",
+      "\n\n",
+    ])
+  })
+
+  test("a batch answer that does not hold every object asked for is refused", () => {
+    const encode = (text: string) => new TextEncoder().encode(text)
+    expect(() => parseBatch(encode("aaa missing\n"), ["aaa"])).toThrow(
+      "git cat-file has no blob aaa",
+    )
+    expect(() => parseBatch(encode("aaa blob 9\nshort\n"), ["aaa"])).toThrow(
+      "git cat-file's answer for aaa is cut short",
+    )
+    expect(() => parseBatch(encode("aaa blob 1\nx\n"), ["aaa", "bbb"])).toThrow(
+      "git cat-file has no blob bbb",
+    )
+  })
+
+  test("the package's committed guide is read as git holds it", async () => {
+    // The listing is what the comparison trusts for "committed": paths inside
+    // the package, under the guide and not its tests, with git's bytes and
+    // git's mode for each.
+    const committed = await committedGuide(
+      join(import.meta.dir, "..", "packages", "sdk"),
+    )
+    const paths = [...committed.keys()]
+    expect(paths).toContain(`${GUIDE}/SKILL.md`)
+    expect(paths).toContain(`${GUIDE}/references/page.md`)
+    expect(paths.every((path) => path.startsWith(`${GUIDE}/`))).toBe(true)
+    expect(committed.get(`${GUIDE}/SKILL.md`)?.executable).toBe(false)
+    const skill = committed.get(`${GUIDE}/SKILL.md`)?.bytes ?? new Uint8Array()
+    expect(new TextDecoder().decode(skill)).toStartWith("---\nname: ")
+  })
 })

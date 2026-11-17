@@ -21,7 +21,7 @@ bun run build          # tsc -b over project references
 bun run typecheck
 bun run lint           # biome check .
 bun run lint:fix
-bun test               # the unit suite
+bun run test           # the unit suite; bare `bun test` also picks up the browser specs
 bun run test:coverage  # the same tests, then the 99% floor over packages/*/src
 bun run test:e2e       # the browser suite: the harness and a studio's page, for real
 bun run check:publishable   # pack the package and read what a consumer gets
@@ -80,8 +80,9 @@ player the client has let go.
 
 **The client's codes and the platform's never share a name.** `CLIENT_ERROR`
 in `errors.ts` is the client's table, a compile-time check keeps it apart from
-`PublicRefusalCode`, and the skill's `references/page.md` explains every entry,
-held both ways by `skill/tests/skill.test.ts`. A new code is a new row in both.
+`PublicRefusalCode`, and the guide's `references/page.md` explains every entry,
+held both ways by `packages/sdk/skill/tests/skill.test.ts`. A new code is a
+new row in both.
 
 ## The page module
 
@@ -185,7 +186,10 @@ exports map names with plain node, which is the only check that sees this. It
 also asserts the files the package reads at runtime rather than imports are in
 the tarball - `RUNTIME_FILES` in the script - because the harness bundles its
 page script from a path built off `import.meta.dir`, and nothing importing the
-package would notice that file missing.
+package would notice that file missing. `vbz new` reads the template the same
+way, and renames the files `RENAMED_IN_GAME` lists on the way into a game,
+so `RUNTIME_FILES` lists each by the name it ships under, read from that
+table.
 
 **`loadGame`'s import of a game's code keeps both bundler comments**,
 `webpackIgnore: true` and `@vite-ignore`, on the call itself. The URL arrives
@@ -254,29 +258,62 @@ line's recent ranked runs end differently under it.
 **Its exit code is the verdict.** 0 means the version passed its checks and
 is published, and the command has printed which runs it serves. Anything
 else, including a version an operator took down, is 1. This sentence, the
-package README, `docs/sdk.md`, the skill's `SKILL.md` and `cli/publish.ts`
+package README, `docs/sdk.md`, the guide's `SKILL.md` and `cli/publish.ts`
 say it together, and change together.
 
 No template or example names a script `publish`, because npm runs one with
 that name as a lifecycle hook of `npm publish`.
 
-## The skill
+## The agent guide
 
-`skill/vbz-game/` is prose an agent follows literally, so a stale sentence
-is worse than a missing one. It has one subject: everything between a
-conforming simulation and a game the platform can check and replay.
-Determinism belongs to clockwork2's `platform-game`, and this one points at it
-rather than repeating it - two copies of that rulebook is how one of them goes
-quietly out of date.
+`packages/sdk/skill/vbz-game/` is prose an agent follows literally, so a
+stale sentence is worse than a missing one. It has one subject: everything
+between a conforming simulation and a game the platform can check and replay.
+Determinism belongs to the engine's guide, `clockwork2`, which the engine
+package ships, and this one points at it rather than repeating it - two copies
+of that rulebook is how one of them goes quietly out of date.
 
-`skill/tests/skill.test.ts` measures the drift a machine can see: the size
-caps match the code, every artifact refusal named exists and every one that
-exists is explained, `references/page.md` explains every client code and no
-other, every prose copy of what a release line fixes (in `SKILL.md`,
-`references/ingest.md` and `docs/sdk.md`) names exactly the fields
-`LINE_RULES` fixes, the commands are the CLI's, the layout it prints is the
-template's, and every reference is linked both ways. Adding a client code
-fails it until `page.md` has a row.
+Two sections are the exception, "Replays and randomness" and "Choosing what
+to record". They are the two things a game author gets wrong first, a seed
+taken from somewhere other than `init` and a stream of readings recorded every
+frame, and an author meets both before they think to open a second guide. So
+each says only what an author needs at that point, quotes only what the
+engine exports, and points at the engine guide's reference for the full
+rules. Nothing else in this guide restates a determinism rule.
+
+The guide ships in the package, and its tests sit beside it at
+`packages/sdk/skill/tests/`, outside what ships. `vbz new` copies it into a
+game's `.claude/skills/vbz-game/`, with the engine's guide from the engine
+installed beside the package at `.claude/skills/clockwork2/`, and `vbz guides`
+copies both again from the packages a game has installed. Neither falls back:
+a package or a guide that is missing is an error naming it, and nothing is
+written, and `vbz guides` refuses a directory that is not a game's root,
+one whose `package.json` names `@vbz-gg/sdk`, rather than making it. Both
+copy the guides into temporary folders first and replace the game's only
+once both copies exist, so a game never holds guides from two releases.
+
+The game's `AGENTS.md` and `CLAUDE.md` live in the template as
+`game-agents.md` and `game-claude.md`, renamed on the way in as `gitignore`
+is. A name that differed from `AGENTS.md` only by case would still steer an
+agent working here on macOS or Windows, whose default filesystems ignore
+case. A template missing one of them is a broken install, and `vbz new`
+names it and takes back what it wrote.
+
+`check:publishable` compares the packed guide with git's copy, file for file,
+byte for byte and execute bit, and fails on anything else under `skill/` in
+the tarball, because npm packs the disk and not the commit.
+
+`packages/sdk/skill/tests/skill.test.ts` measures the drift a machine can
+see: the size caps match the code, every artifact refusal named exists and
+every one that exists is explained, `references/page.md` explains every
+client code and no other, every prose copy of what a release line fixes (in
+`SKILL.md`, `references/ingest.md` and `docs/sdk.md`) names exactly the
+fields `LINE_RULES` fixes, the commands are the CLI's, the layout it prints is
+the template's, and every reference is linked both ways. Every limit it quotes
+is the constant that decides it, every `Prng` method it quotes is on the
+engine's `Prng`, every file of the engine's guide it names is one the
+installed engine ships, and it calls that guide `clockwork2` and nothing
+older. Adding a client code fails it until `page.md` has a row.
 
 ## Tests
 
@@ -311,9 +348,11 @@ CLI, so a stale `dist` cannot be what is tested, and serves: each subject's
 harness, as `vbz dev` serves it; the suite's studio page, `e2e/page/`, on an
 origin of its own under the policy the SDK recommends, against a stand-in for
 the platform per game; a bundles origin holding every game's modules under
-the game's own path; and this package packed and installed apart. It keeps a
-request log per bundles origin, which a spec reads to see what the browser
-actually fetched.
+the game's own path; this package packed and installed apart; and a package
+registry holding that tarball and one of the engine, packed from the copy
+installed here, which fetches every other package from npm. It keeps a
+request log per bundles origin and one for the registry, which a spec reads
+to see what was actually fetched.
 
 The subjects are the template, which draws its own two buttons, and the
 paddle fixture, which reads tilt and maps Space. Beside them, `e2e/frozen/`
@@ -358,6 +397,19 @@ What only a browser can settle, and what each spec found:
   Without its comment webpack turns `loadGame`'s import into a lookup of its
   own and the page loads nothing; Vite 8 and esbuild leave it alone either
   way.
+- A game made the way an author makes one: the kit and the engine installed
+  from their tarballs, `vbz new`, the game's own install from the registry,
+  `vbz guides`, `vbz check`, and `vbz dev` with no studio key, its page
+  loaded and played. And `bunx @vbz-gg/sdk new`, against the registry
+  through `BUN_CONFIG_REGISTRY`, which `bunx` reads and a `bunfig.toml` in
+  its working directory does not. `bunx` reuses its install under `TMPDIR`
+  from one run to the next, so every run gets its own `TMPDIR` and bun cache.
+  Each command's environment is built up from `PATH`, the machine's proxy if
+  it has one, and a home of the run's own, never copied from the suite's: a
+  copied `NODE_PATH` naming a global `node_modules` let `vbz new` load
+  TypeScript, which no game has before its own install, and pass here while
+  it failed on a machine with nothing global. The spec holds TypeScript
+  unreachable from the installed engine before `vbz new` runs.
 
 Chromium runs every spec; Firefox and WebKit run the one about the policy,
 which is each engine's to decide. The fingers and the sensor override are
@@ -503,8 +555,9 @@ the trailer says you re-read the pages covering what you changed and brought
 them back in line.
 
 It is demanded when the commit stages anything under `packages/`, `e2e/`,
-`scripts/`, `skill/`, `docs/`, `templates/` or `fixtures/`, or `README.md`,
-`package.json`, `tsconfig*.json`, `biome.json`, `bunfig.toml` or `.github/`.
+`scripts/`, `docs/` or `fixtures/`, or `README.md`, `package.json`,
+`tsconfig*.json`, `biome.json`, `bunfig.toml` or `.github/`. The agent guide
+and the template are under `packages/`.
 Merge, revert, fixup, squash and `chore(release)` commits are exempt: git and
 commit-and-tag-version write those messages themselves, some with no editor at
 all.

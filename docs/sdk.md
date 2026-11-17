@@ -42,8 +42,9 @@ So the SDK owns seven things, one per subpath export:
 | `/serve` | The handler that serves a game's modules at the paths and with the headers `files.vbz.gg` uses |
 | `/harness` | The build and the handler, wired into a local page that loads the game the way a studio's page does |
 
-Beside them the package ships a CLI (`vbz new | build | check | dev | publish`),
-the template `new` copies, and `skill/vbz-game/`, which is the same material
+Beside them the package ships a CLI
+(`vbz new | guides | build | check | dev | publish`), the template `new`
+copies, and the agent guide at `skill/vbz-game/`, which is the same material
 written for an agent to follow literally.
 
 The platform imports `/api`, and declares each public route's answer with its
@@ -476,6 +477,53 @@ repository, at the same path relative to the CLI in the source tree and in
 Runner, with its own two buttons, keys and a controller, and `site/`, a
 studio page with sign-in, Play, Practice and the board.
 
+## The agent guides
+
+A game has two sets of rules for an agent to follow, and each package ships
+its own as an agent skill under `skill/`: the engine's, `clockwork2`, on
+writing a simulation that replays to the same state on a server, and this
+package's, `vbz-game`, on everything between that simulation and a game the
+platform can check. A game keeps a copy of both in `.claude/skills/`, where an
+agent's tools look for skills, so the guide an agent reads is the one for the
+versions the game installed.
+
+`vbz new` copies this package's own guide and the engine's, from the engine
+installed beside this package: the one node would find from the CLI's own
+module, looking in `node_modules` there and in each directory above. An
+engine that is not installed there, or one from a release before the engine
+shipped its guide, stops `vbz new` with a message naming what is missing,
+before it has written anything.
+
+It also writes an `AGENTS.md`, for an agent that reads that file rather than
+loading skills, with the commands, the engine's one rule in full, and where
+the two guides are, and a `CLAUDE.md` that is `@AGENTS.md`. The template
+keeps them as `game-agents.md` and `game-claude.md` and they are renamed on
+the way into a game, as `gitignore` is, because under their own names they
+would steer an agent working on this repository as if it were working on a
+game. A name that differed only by case would too: macOS and Windows open
+`agents.md` for `AGENTS.md` on their default filesystems. A template missing
+one of the three is an install that is broken, and `vbz new` says which file
+and takes back what it wrote, as it does for anything that fails part-way:
+a directory it made goes, and one that was there empty is left empty.
+
+`vbz guides ./my-game` replaces both guides with the ones the game's own
+packages ship, each found from the game's directory rather than from the
+copy of the kit running the command, so a game that upgraded either package
+gets the guides of the versions it now has. The directory has to be a game's
+root, one whose `package.json` names `@vbz-gg/sdk` in its dependencies or
+devDependencies; anything else is refused and never made, since node would
+still find a game's packages from a mistyped folder inside it. Each folder is
+replaced whole, so a file a newer guide dropped goes too, and anything else
+in `.claude/skills/` is left alone. A package or a guide that is missing is
+an error naming it, and nothing is written. It does not touch `AGENTS.md`,
+which is the author's to edit.
+
+Both commands copy the guides into temporary folders beside their targets,
+and replace what the game had only once every copy exists. A copy that fails
+part-way, on a file it cannot read or a full disk, leaves the game's guides
+as they were and the temporary folders gone, so a game never holds the kit's
+guide from one release beside the engine's from another.
+
 ## Checking a game
 
 `vbz check ./my-game` builds the game, holds the manifest to its schema, runs
@@ -723,6 +771,12 @@ child process, each from a path built off `import.meta.dir`, which resolves
 to the TypeScript here and has to resolve to the compiled file in an
 installed copy. Nothing that imports the package would notice either one
 missing; the failure would arrive when somebody ran `vbz dev`.
+
+And it compares the guide the tarball carries with the one git holds, file
+for file, byte for byte and execute bit, because npm packs whatever is on
+disk: an untracked note in the guide's folder would ship, and `vbz new` would
+copy it into every game. Anything under `skill/` other than the guide fails
+it too, which is what keeps the guide's tests out of the tarball.
 
 `@clockwork2/engine` is a **peer** dependency. A game installs the engine
 itself: its rules code and its page module both import it, and `/game`, which

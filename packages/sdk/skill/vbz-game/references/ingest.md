@@ -55,15 +55,15 @@ hashed afterwards.
 ## 3. The conformance suite
 
 The twelve checks from `@clockwork2/engine/validate`, run against the built
-simulation laid out as a subject directory. They are the platform-game skill's
-subject: determinism, banned APIs, no async, restore, bounded runs, counters,
-headless, assets and the rest.
+simulation laid out as a subject directory. They are the subject of the
+engine's guide, clockwork2: determinism, banned APIs, no async, restore,
+bounded runs, counters, headless, assets and the rest.
 
 Plus a thirteenth the platform owns, **seed sensitivity**: two different seeds
-on the same input log must reach different states. A game that ignores its
-seed passes all twelve - check 1 compares same-seed runs to each other, so a
-seed-blind generator is perfectly deterministic - and turns a daily board into
-an all-time board.
+on the same input log must reach different states (`E_SEED_IGNORED`). A game
+that ignores its seed passes all twelve - check 1 compares same-seed runs to
+each other, so a seed-blind generator is perfectly deterministic - and turns a
+daily board into an all-time board.
 
 ## 4. The cross-engine sweep
 

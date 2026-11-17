@@ -15,6 +15,7 @@
     "dist",
     "src",
     "templates",
+    "skill/vbz-game",
     "README.md"
   ],
   "exports": {
