@@ -728,7 +728,7 @@ engine's host while the rules code carries another's manifest types. A
 studio's page needs no engine at all: `/host` and `/platform` import its
 types only, which leave nothing in a bundle.
 
-The range is `>=0.8.0 <0.9.0` rather than open-ended. clockwork2 is 0.x and
+The range is `>=0.9.0 <0.10.0` rather than open-ended. clockwork2 is 0.x and
 maps a breaking change to a minor, so an engine minor may move the very
 things this package is about, such as what a recorded input carries or what
 the host's options are. Each engine minor is a deliberate bump here.

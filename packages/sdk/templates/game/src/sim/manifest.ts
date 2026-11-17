@@ -32,7 +32,7 @@ export const MANIFEST: Manifest = {
    */
   version: "1.0.0",
   name: "Lane Runner",
-  kernel: { version: "0.8.0" },
+  kernel: { version: "0.9.0" },
   session: {
     tickHz: 60,
     /** A hard cap: the kernel ends the run here whatever the game says. */
