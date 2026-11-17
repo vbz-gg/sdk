@@ -202,10 +202,11 @@ export const CHECK_READY_MS = 60_000
 /**
  * How long the platform waits for one checks container to answer: 10
  * minutes, over the longest one check can hold its container on the
- * platform, about 9 minutes 41 seconds for a game at 30 steps a second, the
- * container's start included. Every part of the check is held to a timeout
- * sized from the step allowance at the game's rate, the allowance for each
- * load and measurements in the checks image. The platform takes its wait
+ * platform, a game at 30 steps a second with the container's start
+ * included, which a test on the platform holds under it. Every part of the
+ * check is held to a timeout sized from the step allowance at the game's
+ * rate, the allowance for each load and measurements in the checks image.
+ * The platform takes its wait
  * from here and keeps its container's own deadline under it.
  */
 export const CHECKS_CONTAINER_WAIT_MS = 10 * 60_000

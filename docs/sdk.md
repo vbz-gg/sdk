@@ -1334,9 +1334,9 @@ command needs only the game's id. It waits up to 34 minutes,
 rounded up to whole minutes: 10 minutes for the ingest job to wait in the
 platform's queue (`CHECK_QUEUE_ALLOWANCE_MS`); 10 minutes for the checks
 container, as long as the platform waits for one
-(`CHECKS_CONTAINER_WAIT_MS`), over the platform's worst case for one check
-with the container's start, about 9 minutes 41 seconds for a game at 30
-steps a second; the 7.5 minutes of wall
+(`CHECKS_CONTAINER_WAIT_MS`), which the platform's worst case for one check
+with the container's start, a game at 30 steps a second, stays under, held
+by a test on the platform's side; the 7.5 minutes of wall
 time one replay may take (`REPLAY_WALL_BUDGET_MS`), which the
 replay-service check and a patch's replays share, since they run beside
 each other, and the 10 seconds the
