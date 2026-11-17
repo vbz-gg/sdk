@@ -4,8 +4,9 @@
  * it is.
  *
  * The replay is the platform's half in miniature: the built rules code, run
- * with the engine's `runSession` over the recording's own inputs, to the end
- * tick it claims, and compared with `compareToRecording`. The inputs are held
+ * with the engine's `runSession` over the recording's own inputs and the data
+ * packs the manifest declares, to the end tick it claims, and compared with
+ * `compareToRecording`. The inputs are held
  * to the manifest the build wrote with `checkInputs`, which is what a server
  * runs on a submit, budget included. None of it settles or ranks anything.
  *
@@ -28,6 +29,8 @@ import {
   instantiate,
   isClockworkError,
   type Manifest,
+  type PackBytes,
+  PackSet,
   RecordedInputSource,
   runSession,
 } from "@clockwork2/engine"
@@ -80,13 +83,15 @@ function problemOf(error: unknown): Problem {
 
 /**
  * Replays `text`, a recording as the page sent it, against `source`, the
- * rules code's default export, and holds its inputs to `manifest`. Never
- * throws: every failure is part of the report.
+ * rules code's default export, with the data packs the manifest declares,
+ * and holds its inputs to `manifest`. Never throws: every failure is part of
+ * the report.
  */
 export function replayRecording<TView, TConfig>(
   source: GameModuleSource<TView, TConfig>,
   manifest: Manifest,
   text: string,
+  packs: ReadonlyMap<string, PackBytes> = new Map(),
 ): DevReport {
   const bytes = new TextEncoder().encode(text).byteLength
   let recording: ReturnType<typeof decodeRecording>
@@ -124,11 +129,15 @@ export function replayRecording<TView, TConfig>(
       // Whatever the page mounted the run with, which the game reads.
       config: recording.config as TConfig,
       inputs: new RecordedInputSource(recording.inputs),
-      // The platform's own cap: where the player stopped, at most the
-      // manifest's, so an abandoned run is not replayed past its end.
-      maxTicks: Math.min(recording.endTick, manifest.session.maxTicks),
+      // Where the player stopped, as the platform replays it, so an
+      // abandoned run is not replayed past its end. No run has a step limit
+      // of its own.
+      maxTicks: Math.max(recording.endTick, 1),
       checkpointEvery: recording.tickHz,
       counters: manifest.counters,
+      assets: manifest.assets ?? [],
+      // Checked as the run first reads each, as a server replay does.
+      packs: PackSet.lazy(manifest.assets, packs),
     })
     const compared = compareToRecording(recording, replayed)
     return {
@@ -160,24 +169,39 @@ export function replayChildEntry(dir = import.meta.dir): string {
   return childEntry(dir, "replay-child")
 }
 
+/** What the replay's own process reads on stdin. */
+export interface ReplayRequest {
+  readonly manifest: unknown
+  readonly recording: string
+  /** The data packs the manifest declares, by path, at where each is on disk. */
+  readonly packs: Readonly<Record<string, string>>
+}
+
 /**
- * `replayRecording` in a process of its own, against the built rules code.
- * A child that fails to answer is a failed replay, with what it printed.
- * It needs nothing of the environment: its entry, the rules code and the
- * engine are found from their own paths, and what it reads arrives on stdin.
+ * `replayRecording` in a process of its own, against the built rules code,
+ * with the data packs it reads from the files folder. A child that fails to
+ * answer is a failed replay, with what it printed. It needs nothing of the
+ * environment: its entry, the rules code and the engine are found from their
+ * own paths, and what it reads arrives on stdin.
  */
 export async function replayInChild(
   sim: Uint8Array,
   manifest: unknown,
   text: string,
+  packs: ReadonlyMap<string, string> = new Map(),
   entry: string = replayChildEntry(),
 ): Promise<DevReport> {
   const dir = await mkdtemp(join(tmpdir(), "vbz-replay-"))
   try {
     const path = join(dir, "sim.js")
     await writeFile(path, sim)
+    const request: ReplayRequest = {
+      manifest,
+      recording: text,
+      packs: Object.fromEntries(packs),
+    }
     const child = await runGameProcess([entry, path], {
-      stdin: JSON.stringify({ manifest, recording: text }),
+      stdin: JSON.stringify(request),
     })
     const out = new TextDecoder().decode(child.stdout)
     const err = child.stderr

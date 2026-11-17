@@ -14,7 +14,7 @@
  * page refuses a module speaking one it does not know rather than misreading
  * it.
  *
- * Types and two constants only. The page's side imports this file and no
+ * Types and a few constants only. The page's side imports this file and no
  * other part of `./game`, so a studio's page bundles no engine.
  */
 
@@ -31,21 +31,27 @@ import type {
   DeviceNotice,
   MotionAccess,
   Scheduler,
+  ScriptedEvents,
 } from "@clockwork2/engine/host"
 
 /** The contract version a page module built with this release speaks. */
-export const PAGE_MODULE_CONTRACT = 1
+export const PAGE_MODULE_CONTRACT = 2
 
 /**
  * Every contract version a page on this release can drive, oldest first. A
  * release adds to this and never removes from it.
+ *
+ * Contract 1 is driven as it was built: its module stops a run at its own
+ * manifest's step limit, whatever the page passes, takes no files folder and
+ * no word on scripted events, and cannot be prepared before a run starts.
+ * Contract 2 has no step limit, says its tick rate and its served config,
+ * fetches its data packs from its files folder, and can be prepared, so a
+ * device that cannot draw it spends no run.
  */
-export const DRIVEN_CONTRACTS: readonly number[] = [1]
+export const DRIVEN_CONTRACTS: readonly number[] = [1, 2]
 
 /** Why a page module's own check found it unfit to play, by kind. */
 export const PAGE_MODULE_PROBLEM = {
-  /** The manifest declares a data pack the rules code reads. */
-  PACKS: "E_SIM_PACKS",
   /** The input mapping names something the manifest does not allow. */
   CAPTURE: "E_CAPTURE_INVALID",
   /** The module's own parts disagree, or one of them failed. */
@@ -123,36 +129,107 @@ export interface MountHandlers {
 
 export type MountMode = "play" | "watch"
 
-export interface MountOptions {
-  /** `play` records the player; `watch` replays `inputs` and records nothing. */
-  readonly mode: MountMode
+/** What every run a page mounts says, whether it is played or watched. */
+interface RunMountBase {
   readonly seed: string
   readonly config: PlainValue
   /** The run's tick rate, which must be the module's own. */
   readonly tickHz: number
-  /** Where the run stops at the latest; at most the manifest's own cap. */
-  readonly maxTicks: number
-  /** The run's recorded inputs, for `watch`. */
-  readonly inputs?: readonly InputEvent[]
   /** What the run was issued for, checked before anything is built. */
   readonly expect: { readonly manifestHash: string }
   readonly handlers: MountHandlers
-  /** For the presentation. `devicePixelRatio` defaults to the window's. */
-  readonly presentationContext?: Partial<PresentationContext>
   /** For a test: the frame clock. The browser's animation frames by default. */
   readonly scheduler?: Scheduler
   /** For a test: the devices. The browser's own by default. */
   readonly environment?: CaptureEnvironment
 }
 
+/**
+ * A run the player plays. It has no step limit: it runs until the game ends
+ * it or the page stops it.
+ */
+export interface PlayMount extends RunMountBase {
+  readonly mode: "play"
+  /**
+   * Whether the device helpers record an event a script dispatched, the
+   * engine's `InputCaptureOptions.scripted`. A ranked or practice run takes
+   * its inputs from the player's devices alone, so `playRun` always passes
+   * `"ignore"`; a game played on its own page may pass `"record"` to drive
+   * itself from a test or a tool.
+   */
+  readonly scripted: ScriptedEvents
+}
+
+/** A recorded run played back. Nothing is recorded, and no device is heard. */
+export interface WatchMount extends RunMountBase {
+  readonly mode: "watch"
+  /** The run's recorded inputs. */
+  readonly inputs: readonly InputEvent[]
+  /**
+   * Where the replay stops: `Math.max(endTick, 1)` of the run it replays,
+   * which is where the platform's replay stopped too, so an abandoned run
+   * ends where its player left it.
+   */
+  readonly maxTicks: number
+  /**
+   * `false` builds no presentation, so nothing is drawn and the run's
+   * checkpoints are all it reports. For a browser that cannot draw the game,
+   * such as the platform's page-module check. Drawn by default.
+   */
+  readonly draw?: boolean
+}
+
+/** A run, as a page hands it to a loaded game: played or watched. */
+export type RunMount = PlayMount | WatchMount
+
+/** What a module needs to get a game ready to play in an element. */
+export interface PrepareOptions {
+  /**
+   * The version's files folder, absolute and ending in `/`: where the
+   * presentation finds its art and the engine fetches the data packs.
+   */
+  readonly files: string
+  /** For the presentation. `devicePixelRatio` defaults to the window's. */
+  readonly presentationContext?: Partial<PresentationContext>
+  /** For a test: fetches a data pack. The browser's `fetch` by default. */
+  readonly fetch?: (input: string, init: RequestInit) => Promise<Response>
+}
+
+/** What a page module's own `mount` takes: the run, and how to get ready for it. */
+export type MountOptions = RunMount & PrepareOptions
+
 /** What a mount hands back. Every method is safe to call after the run ends. */
 export interface MountHandle {
   /** The inputs recorded so far, in order: the run's log. Read it, never write it. */
   recorded(): readonly InputEvent[]
-  /** Ends the run where it stands: `abandoned` for a player who left. */
+  /**
+   * Ends the run where it stands: `abandoned` for a player who left. A run
+   * still getting ready ends at tick 0 once it is, so `onEnded` always
+   * follows a stop, unless getting ready failed and `onError` came instead.
+   */
   stop(reason?: TerminalReason): void
   /** Stops the run, takes the presentation down and stops listening. */
   destroy(): void
+}
+
+/**
+ * A game made ready in an element before a run is asked for: its
+ * presentation mounted and prepared, and its start packs fetched.
+ */
+export interface PreparedGame {
+  /**
+   * Settles once the game can be played here: null, or why it cannot, such
+   * as the engine's `E_PRESENTATION_FAILED` for a device the presentation
+   * cannot draw on. Never rejects.
+   */
+  readonly ready: Promise<MountError | null>
+  /**
+   * Plays a run in the prepared element, once. Its clock starts when
+   * `ready` settles with null; a failure arrives at `onError` before tick 0.
+   */
+  mount(options: RunMount): MountHandle
+  /** Takes the presentation down, for a page that will not play after all. */
+  release(): void
 }
 
 /** What a page module's default export is. */
@@ -162,13 +239,59 @@ export interface PageModule {
   readonly manifestHash: string
   /** Whether the game reads tilt, so a page asks for motion in the click. */
   readonly needsMotion: boolean
+  /** The game's tick rate: a run must be played at this one. */
+  readonly tickHz: number
+  /**
+   * The engine's `servedConfig`: every setting the manifest declares, at its
+   * default. What a platform serves a ranked or practice run, and what a
+   * local run plays unless its page says otherwise. Null when the manifest
+   * declares a setting that is required and has no default, which only a
+   * page that names a config can play.
+   */
+  readonly servedConfig: PlainValue | null
   /** Every reason the module cannot be played, or an empty list. Never throws. */
   check(): readonly PageModuleProblem[]
   /** The engine's `requestMotion`, from the module's own engine. Call it in the click. */
   requestMotion(): Promise<MotionAccess>
   /**
+   * Gets the game ready in `element` before a run is asked for, so a device
+   * that cannot draw it, or a pack that cannot be fetched, spends no run.
+   */
+  prepare(element: HTMLElement, options: PrepareOptions): PreparedGame
+  /**
    * Plays a run in `element`, which the presentation fills, so a pointer's
-   * position across the element is its position across the game.
+   * position across the element is its position across the game. `prepare`
+   * and the prepared game's `mount` in one call: the clock starts once the
+   * game is ready.
    */
   mount(element: HTMLElement, options: MountOptions): MountHandle
+}
+
+/**
+ * What a page passed a contract-1 module's `mount`. A page on this release
+ * still drives one, and builds this for it.
+ */
+export interface ContractOneMountOptions {
+  readonly mode: MountMode
+  readonly seed: string
+  readonly config: PlainValue
+  readonly tickHz: number
+  /** Where the run stops at the latest; the module clamps it to its manifest's cap. */
+  readonly maxTicks: number
+  readonly inputs?: readonly InputEvent[]
+  readonly expect: { readonly manifestHash: string }
+  readonly handlers: MountHandlers
+  readonly presentationContext?: Partial<PresentationContext>
+  readonly scheduler?: Scheduler
+  readonly environment?: CaptureEnvironment
+}
+
+/** What a contract-1 module's default export is. */
+export interface ContractOnePageModule {
+  readonly contract: 1
+  readonly manifestHash: string
+  readonly needsMotion: boolean
+  check(): readonly PageModuleProblem[]
+  requestMotion(): Promise<MotionAccess>
+  mount(element: HTMLElement, options: ContractOneMountOptions): MountHandle
 }

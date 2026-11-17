@@ -17,6 +17,7 @@ const SOURCE = {
   simEntry: "src/sim/index.ts",
   presentEntry: "src/present.ts",
   captureEntry: "src/capture.ts",
+  filesDir: null,
 }
 
 const MANIFEST = {

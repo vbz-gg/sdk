@@ -27,6 +27,7 @@ import {
   isClockworkError,
   type Manifest,
   type PlainValue,
+  servedConfig,
 } from "@clockwork2/engine"
 import type {
   ApiErrorBody,
@@ -48,6 +49,7 @@ import type {
   WatchedRun,
 } from "../api/index.js"
 import { sha256Hex } from "../build/digest.js"
+import { MAX_CHUNK_BYTES, MAX_RUN_BYTES } from "../build/limits.js"
 import { parseReleaseVersion, releaseLine } from "../build/version.js"
 import { escapeHtml } from "./page/document.js"
 import { type Listen, originOf, serveOptions } from "./servers.js"
@@ -65,14 +67,13 @@ export const LOCAL_PLAYER: SignedInPlayer["player"] = {
 export const STAND_IN_VERSION_ID = "00000000-0000-4000-8000-00000000000b"
 
 /**
- * The byte caps the platform's plan gives a run: a chunk at 1 MiB, and a
- * run's chunks together, or its recording, at 29 MiB, which is the verifier's
- * 32 MiB less the largest rules code and a MiB of envelope. The platform is
- * the authority on both; these let a page meet the split and the stop here.
+ * The byte caps the platform gives a run, read from the limits it imports
+ * itself, so a page meets the split and the stop here at the sizes it meets
+ * them in production.
  */
 export const STAND_IN_LIMITS: RunLimits = {
-  chunkBytes: 1024 * 1024,
-  runBytes: 29 * 1024 * 1024,
+  chunkBytes: MAX_CHUNK_BYTES,
+  runBytes: MAX_RUN_BYTES,
 }
 
 /** How long a token lasts, in seconds, as a page is told. */
@@ -156,6 +157,8 @@ export interface StandInOptions {
   readonly manifest: unknown
   /** The game's page module, absolute, on the bundles origin. */
   readonly presentUrl: string
+  /** The game's files folder, absolute, ending in `/`, on the bundles origin. */
+  readonly filesUrl: string
   /** The game id the bundles origin serves it under. */
   readonly gameId: string
   /** The only origin the stand-in lets call it: the site's. */
@@ -224,9 +227,22 @@ function dayOf(date: Date): {
   return { day, from: start.toISOString(), to: next.toISOString() }
 }
 
-/** Starts the stand-in's two origins: the API and the sign-in window. */
+/**
+ * Starts the stand-in's two origins: the API and the sign-in window. A game
+ * whose manifest declares no `rankBy` and `tiePolicy` cannot be ranked, so it
+ * is refused here, as the platform's checks refuse it.
+ */
 export function startStandIn(options: StandInOptions): RunningStandIn {
   const manifest = options.manifest as Manifest
+  const { rankBy, tiePolicy } = manifest
+  if (rankBy === undefined || tiePolicy === undefined) {
+    throw new Error(
+      "the manifest declares no rankBy and tiePolicy, which a ranked run is ordered by; declare both to play against the stand-in for the platform",
+    )
+  }
+  const ranking: Pick<Board, "rankBy" | "tiePolicy"> = { rankBy, tiePolicy }
+  // What a platform serves a run: every declared setting at its default.
+  const config = servedConfig(manifest)
   const now = options.now ?? (() => new Date())
   const log = options.log ?? (() => {})
   const version =
@@ -239,6 +255,7 @@ export function startStandIn(options: StandInOptions): RunningStandIn {
     manifestSha256: sha256Hex(new TextEncoder().encode(manifestText)),
     manifestHash: hashCanonical(options.manifest as PlainValue),
     presentUrl: options.presentUrl,
+    filesUrl: options.filesUrl,
   }
 
   let token: string | null = null
@@ -561,15 +578,14 @@ export function startStandIn(options: StandInOptions): RunningStandIn {
       day: today,
       rankedRunsLeft: null,
       seed: options.seed,
-      config: {},
+      config,
       game: {
         id: STAND_IN_VERSION_ID,
         presentUrl: options.presentUrl,
         manifestHash: pageVersion.manifestHash,
+        filesUrl: options.filesUrl,
         manifest: options.manifest,
         tickHz: manifest.session.tickHz,
-        maxTicks: manifest.session.maxTicks,
-        maxWallSeconds: manifest.session.maxWallSeconds,
       },
       limits: STAND_IN_LIMITS,
       token: token as string,
@@ -762,16 +778,13 @@ export function startStandIn(options: StandInOptions): RunningStandIn {
       counters: settled.counters,
       endTick: settled.endTick,
       tickHz: started.game.tickHz,
-      maxTicks: started.game.maxTicks,
       seed: started.seed,
       config: started.config,
       inputs: settled.inputs,
       presentUrl: started.game.presentUrl,
       manifestHash: started.game.manifestHash,
-      replayTicks:
-        settled.endTick === 0
-          ? null
-          : Math.min(Math.max(settled.endTick, 1), started.game.maxTicks),
+      filesUrl: started.game.filesUrl,
+      replayTicks: settled.endTick === 0 ? null : Math.max(settled.endTick, 1),
     }
   }
 
@@ -794,8 +807,7 @@ export function startStandIn(options: StandInOptions): RunningStandIn {
       total: row === null ? 0 : 1,
       rows: row === null ? [] : [row],
       you: asPlayer ? row : null,
-      rankBy: manifest.rankBy,
-      tiePolicy: manifest.tiePolicy,
+      ...ranking,
     }
   }
 

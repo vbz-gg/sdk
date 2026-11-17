@@ -228,6 +228,7 @@ const RANKED: PageGameVersion = {
   manifestSha256: "a".repeat(64),
   manifestHash: "h-ranked",
   presentUrl: "https://bundles.example/g/g-1/present/ranked.js",
+  filesUrl: "https://bundles.example/g/g-1/t/ranked/",
 }
 const PRACTICE: PageGameVersion = {
   ...RANKED,
@@ -269,13 +270,22 @@ const EMPTY_BOARD: Board = {
 
 /** A module of `version`; one that reads tilt when `tilt` is its answer to asking. */
 function moduleAt(version: PageGameVersion, tilt?: MotionAccess): LoadedGame {
+  const handle = { recorded: () => [], stop: () => {}, destroy: () => {} }
   return {
     presentUrl: version.presentUrl,
     manifestHash: version.manifestHash,
-    contract: 1,
+    filesUrl: version.filesUrl,
+    contract: 2,
     needsMotion: tilt !== undefined,
+    tickHz: 60,
+    servedConfig: {},
     requestMotion: async () => tilt ?? { granted: true },
-    mount: () => ({ recorded: () => [], stop: () => {}, destroy: () => {} }),
+    prepare: () => ({
+      ready: Promise.resolve(null),
+      mount: () => handle,
+      release: () => {},
+    }),
+    mount: () => handle,
   }
 }
 

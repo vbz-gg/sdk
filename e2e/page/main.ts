@@ -37,7 +37,6 @@ import {
 /** A module the server holds, by the name a spec loads it with. */
 interface Module extends GameAddress {
   readonly tickHz: number
-  readonly maxTicks: number
 }
 
 interface StudioConfig
@@ -130,9 +129,10 @@ async function one(name: string): Promise<void> {
     playing = game.mount(stage, {
       mode: "play",
       seed: config.seed,
-      config: {},
+      // What a platform serves a run; a contract-1 module does not say.
+      config: game.servedConfig ?? {},
       tickHz: module.tickHz,
-      maxTicks: module.maxTicks,
+      scripted: "ignore",
       expect: { manifestHash: module.manifestHash },
       handlers: {
         onCheckpoint: () => {},

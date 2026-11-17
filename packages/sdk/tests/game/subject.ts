@@ -17,15 +17,16 @@ import {
   type Snapshot,
 } from "@clockwork2/engine"
 import type { CaptureEnvironment } from "@clockwork2/engine/host"
+import { FakeTarget } from "../templates/devices"
 
 export const MANIFEST: Manifest = {
-  schemaVersion: 2,
+  schemaVersion: 3,
   id: "probe",
   version: "1.0.0",
   name: "Probe",
   // The installed engine's own, so a bump has nothing here to follow.
   kernel: { version: KERNEL_VERSION },
-  session: { tickHz: 60, maxTicks: 600, maxWallSeconds: 60, hasEnding: true },
+  session: { tickHz: 60, hasEnding: true },
   inputs: {
     left: { min: 0, max: 1, label: "Left" },
     aimX: { min: 0, max: 9 },
@@ -114,9 +115,11 @@ export class Drawn implements Presentation<View, HTMLElement> {
   container: HTMLElement | null = null
   context: PresentationContext | null = null
   renders = 0
+  mounts = 0
   unmounted = false
 
   mount(container: HTMLElement, context: PresentationContext): void {
+    this.mounts += 1
     this.container = container
     this.context = context
   }
@@ -130,37 +133,28 @@ export class Drawn implements Presentation<View, HTMLElement> {
   }
 }
 
-/** Devices a test drives: keys on `window`, and nothing else plugged in. */
+/**
+ * Devices a test drives: keys on `window`, and nothing else plugged in. A
+ * key is pressed as a device presses it, unless the test says a script
+ * dispatched it, which a ranked run does not record.
+ */
 export function devices(): CaptureEnvironment & {
-  readonly window: EventTarget
-  press(code: string, down: boolean): void
+  readonly window: FakeTarget
+  press(code: string, down: boolean, byScript?: boolean): void
   listening(): number
 } {
-  const window = new EventTarget()
-  const document = Object.assign(new EventTarget(), {
+  const window = new FakeTarget()
+  const document = Object.assign(new FakeTarget(), {
     visibilityState: "visible",
   })
-  let listeners = 0
-  const add = window.addEventListener.bind(window)
-  const remove = window.removeEventListener.bind(window)
-  window.addEventListener = (...args: Parameters<typeof add>) => {
-    listeners += 1
-    add(...args)
-  }
-  window.removeEventListener = (...args: Parameters<typeof remove>) => {
-    listeners -= 1
-    remove(...args)
-  }
   return {
     window,
-    document,
+    document: document as unknown as CaptureEnvironment["document"],
     gamepads: () => [],
     screenAngle: () => 0,
-    press(code, down) {
-      window.dispatchEvent(
-        Object.assign(new Event(down ? "keydown" : "keyup"), { code }),
-      )
+    press(code, down, byScript = false) {
+      window.send(down ? "keydown" : "keyup", { code, isTrusted: !byScript })
     },
-    listening: () => listeners,
+    listening: () => window.listening(),
   }
 }

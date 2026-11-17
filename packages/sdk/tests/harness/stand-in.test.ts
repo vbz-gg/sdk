@@ -14,6 +14,7 @@ import {
 } from "@clockwork2/engine"
 import { ManualScheduler } from "@clockwork2/engine/host"
 import type { RunChunk } from "../../src/api/index"
+import { MAX_CHUNK_BYTES, MAX_RUN_BYTES } from "../../src/build/limits"
 import type { MountHandlers } from "../../src/game/contract"
 import { definePageModule } from "../../src/game/define"
 import { LOOPBACK } from "../../src/harness/servers"
@@ -42,6 +43,7 @@ import { FakePage, settle } from "../platform/fake-page"
 
 const GAME_ID = "00000000-0000-4000-8000-000000000000"
 const PRESENT = `http://127.0.0.1:1/g/${GAME_ID}/present/${"a".repeat(64)}.js`
+const FILES = `http://127.0.0.1:1/g/${GAME_ID}/t/${"b".repeat(64)}/`
 const HASH = hashCanonical(MANIFEST as unknown as PlainValue)
 
 /** What the platform answers for a run a reader may not have, or that does not exist. */
@@ -74,6 +76,7 @@ function standIn(extra: Partial<StandInOptions> = {}) {
   const started = startStandIn({
     manifest: MANIFEST,
     presentUrl: PRESENT,
+    filesUrl: FILES,
     gameId: GAME_ID,
     siteOrigin: page.origin,
     seed: "harness",
@@ -174,7 +177,7 @@ async function refusedCode(response: Response): Promise<string> {
 }
 
 /** A run of the probe game with two presses, as its page records it. */
-function played(seed: string): Recording {
+async function played(seed: string): Promise<Recording> {
   const keys = devices()
   const scheduler = new ManualScheduler()
   const game = definePageModule<View, Config>({
@@ -191,7 +194,8 @@ function played(seed: string): Recording {
       seed,
       config: {},
       tickHz: 60,
-      maxTicks: 600,
+      scripted: "ignore",
+      files: FILES,
       expect: { manifestHash: HASH },
       handlers: {
         onCheckpoint: () => {},
@@ -207,6 +211,8 @@ function played(seed: string): Recording {
       environment: keys,
     },
   )
+  // The game gets ready before its clock starts.
+  await Bun.sleep(0)
   scheduler.run(1, FRAME_MS)
   for (let press = 0; press < 2; press += 1) {
     keys.press("ArrowLeft", true)
@@ -296,7 +302,7 @@ describe("the game and a run", () => {
       client: made.client,
       onState: (state) => states.push(state),
     })
-    const recording = played(started.seed)
+    const recording = await played(started.seed)
     run.play(started, (options) => {
       // The mount a page module would make, reporting what it played.
       for (const checkpoint of recording.checkpoints) {
@@ -331,12 +337,13 @@ describe("the game and a run", () => {
     expect(watched.inputs).toEqual(recording.inputs)
     expect(watched.replayTicks).toBe(recording.endTick)
     expect(watched.presentUrl).toBe(PRESENT)
+    expect(watched.filesUrl).toBe(FILES)
 
     // And the board holds it, as the reader's own row.
     const board = await made.client.board()
     expect(board.rows.map((row) => row.sessionId)).toEqual([started.sessionId])
     expect(board.you?.sessionId).toBe(started.sessionId)
-    expect(board.rankBy).toEqual(MANIFEST.rankBy)
+    expect(board.rankBy).toEqual(["presses"])
   })
 
   /**
@@ -348,7 +355,7 @@ describe("the game and a run", () => {
     const made = standIn()
     await signIn(made)
     const started = await made.client.startRun()
-    const recording = played(started.seed)
+    const recording = await played(started.seed)
     // Something to cut, and checkpoints on both sides of a cut.
     expect(recording.inputs.length).toBeGreaterThanOrEqual(4)
     expect(recording.checkpoints.length).toBeGreaterThanOrEqual(2)
@@ -406,7 +413,7 @@ describe("the game and a run", () => {
     await signIn(made)
     const started = await made.client.startRun({ practice: true })
     expect(started.mode).toBe("practice")
-    const recording = played(started.seed)
+    const recording = await played(started.seed)
     await made.client.submit(started, recording)
     const result = await made.client.result(started.sessionId)
     expect(result.state).toBe("settled")
@@ -420,7 +427,7 @@ describe("the game and a run", () => {
     await signIn(made)
     const first = await made.client.startRun()
     expect((await made.client.startRun()).sessionId).toBe(first.sessionId)
-    const recording = played(first.seed)
+    const recording = await played(first.seed)
     await made.client.sendChunk(first, chunkOf(recording))
     const second = await made.client.startRun()
     expect(second.sessionId).not.toBe(first.sessionId)
@@ -527,7 +534,7 @@ describe("the refusals a page has to handle", () => {
     const made = standIn()
     await signIn(made)
     const run = await made.client.startRun()
-    const recording = played(run.seed)
+    const recording = await played(run.seed)
     const first = {
       ...chunkOf(recording),
       throughTick: 30,
@@ -623,7 +630,7 @@ describe("the refusals a page has to handle", () => {
     const made = standIn()
     await signIn(made)
     const run = await made.client.startRun()
-    const recording = played(run.seed)
+    const recording = await played(run.seed)
     await made.client.sendChunk(run, {
       ...chunkOf(recording),
       throughTick: 10,
@@ -660,7 +667,7 @@ describe("the refusals a page has to handle", () => {
     expect(
       (await refusalOf(made.client.submit(run, { format: "nope" }))).code,
     ).toBe("E_RECORDING_MALFORMED")
-    const recording = played(run.seed)
+    const recording = await played(run.seed)
     const tampered = {
       ...recording,
       inputs: [
@@ -684,7 +691,7 @@ describe("the refusals a page has to handle", () => {
     const made = standIn({ now: () => now })
     await signIn(made)
     const started = await made.client.startRun()
-    const recording = played(started.seed)
+    const recording = await played(started.seed)
     await made.client.submit(started, recording)
     expect((await made.client.watch(started.sessionId)).inputs).toEqual(
       recording.inputs,
@@ -731,4 +738,110 @@ describe("the refusals a page has to handle", () => {
       expect([refused.code, refused.status, refused.message]).toEqual(NOT_THERE)
     }
   })
+})
+
+/** A body's size as the wire carries it. */
+const wire = (body: unknown) =>
+  new TextEncoder().encode(JSON.stringify(body)).byteLength
+
+/** A chunk of nothing, padded to exactly `bytes` on the wire. */
+function padded(seq: number, throughTick: number, bytes: number): RunChunk {
+  const base = { seq, throughTick, checkpoints: [], inputs: [], note: "" }
+  return {
+    ...base,
+    note: "x".repeat(bytes - wire(base)),
+  } as unknown as RunChunk
+}
+
+describe("what the stand-in serves, and the platform's limits", () => {
+  /** The checks play the served config, so a run has to as well, never `{}`. */
+  test("a run plays every declared setting at its default", async () => {
+    const manifest = {
+      ...MANIFEST,
+      params: { endAt: { type: "int", label: "End", default: 90 } },
+    }
+    const made = standIn({ manifest })
+    await signIn(made)
+    expect((await made.client.startRun()).config).toEqual({ endAt: 90 })
+  })
+
+  test("a game that declares no way to rank is refused, as the platform's checks refuse it", () => {
+    const { rankBy: _, tiePolicy: __, ...unranked } = MANIFEST
+    expect(() => standIn({ manifest: unranked })).toThrow(
+      /rankBy and tiePolicy/,
+    )
+  })
+
+  test("its limits are the platform's", () => {
+    expect(STAND_IN_LIMITS).toEqual({
+      chunkBytes: MAX_CHUNK_BYTES,
+      runBytes: MAX_RUN_BYTES,
+    })
+  })
+
+  test("a chunk at its limit is taken, and one a byte larger is refused", async () => {
+    const made = standIn()
+    await signIn(made)
+    const run = await made.client.startRun()
+    const at = padded(0, 10, MAX_CHUNK_BYTES)
+    expect(wire(at)).toBe(MAX_CHUNK_BYTES)
+    expect(await made.client.sendChunk(run, at)).toEqual({
+      seq: 0,
+      throughTick: 10,
+    })
+    const over = padded(1, 20, MAX_CHUNK_BYTES + 1)
+    expect((await refusalOf(made.client.sendChunk(run, over))).code).toBe(
+      "E_BODY_TOO_LARGE",
+    )
+  })
+
+  /** Every chunk at its own limit, so only the run's total can refuse. */
+  async function committed(total: number) {
+    const made = standIn()
+    await signIn(made)
+    const run = await made.client.startRun()
+    const sizes: number[] = []
+    let left = total
+    while (left > MAX_CHUNK_BYTES + 100) {
+      sizes.push(MAX_CHUNK_BYTES)
+      left -= MAX_CHUNK_BYTES
+    }
+    sizes.push(left - 100, 100)
+    let last: unknown = null
+    for (const [seq, size] of sizes.entries()) {
+      try {
+        last = await made.client.sendChunk(run, padded(seq, seq + 1, size))
+      } catch (error) {
+        last = error
+      }
+    }
+    return last
+  }
+
+  test("a run's chunks are taken up to its limit, and refused one byte past it", async () => {
+    expect(await committed(MAX_RUN_BYTES)).toMatchObject({ seq: 31 })
+    const refused = await committed(MAX_RUN_BYTES + 1)
+    expect(refused).toBeInstanceOf(PlatformRefusal)
+    expect((refused as PlatformRefusal).code).toBe("E_RUN_TOO_LARGE")
+  }, 60_000)
+
+  test("a recording at its limit is read, and one a byte larger is refused unread", async () => {
+    const made = standIn()
+    await signIn(made)
+    const run = await made.client.startRun()
+    const body = (pad: number) => ({ recording: { pad: "x".repeat(pad) } })
+    const at = MAX_RUN_BYTES - wire(body(0))
+    expect(wire(body(at))).toBe(MAX_RUN_BYTES)
+    expect(
+      (await refusalOf(made.client.submit(run, body(at).recording as never)))
+        .code,
+    ).toBe("E_RECORDING_MALFORMED")
+    expect(
+      (
+        await refusalOf(
+          made.client.submit(run, body(at + 1).recording as never),
+        )
+      ).code,
+    ).toBe("E_BODY_TOO_LARGE")
+  }, 60_000)
 })

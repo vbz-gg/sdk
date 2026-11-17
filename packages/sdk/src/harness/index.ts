@@ -18,7 +18,14 @@
 
 import { existsSync } from "node:fs"
 import { join } from "node:path"
-import { hashCanonical, type PlainValue } from "@clockwork2/engine"
+import {
+  assertManifest,
+  hashCanonical,
+  type Manifest,
+  type PlainValue,
+  servedConfig,
+} from "@clockwork2/engine"
+import { DIST_DIR, DIST_FILES } from "../build/dist.js"
 import type { GameSource } from "../build/index.js"
 import { type BuiltGame, blobKeys, buildAndAddress } from "./artifacts.js"
 import { pageCsp } from "./csp.js"
@@ -55,12 +62,6 @@ export interface Harness {
   stop(): Promise<void>
 }
 
-/** What the harness needs from the game's manifest to start a session. */
-interface HarnessManifest {
-  readonly name?: string
-  readonly session?: { readonly tickHz?: number; readonly maxTicks?: number }
-}
-
 /** Where the page sends a run's recording for the harness's report on it. */
 export const REPLAY_PATH = "/replay"
 
@@ -88,7 +89,7 @@ export async function startHarness(options: HarnessOptions): Promise<Harness> {
   const manifest = await readManifest(options.source.root)
   const listen = options.listen ?? LOOPBACK
 
-  const title = manifest.name ?? "Game"
+  const title = manifest.name
 
   // Bound first, because the page has to name the bundles origin and an
   // origin is the port the socket got rather than the port it was asked for.
@@ -107,6 +108,7 @@ export async function startHarness(options: HarnessOptions): Promise<Harness> {
           built.sim,
           manifest,
           await request.text(),
+          packsOf(manifest, built.filesOnDisk),
         )
         return Response.json(report, {
           headers: { "cache-control": "no-store" },
@@ -121,7 +123,9 @@ export async function startHarness(options: HarnessOptions): Promise<Harness> {
     listen,
     ...(options.onRequest === undefined ? {} : { log: options.onRequest }),
   })
-  const presentUrl = `${bundles.origin}/${blobKeys(built).present}`
+  const keys = blobKeys(built)
+  const presentUrl = `${bundles.origin}/${keys.present}`
+  const filesUrl = `${bundles.origin}/${keys.files}`
   const csp = pageCsp({
     bundlesOrigin: bundles.origin,
     gameId: HARNESS_GAME_ID,
@@ -135,12 +139,14 @@ export async function startHarness(options: HarnessOptions): Promise<Harness> {
         // What the platform would compute from the uploaded manifest, so a
         // page module carrying another one is refused here as it would be on
         // a studio's page.
-        manifestHash: hashCanonical(manifest as PlainValue),
+        manifestHash: hashCanonical(manifest as unknown as PlainValue),
+        filesUrl,
         title,
         seed: options.seed ?? HARNESS_SEED,
-        tickHz: manifest.session?.tickHz ?? 60,
-        maxTicks: manifest.session?.maxTicks ?? 36000,
-        config: {},
+        tickHz: manifest.session.tickHz,
+        // What a platform serves a ranked or practice run: every declared
+        // setting at its default.
+        config: servedConfig(manifest),
         replayPath: REPLAY_PATH,
       },
     }),
@@ -159,9 +165,36 @@ export async function startHarness(options: HarnessOptions): Promise<Harness> {
   }
 }
 
-/** The manifest `vbz build` wrote, as the harness reads it. */
-async function readManifest(root: string): Promise<HarnessManifest> {
-  return (await readBuiltManifest(root)) as HarnessManifest
+/**
+ * The manifest `vbz build` wrote, as the harness reads it: held to the
+ * engine's schema, so a game with no build on disk stops here, with the
+ * engine's own refusal, rather than serving a page that plays nothing.
+ */
+async function readManifest(root: string): Promise<Manifest> {
+  const built = await readBuiltManifest(root)
+  try {
+    return assertManifest(built)
+  } catch (error) {
+    throw new Error(
+      `the harness plays the manifest vbz build wrote to ${DIST_DIR}/${DIST_FILES.manifest}, and there is none to play: ${error instanceof Error ? error.message : String(error)}; run vbz build first`,
+    )
+  }
+}
+
+/**
+ * The data packs the manifest declares, by path, at where each is on disk in
+ * the files folder, for the replay of a run.
+ */
+export function packsOf(
+  manifest: Manifest,
+  onDisk: ReadonlyMap<string, string>,
+): ReadonlyMap<string, string> {
+  const packs = new Map<string, string>()
+  for (const asset of manifest.assets ?? []) {
+    const at = onDisk.get(asset.path)
+    if (asset.requiredForSim && at !== undefined) packs.set(asset.path, at)
+  }
+  return packs
 }
 
 /**

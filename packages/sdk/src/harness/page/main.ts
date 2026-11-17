@@ -28,10 +28,10 @@ import { reportLines, reportPasses } from "../report.js"
 interface HarnessConfig {
   readonly presentUrl: string
   readonly manifestHash: string
+  readonly filesUrl: string
   readonly title: string
   readonly seed: string
   readonly tickHz: number
-  readonly maxTicks: number
   readonly config: Readonly<Record<string, string | number | boolean>>
   /** Where a run's recording goes for the harness's report. */
   readonly replayPath: string
@@ -129,7 +129,8 @@ function start(game: LoadedGame): void {
     seed: config.seed,
     config: config.config,
     tickHz: config.tickHz,
-    maxTicks: config.maxTicks,
+    // As a ranked or practice run takes them: from the player's devices.
+    scripted: "ignore",
     expect: { manifestHash: config.manifestHash },
     handlers: {
       onCheckpoint: () => {},
@@ -149,7 +150,11 @@ function start(game: LoadedGame): void {
   })
 }
 
-loadGame({ presentUrl: config.presentUrl, manifestHash: config.manifestHash })
+loadGame({
+  presentUrl: config.presentUrl,
+  manifestHash: config.manifestHash,
+  filesUrl: config.filesUrl,
+})
   .then((game) => {
     say("ready")
     document.getElementById("start")?.addEventListener("click", () => {

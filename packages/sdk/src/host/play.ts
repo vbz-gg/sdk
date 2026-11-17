@@ -12,9 +12,13 @@
 
 import type { MotionAccess } from "@clockwork2/engine/host"
 import type { PageKey, RunMode } from "../api/index.js"
-import type { MountHandlers } from "../game/contract.js"
+import type {
+  MountError,
+  MountHandlers,
+  PreparedGame,
+} from "../game/contract.js"
 import type { PlatformClient } from "../platform/client.js"
-import { PlatformClientError } from "../platform/errors.js"
+import { CLIENT_ERROR, PlatformClientError } from "../platform/errors.js"
 import {
   RUN_PHASE,
   Run,
@@ -104,15 +108,19 @@ const LOCKED_PHASES: ReadonlySet<RunPhase> = new Set([
  *
  * Call it from the Play button's click handler. When the game reads tilt it
  * asks for it first, before anything is awaited, because iOS grants it only
- * there; then it asks for the game's lock, and starts the run once it holds
- * it and tilt is granted. Every failure arrives as the run's state, with the
- * code that says why: tilt refused or missing (`E_MOTION_DENIED` and the
- * engine's other refusals, each with the client's sentence for the player),
- * another tab playing the game in this mode, a start the platform refused, a
- * run module that did not load, or `E_MOTION_NEEDS_TAP` when the run turned
- * out to be on a version that reads tilt the click did not ask for. Then call
- * `playRun` again with `played.game` from the next tap: the same run resumes,
- * and is not counted twice.
+ * there; then it asks for the game's lock. Once it holds the lock and tilt
+ * is granted, it gets the game ready in `element`, its presentation drawing
+ * and its start packs fetched, and only then starts the run, so a device the
+ * game cannot draw on spends no run. Every failure arrives as the run's
+ * state, with the code that says why: tilt refused or missing
+ * (`E_MOTION_DENIED` and the engine's other refusals, each with the client's
+ * sentence for the player), another tab playing the game in this mode, a
+ * game that cannot draw here (`E_PRESENTATION_FAILED`) or whose packs did
+ * not arrive, a start the platform refused, a run module that did not load,
+ * or `E_MOTION_NEEDS_TAP` when the run turned out to be on a version that
+ * reads tilt the click did not ask for. Then call `playRun` again with
+ * `played.game` from the next tap: the same run resumes, and is not counted
+ * twice.
  */
 export function playRun(element: HTMLElement, options: PlayOptions): PlayedRun {
   let game = options.game
@@ -150,6 +158,12 @@ export function playRun(element: HTMLElement, options: PlayOptions): PlayedRun {
       : { chunkSeconds: options.chunkSeconds }),
   })
   let stopped = false
+  /** The game made ready before the run was asked for, until a run plays it. */
+  let prepared: PreparedGame | null = null
+  const unprepare = () => {
+    prepared?.release()
+    prepared = null
+  }
 
   async function begin(): Promise<void> {
     const held = await holding
@@ -166,30 +180,54 @@ export function playRun(element: HTMLElement, options: PlayOptions): PlayedRun {
     const access = await motion
     const refused = access === null ? null : motionRefusal(access)
     if (refused !== null) throw refused
+    // Then the game gets ready here, so a device it cannot draw on, or a
+    // pack that does not arrive, spends no run either.
+    prepared = game.prepare(element)
+    const cannot = await prepared.ready
+    if (cannot !== null) throw unreadyError(cannot)
+    if (stopped) {
+      unprepare()
+      unlock()
+      return
+    }
     const started = await options.client.startRun(
       options.mode === "practice" ? { practice: true } : {},
     )
     // The manifest hash names the module; the address of one version can be
     // written more than one way, and the same module is never loaded twice.
     if (started.game.manifestHash !== game.manifestHash) {
+      // Another version's run: what was got ready is not its game.
+      unprepare()
       game = await (options.load ?? loadGame)({
         presentUrl: started.game.presentUrl,
         manifestHash: started.game.manifestHash,
+        filesUrl: started.game.filesUrl,
       })
       if (game.needsMotion && motion === null) {
         throw new PlatformClientError("E_MOTION_NEEDS_TAP")
       }
     }
     if (stopped) {
+      unprepare()
       unlock()
       return
     }
     focus(element, options.title)
-    const playing = game
-    run.play(started, (mountOptions) => playing.mount(element, mountOptions))
+    const own = game
+    const ready = prepared
+    prepared = null
+    // The run's own module, when it is not the one got ready, gets ready
+    // inside its mount: its clock starts once it can draw.
+    run.play(
+      started,
+      ready === null
+        ? (mountOptions) => own.mount(element, mountOptions)
+        : (mountOptions) => ready.mount(mountOptions),
+    )
   }
 
   begin().catch((error: unknown) => {
+    unprepare()
     unlock()
     run.refuse(error)
   })
@@ -206,10 +244,24 @@ export function playRun(element: HTMLElement, options: PlayOptions): PlayedRun {
     },
     destroy() {
       stopped = true
+      unprepare()
       run.destroy()
       unlock()
     },
   }
+}
+
+/**
+ * Why a game that could not get ready starts no run, as the run's failure:
+ * in the client's own sentence when it has one, such as for
+ * `E_PRESENTATION_FAILED`, and in the module's words otherwise.
+ */
+function unreadyError(failure: MountError): PlatformClientError | MountError {
+  return Object.hasOwn(CLIENT_ERROR, failure.code)
+    ? new PlatformClientError(failure.code as keyof typeof CLIENT_ERROR, {
+        cause: failure.message,
+      })
+    : failure
 }
 
 /**

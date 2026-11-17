@@ -5,7 +5,7 @@
  * This file is bundled into every page module, with the game's own engine, so
  * the engine that plays a run on a studio's page is always the one the game
  * was built and checked with. The page never builds a `GameHost`: it imports
- * the module and calls `mount`.
+ * the module and calls `prepare` and `mount`.
  *
  * Nothing here touches the browser when the module loads, and nothing here
  * imports anything by a computed name, because the platform refuses a page
@@ -13,34 +13,45 @@
  */
 
 import {
+  ClockworkError,
   type GameModule,
   hashCanonical,
   isClockworkError,
   type Manifest,
+  type PackBytes,
+  PackSet,
   type PlainValue,
   type Presentation,
   type PresentationContext,
   RecordedInputSource,
+  servedConfig,
+  type TerminalReason,
 } from "@clockwork2/engine"
 import {
   type CaptureMapping,
   checkCapture,
+  fetchPackLoader,
   GameHost,
   InputCapture,
+  loadPacks,
+  type PackLoader,
   requestMotion,
 } from "@clockwork2/engine/host"
 import { TICK_RATES } from "@clockwork2/engine/manifest"
 import {
   MOUNT_ERROR,
   type MountError,
-  type MountErrorCode,
   type MountHandle,
   type MountOptions,
   PAGE_MODULE_CONTRACT,
   PAGE_MODULE_PROBLEM,
   type PageModule,
   type PageModuleProblem,
+  type PreparedGame,
+  type PrepareOptions,
+  type RunMount,
 } from "./contract.js"
+import { type GameFiles, gameFiles } from "./files.js"
 
 /** What a game's page module entry hands `definePageModule`. */
 export interface PageModuleParts<TView, TConfig> {
@@ -49,11 +60,16 @@ export interface PageModuleParts<TView, TConfig> {
   /** The rules code's `MANIFEST`. */
   readonly manifest: Manifest
   /**
-   * A fresh presentation per call. It must fill the element it is mounted
-   * in, stretched the same way on both axes, because a pointer's position is
-   * measured across that element.
+   * A fresh presentation per call, given the version's files folder, where
+   * its art is. It must fill the element it is mounted in, stretched the same
+   * way on both axes, because a pointer's position is measured across that
+   * element. A presentation that starts asynchronously, such as one that
+   * compiles a WebAssembly renderer, says when it can draw through the
+   * engine's `prepare`.
    */
-  readonly createPresentation: () => Presentation<TView, HTMLElement>
+  readonly createPresentation: (
+    files: GameFiles,
+  ) => Presentation<TView, HTMLElement>
   /**
    * Which keys, pointers, gamepads and tilt drive which declared inputs. Kept
    * in a file that touches no DOM, so `vbz check` can read it.
@@ -78,9 +94,30 @@ export function definePageModule<TView, TConfig>(
     contract: PAGE_MODULE_CONTRACT,
     manifestHash,
     needsMotion: parts.capture.tilt !== undefined,
+    tickHz: manifest.session.tickHz,
+    servedConfig: servedOrNull(manifest),
     check: () => problemsOf(parts, manifestHash),
     requestMotion: () => requestMotion(),
+    prepare: (element, options) =>
+      preparedGame(
+        parts,
+        manifestHash,
+        element,
+        getReady(parts, element, options, true),
+      ),
     mount: (element, options) => mount(parts, manifestHash, element, options),
+  }
+}
+
+/**
+ * Every declared setting at its default, or null when one is required and
+ * has none, which only a page naming a config can play.
+ */
+function servedOrNull(manifest: Manifest): PlainValue | null {
+  try {
+    return servedConfig(manifest) as PlainValue
+  } catch {
+    return null
   }
 }
 
@@ -114,13 +151,6 @@ function problemsOf<TView, TConfig>(
       message: `the input mapping could not be checked: ${String(error)}`,
     })
   }
-  if ((parts.manifest.assets ?? []).some((asset) => asset.requiredForSim)) {
-    problems.push({
-      code: PAGE_MODULE_PROBLEM.PACKS,
-      message:
-        "the manifest declares a data pack the rules code reads, which the platform cannot store or replay yet",
-    })
-  }
   return problems
 }
 
@@ -130,6 +160,10 @@ export function mountErrorOf(error: unknown): MountError {
     return { code: error.code, message: error.message }
   }
   return { code: MOUNT_ERROR.UNEXPECTED, message: String(error) }
+}
+
+function argInvalid(detail: string): MountError {
+  return mountErrorOf(new ClockworkError("E_ARG_INVALID", { detail }))
 }
 
 function contextFor(
@@ -150,140 +184,417 @@ function contextFor(
 }
 
 /** A handle on a run that never started: every call is safe and does nothing. */
-function inert(options: MountOptions): MountHandle {
+function inert(options: RunMount): MountHandle {
   return {
-    recorded: () => options.inputs ?? [],
+    // Read as it arrived: a refused watch may have come with no inputs.
+    recorded: () => (options.mode === "watch" ? (options.inputs ?? []) : []),
     stop: () => {},
     destroy: () => {},
   }
 }
 
+/**
+ * A game getting ready in an element: its presentation mounted and prepared,
+ * its start packs fetched and checked. `ready` never rejects.
+ */
+interface Readiness {
+  readonly ready: Promise<MountError | null>
+  /** Whether it was asked to draw: a presentation, or none at all. */
+  readonly draws: boolean
+  /** Null when nothing is drawn. Mounted and prepared once `ready` is null. */
+  readonly presentation: Presentation<unknown, HTMLElement> | null
+  readonly context: PresentationContext
+  /** Fetches a demand pack from the files folder; null when the folder was refused. */
+  readonly loader: PackLoader | null
+  /** The start packs, once `ready` is null. */
+  packs(): ReadonlyMap<string, PackBytes>
+  /** Takes the presentation down, once. */
+  release(): void
+}
+
+function getReady<TView, TConfig>(
+  parts: PageModuleParts<TView, TConfig>,
+  element: HTMLElement,
+  options: PrepareOptions,
+  draw: boolean,
+): Readiness {
+  const context = contextFor(element, options.presentationContext)
+  let released = false
+  let presentation: Presentation<TView, HTMLElement> | null = null
+  let started: Map<string, PackBytes> = new Map()
+  const release = () => {
+    if (released) return
+    released = true
+    try {
+      presentation?.unmount()
+    } catch {
+      // A presentation that fails to come down has nothing left to say.
+    }
+  }
+  const failed = (error: MountError): Readiness => {
+    release()
+    return {
+      ready: Promise.resolve(error),
+      draws: draw,
+      presentation: null,
+      context,
+      loader: null,
+      packs: () => started,
+      release,
+    }
+  }
+
+  let files: GameFiles
+  try {
+    files = gameFiles(options.files)
+  } catch (error) {
+    return failed(argInvalid(String((error as Error).message ?? error)))
+  }
+  const loader = fetchPackLoader({
+    manifest: parts.manifest,
+    url: (pack) => files.url(pack.path),
+    ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
+  })
+
+  let drawing: Promise<void> = Promise.resolve()
+  if (draw) {
+    try {
+      presentation = parts.createPresentation(files)
+      presentation.mount(element, context)
+      drawing = Promise.resolve(presentation.prepare?.(element, context))
+    } catch (error) {
+      drawing = Promise.reject(error)
+    }
+  }
+  const drawn = drawing.then(
+    () => null,
+    (error: unknown) =>
+      // The engine's own code for a presentation that cannot draw, carrying
+      // what the presentation said.
+      mountErrorOf(
+        new ClockworkError("E_PRESENTATION_FAILED", {
+          detail: error instanceof Error ? error.message : String(error),
+          cause: error,
+        }),
+      ),
+  )
+  const fetched = loadPacks(parts.manifest, loader, "start")
+    .then((packs) => {
+      // Checked here as well as when the run's session is built, so a pack
+      // whose bytes are wrong is found before a run is asked for.
+      PackSet.verify(parts.manifest.assets, packs)
+      started = packs
+      return null
+    })
+    .catch((error: unknown) => mountErrorOf(error))
+  const ready = Promise.all([drawn, fetched]).then(([a, b]) => {
+    const failure = a ?? b
+    if (failure !== null) release()
+    return failure
+  })
+  return {
+    ready,
+    draws: draw,
+    get presentation() {
+      return presentation as Presentation<unknown, HTMLElement> | null
+    },
+    context,
+    loader,
+    packs: () => started,
+    release,
+  }
+}
+
+/** What a page may not ask of a run, before anything is built. */
+function refusalOf(
+  manifest: Manifest,
+  manifestHash: string,
+  options: RunMount,
+  drawn: boolean,
+): MountError | null {
+  if (options.expect.manifestHash !== manifestHash) {
+    return {
+      code: MOUNT_ERROR.WRONG_GAME,
+      message: `this page module is manifest ${manifestHash}, and the run was issued for ${options.expect.manifestHash}`,
+    }
+  }
+  if (!TICK_RATES.some((rate) => rate === options.tickHz)) {
+    return {
+      code: MOUNT_ERROR.TICK_RATE_UNSUPPORTED,
+      message: `the run's tick rate is ${options.tickHz}`,
+    }
+  }
+  if (options.tickHz !== manifest.session.tickHz) {
+    return {
+      code: MOUNT_ERROR.WRONG_GAME,
+      message: `the run ticks at ${options.tickHz} Hz and this game at ${manifest.session.tickHz}`,
+    }
+  }
+  // The page is built separately from this module, so every field is read
+  // as it arrived rather than as its type says.
+  const given = options as unknown as Readonly<Record<string, unknown>>
+  if (options.mode === "play") {
+    if (given.maxTicks !== undefined) {
+      return argInvalid(
+        "a played run has no step limit; maxTicks is where a watched run stops",
+      )
+    }
+    if (given.draw !== undefined) {
+      return argInvalid("a played run is drawn; draw is for a watched run")
+    }
+    if (options.scripted !== "ignore" && options.scripted !== "record") {
+      return argInvalid(
+        `scripted must be "ignore" or "record", not ${JSON.stringify(given.scripted)}: say whether an event a script made is recorded`,
+      )
+    }
+    return null
+  }
+  if (options.mode !== "watch") {
+    return argInvalid(
+      `mode must be "play" or "watch", not ${JSON.stringify(given.mode)}`,
+    )
+  }
+  if (!Array.isArray(given.inputs)) {
+    return argInvalid("watching a run needs the run's inputs")
+  }
+  if (!Number.isSafeInteger(options.maxTicks) || options.maxTicks < 1) {
+    return argInvalid(
+      `maxTicks must be a whole number above 0, where the watched run stops, not ${String(given.maxTicks)}`,
+    )
+  }
+  if (given.draw !== undefined && typeof given.draw !== "boolean") {
+    return argInvalid(
+      `draw must be true or false, not ${JSON.stringify(given.draw)}`,
+    )
+  }
+  if ((options.draw ?? true) !== drawn) {
+    return argInvalid(
+      drawn
+        ? "this game was prepared to draw, so it cannot be watched with draw: false"
+        : "this game was got ready without drawing, so it cannot be watched drawn",
+    )
+  }
+  return null
+}
+
+/** `prepare` and the prepared game's `mount`, in one call. */
 function mount<TView, TConfig>(
   parts: PageModuleParts<TView, TConfig>,
   manifestHash: string,
   element: HTMLElement,
   options: MountOptions,
 ): MountHandle {
-  const { handlers } = options
-  const { manifest } = parts
-  const refuse = (code: MountErrorCode, message: string): MountHandle => {
-    handlers.onError({ code, message })
+  const draw = options.mode === "play" || options.draw !== false
+  // Refused first, so a run the page got wrong mounts nothing at all.
+  const refused = refusalOf(parts.manifest, manifestHash, options, draw)
+  if (refused !== null) {
+    options.handlers.onError(refused)
     return inert(options)
   }
+  const prepared = preparedGame(
+    parts,
+    manifestHash,
+    element,
+    getReady(parts, element, options, draw),
+  )
+  return prepared.mount(options)
+}
 
-  if (options.expect.manifestHash !== manifestHash) {
-    return refuse(
-      MOUNT_ERROR.WRONG_GAME,
-      `this page module is manifest ${manifestHash}, and the run was issued for ${options.expect.manifestHash}`,
-    )
+function preparedGame<TView, TConfig>(
+  parts: PageModuleParts<TView, TConfig>,
+  manifestHash: string,
+  element: HTMLElement,
+  readiness: Readiness,
+): PreparedGame {
+  let mounted: MountHandle | null = null
+  return {
+    ready: readiness.ready,
+    mount(options) {
+      if (mounted !== null) {
+        options.handlers.onError(
+          argInvalid(
+            "a prepared game plays one run; prepare it again for another",
+          ),
+        )
+        return inert(options)
+      }
+      const refused = refusalOf(
+        parts.manifest,
+        manifestHash,
+        options,
+        readiness.draws,
+      )
+      if (refused !== null) {
+        options.handlers.onError(refused)
+        return inert(options)
+      }
+      mounted = runOnceReady(parts, element, readiness, options)
+      return mounted
+    },
+    release() {
+      mounted?.destroy()
+      readiness.release()
+    },
   }
-  if (!TICK_RATES.some((rate) => rate === options.tickHz)) {
-    return refuse(
-      MOUNT_ERROR.TICK_RATE_UNSUPPORTED,
-      `the run's tick rate is ${options.tickHz}`,
-    )
-  }
-  if (options.tickHz !== manifest.session.tickHz) {
-    return refuse(
-      MOUNT_ERROR.WRONG_GAME,
-      `the run ticks at ${options.tickHz} Hz and this game at ${manifest.session.tickHz}`,
-    )
-  }
-  if (!Number.isSafeInteger(options.maxTicks) || options.maxTicks < 1) {
-    return refuse(
-      "E_ARG_INVALID",
-      `maxTicks must be a whole number above 0, not ${options.maxTicks}`,
-    )
-  }
-  if (options.mode === "watch" && options.inputs === undefined) {
-    return refuse("E_ARG_INVALID", "watching a run needs the run's inputs")
-  }
+}
 
+/**
+ * Plays `options` in `element` once the game is ready: the host is built,
+ * the devices attached and the clock started only then, so no tick runs and
+ * nothing is recorded before the game can be drawn.
+ */
+function runOnceReady<TView, TConfig>(
+  parts: PageModuleParts<TView, TConfig>,
+  element: HTMLElement,
+  readiness: Readiness,
+  options: RunMount,
+): MountHandle {
+  const { handlers } = options
+  const { manifest } = parts
+  let host: GameHost<TView, HTMLElement, TConfig> | null = null
   let capture: InputCapture | null = null
+  let stopping: TerminalReason | null = null
+  let destroyed = false
+
   const release = (): void => {
     capture?.detach()
     capture = null
   }
 
-  let host: GameHost<TView, HTMLElement, TConfig>
-  try {
-    host = new GameHost<TView, HTMLElement, TConfig>({
-      module: parts.createGame(),
-      manifest,
-      seed: options.seed,
-      config: options.config as TConfig,
-      presentation: parts.createPresentation(),
-      container: element,
-      // One a second of play, which is where the platform's replay compares
-      // them. A fixed count is right at one tick rate only.
-      checkpointEvery: manifest.session.tickHz,
-      maxTicks: Math.min(options.maxTicks, manifest.session.maxTicks),
-      presentationContext: contextFor(element, options.presentationContext),
-      ...(options.scheduler === undefined
-        ? {}
-        : { scheduler: options.scheduler }),
-      ...(options.mode === "watch"
-        ? { inputs: new RecordedInputSource(options.inputs ?? []) }
-        : {}),
-      onCheckpoint: (checkpoint) =>
-        handlers.onCheckpoint({ tick: checkpoint.tick, hash: checkpoint.hash }),
-      onFrame: (frame) =>
-        handlers.onFrame({
-          tick: frame.tick,
-          counters: { ...host.counters() },
-        }),
-      onEnded: (result) => {
-        release()
-        handlers.onEnded({
-          tick: result.endTick,
-          reason: result.terminal,
-          counters: { ...result.counters },
-          recording: host.recording(options.inputs),
+  /** The presentation as `prepare` left it: mounted and ready to draw. */
+  const shown = readiness.presentation
+  const presentation: Presentation<TView, HTMLElement> | undefined =
+    shown === null
+      ? undefined
+      : {
+          mount: () => {},
+          render: (view, previous, alpha, dtMs) =>
+            shown.render(view, previous, alpha, dtMs),
+          unmount: () => readiness.release(),
+        }
+
+  const start = (): void => {
+    let built: GameHost<TView, HTMLElement, TConfig>
+    try {
+      built = new GameHost<TView, HTMLElement, TConfig>({
+        module: parts.createGame(),
+        manifest,
+        seed: options.seed,
+        config: options.config as TConfig,
+        ...(presentation === undefined
+          ? {}
+          : { presentation, container: element }),
+        // One a second of play, which is where the platform's replay compares
+        // them. A fixed count is right at one tick rate only.
+        checkpointEvery: manifest.session.tickHz,
+        presentationContext: readiness.context,
+        ...(readiness.loader === null
+          ? { packs: { preloaded: readiness.packs() } }
+          : {
+              packs: { preloaded: readiness.packs(), loader: readiness.loader },
+            }),
+        ...(options.scheduler === undefined
+          ? {}
+          : { scheduler: options.scheduler }),
+        ...(options.mode === "watch"
+          ? {
+              inputs: new RecordedInputSource(options.inputs),
+              maxTicks: options.maxTicks,
+            }
+          : {}),
+        onCheckpoint: (checkpoint) =>
+          handlers.onCheckpoint({
+            tick: checkpoint.tick,
+            hash: checkpoint.hash,
+          }),
+        onFrame: (frame) =>
+          handlers.onFrame({
+            tick: frame.tick,
+            counters: { ...built.counters() },
+          }),
+        onEnded: (result) => {
+          release()
+          handlers.onEnded({
+            tick: result.endTick,
+            reason: result.terminal,
+            counters: { ...result.counters },
+            recording: built.recording(
+              options.mode === "watch" ? options.inputs : undefined,
+            ),
+          })
+        },
+        onError: (error) => {
+          release()
+          handlers.onError(mountErrorOf(error))
+        },
+      })
+    } catch (error) {
+      readiness.release()
+      handlers.onError(mountErrorOf(error))
+      return
+    }
+    host = built
+    // Stopped while it got ready: it ends at tick 0, and says so.
+    if (stopping !== null) {
+      built.stop(stopping)
+      return
+    }
+    const live = built.live
+    try {
+      // A replay has no live queue, so a key pressed by somebody watching has
+      // nowhere to go.
+      if (live !== null && options.mode === "play") {
+        capture = new InputCapture({
+          ...parts.capture,
+          manifest,
+          queue: live,
+          element,
+          scripted: options.scripted,
+          ...(handlers.onNotice === undefined
+            ? {}
+            : {
+                onNotice: (notice) => {
+                  handlers.onNotice?.(notice)
+                },
+              }),
+          ...(options.environment === undefined
+            ? {}
+            : { environment: options.environment }),
         })
-      },
-      onError: (error) => {
-        release()
-        handlers.onError(mountErrorOf(error))
-      },
-    })
-  } catch (error) {
-    handlers.onError(mountErrorOf(error))
-    return inert(options)
+        capture.attach()
+      }
+      // Ready already, so the clock starts before this returns.
+      void built.start()
+    } catch (error) {
+      release()
+      built.destroy()
+      readiness.release()
+      handlers.onError(mountErrorOf(error))
+    }
   }
 
-  const live = host.live
-  try {
-    // A replay has no live queue, so a key pressed by somebody watching has
-    // nowhere to go.
-    if (live !== null) {
-      capture = new InputCapture({
-        ...parts.capture,
-        manifest,
-        queue: live,
-        element,
-        ...(handlers.onNotice === undefined
-          ? {}
-          : { onNotice: (notice) => handlers.onNotice?.(notice) }),
-        ...(options.environment === undefined
-          ? {}
-          : { environment: options.environment }),
-      })
-      capture.attach()
+  void readiness.ready.then((failure) => {
+    if (destroyed) return
+    if (failure !== null) {
+      handlers.onError(failure)
+      return
     }
-    host.start()
-  } catch (error) {
-    release()
-    host.destroy()
-    handlers.onError(mountErrorOf(error))
-    return inert(options)
-  }
+    start()
+  })
 
   return {
-    recorded: () => live?.recorded() ?? options.inputs ?? [],
-    stop: (reason = "abandoned") => host.stop(reason),
+    recorded: () =>
+      host?.live?.recorded() ??
+      (options.mode === "watch" ? options.inputs : []),
+    stop: (reason = "abandoned") => {
+      if (host !== null) host.stop(reason)
+      else stopping ??= reason
+    },
     destroy: () => {
+      destroyed = true
       release()
-      host.destroy()
+      host?.destroy()
+      readiness.release()
     },
   }
 }

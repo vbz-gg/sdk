@@ -157,8 +157,8 @@ for (const [name, bundle] of Object.entries(BUNDLERS)) {
       const query = new URLSearchParams({
         present: game.presentUrl,
         hash: game.manifestHash,
+        files: game.filesUrl,
         tickHz: String(game.tickHz),
-        maxTicks: String(game.maxTicks),
       })
       await page.goto(`http://127.0.0.1:${port}/?${query}`)
       await expect(page.locator("body")).toHaveAttribute("data-loaded", "ready")

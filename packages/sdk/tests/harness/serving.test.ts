@@ -12,7 +12,7 @@ import { existsSync } from "node:fs"
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { hashCanonical } from "@clockwork2/engine"
+import { hashCanonical, type PlainValue } from "@clockwork2/engine"
 import {
   HARNESS_GAME_ID,
   HARNESS_SEED,
@@ -27,6 +27,7 @@ import {
   serveOptions,
   startHostServer,
 } from "../../src/harness/servers"
+import { MANIFEST } from "../game/subject"
 
 describe("the host origin", () => {
   let server: { origin: string; stop(): Promise<void> }
@@ -102,13 +103,15 @@ const SOURCE = {
   simEntry: "src/sim/index.ts",
   presentEntry: "src/present.ts",
   captureEntry: "src/capture.ts",
+  filesDir: null,
 }
 
 /** What `vbz build` would have written beside the artifacts. */
 const DIST_MANIFEST = {
+  ...MANIFEST,
   name: "Probe Game",
-  session: { tickHz: 30, maxTicks: 900 },
-  inputs: { left: { min: 0, max: 1 } },
+  session: { tickHz: 30, hasEnding: true },
+  params: { speed: { type: "int", label: "Speed", default: 2 } },
 }
 
 describe("the harness, started whole", () => {
@@ -159,7 +162,9 @@ describe("the harness, started whole", () => {
     const html = await (await fetch(harness.hostOrigin)).text()
     expect(html).toContain("Probe Game")
     expect(html).toContain(`"tickHz":30`)
-    expect(html).toContain(`"maxTicks":900`)
+    // What a platform serves a run: every declared setting at its default.
+    expect(html).toContain(`"config":{"speed":2}`)
+    expect(html).not.toContain("maxTicks")
     // The seed is fixed, so a run an author is debugging is the run they had
     // a moment ago.
     expect(html).toContain(`"seed":"${HARNESS_SEED}"`)
@@ -172,7 +177,9 @@ describe("the harness, started whole", () => {
   test("the page is told where the page module is and which manifest it must be", async () => {
     const html = await (await fetch(harness.hostOrigin)).text()
     expect(html).toContain(`"presentUrl":"${harness.presentUrl}"`)
-    expect(html).toContain(`"manifestHash":"${hashCanonical(DIST_MANIFEST)}"`)
+    expect(html).toContain(
+      `"manifestHash":"${hashCanonical(DIST_MANIFEST as unknown as PlainValue)}"`,
+    )
     expect(harness.presentUrl).toContain(`/g/${HARNESS_GAME_ID}/present/`)
   })
 
@@ -223,7 +230,8 @@ describe("the harness, started whole", () => {
     expect(response.headers.get("access-control-allow-origin")).toBe("*")
   })
 
-  test("a game with no manifest on disk still starts, on defaults", async () => {
+  /** Nothing it could serve would play, so it says what to run instead. */
+  test("a game with no manifest on disk is refused before anything is served", async () => {
     const bare = await mkdtemp(join(tmpdir(), "sdk-bare-"))
     try {
       await mkdir(join(bare, "src", "sim"), { recursive: true })
@@ -235,22 +243,14 @@ describe("the harness, started whole", () => {
         join(bare, "src", "present.ts"),
         `import { a } from "cw2:sim"\ndocument.title = String(a)\n`,
       )
-      const plain = await startHarness({
-        source: { root: bare, ...SOURCE },
-        hostPort: 0,
-        bundlesPort: 0,
-        seed: "chosen",
-      })
-      try {
-        const html = await (await fetch(plain.hostOrigin)).text()
-        expect(html).toContain(`"tickHz":60`)
-        // An empty manifest's hash, which no page module carries, so the
-        // page refuses the game rather than playing one it cannot check.
-        expect(html).toContain(`"manifestHash":"${hashCanonical({})}"`)
-        expect(html).toContain(`"seed":"chosen"`)
-      } finally {
-        await plain.stop()
-      }
+      await expect(
+        startHarness({
+          source: { root: bare, ...SOURCE },
+          hostPort: 0,
+          bundlesPort: 0,
+          seed: "chosen",
+        }),
+      ).rejects.toThrow(/run vbz build first/)
     } finally {
       await rm(bare, { recursive: true, force: true })
     }

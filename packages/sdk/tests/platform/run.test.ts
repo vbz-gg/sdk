@@ -10,7 +10,7 @@ import type { RunChunk, RunResult, StartedRun } from "../../src/api/index"
 import type {
   MountHandle,
   MountHandlers,
-  MountOptions,
+  PlayMount,
 } from "../../src/game/contract"
 import { PlatformClientError, PlatformRefusal } from "../../src/platform/errors"
 import { RUN_PHASE, Run, type RunState } from "../../src/platform/run"
@@ -27,10 +27,9 @@ const RUN: StartedRun = {
     id: "v-1",
     presentUrl: "https://bundles.example/g/g-1/present/p.js",
     manifestHash: "mh-1",
+    filesUrl: "https://bundles.example/g/g-1/t/f/",
     manifest: { id: "lane-runner" },
     tickHz: 60,
-    maxTicks: 7200,
-    maxWallSeconds: 300,
   },
   limits: { chunkBytes: 1_048_576, runBytes: 27_262_976 },
   token: "t-run",
@@ -129,7 +128,7 @@ function fakeClient(script: {
  * is recording, and a `stop` that ends the run as a real one does, at once.
  */
 class FakeGame implements MountHandle {
-  options: MountOptions | null = null
+  options: PlayMount | null = null
   readonly log: InputEvent[] = []
   readonly calls: string[] = []
   tick = 0
@@ -139,7 +138,7 @@ class FakeGame implements MountHandle {
     return this.options.handlers
   }
 
-  mount = (options: MountOptions): MountHandle => {
+  mount = (options: PlayMount): MountHandle => {
     this.options = options
     return this
   }
@@ -216,17 +215,21 @@ async function playedThrough(ready: ReturnType<typeof start>) {
 }
 
 describe("before a tick runs", () => {
-  test("the game is mounted with the run's seed, config, rate, cap and hash", () => {
+  /**
+   * No step limit: the run goes until the game or the player ends it. And a
+   * ranked run's inputs come from the player's devices alone.
+   */
+  test("the game is mounted with the run's seed, config, rate and hash, and no step limit", () => {
     const { game, states, driver } = start()
-    expect(game.options).toMatchObject({
+    expect(game.options).toEqual({
       mode: "play",
       seed: "seed-1",
       config: { speed: 1 },
       tickHz: 60,
-      maxTicks: 7200,
+      scripted: "ignore",
       expect: { manifestHash: "mh-1" },
+      handlers: expect.any(Object),
     })
-    expect(game.options?.inputs).toBeUndefined()
     expect(states.map((s) => s.phase)).toEqual([RUN_PHASE.PLAYING])
     expect(driver.current.phase).toBe(RUN_PHASE.PLAYING)
     expect(driver.started).toBe(RUN)
@@ -292,6 +295,31 @@ describe("before a tick runs", () => {
         phase: RUN_PHASE.FAILED,
         errorCode: "E_RANKED_PAUSED",
         detail: "ranked play is paused",
+        refusalDetail: null,
+        result: null,
+      },
+    ])
+  })
+
+  /**
+   * A game that cannot get ready says so as plain data, the module's classes
+   * not being the page's: a pack that never arrived, in the engine's words.
+   */
+  test("a game's own failure before it plays fails the run with its code and words", () => {
+    const states: RunState[] = []
+    const driver = new Run({
+      client: fakeClient({}).client,
+      onState: (state) => states.push(state),
+    })
+    driver.refuse({
+      code: "E_PACK_NOT_DELIVERED",
+      message: "packs/level.json answered 404",
+    })
+    expect(states).toEqual([
+      {
+        phase: RUN_PHASE.FAILED,
+        errorCode: "E_PACK_NOT_DELIVERED",
+        detail: "packs/level.json answered 404",
         refusalDetail: null,
         result: null,
       },

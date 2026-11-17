@@ -88,27 +88,61 @@ export default definePageModule({ createGame, manifest: MANIFEST, createPresenta
 `definePageModule` returns a `PageModule`, which is all a page ever sees of
 the game:
 
-- `contract`, the version of this shape the module speaks, `1` today;
+- `contract`, the version of this shape the module speaks, `2` today;
 - `manifestHash`, the engine's canonical hash of the manifest;
 - `needsMotion`, true when the mapping reads tilt, so a page asks for motion
   in the click;
+- `tickHz`, the game's tick rate, and `servedConfig`, the engine's
+  `servedConfig`: every setting the manifest declares, at its default, which
+  is what a platform serves a ranked or practice run. It is null when the
+  manifest declares a required setting with no default, which only a page
+  naming its own config can play. A page holds no engine, so the module says
+  both;
 - `check()`, which answers a list of problems and never throws: the manifest
   it was given is not the one its rules code carries (`E_GAME_MODULE_INVALID`),
-  the mapping names something the manifest does not declare
-  (`E_CAPTURE_INVALID`), or the manifest declares a data pack the rules code
-  reads (`E_SIM_PACKS`), which the platform cannot store or replay yet;
+  or the mapping names something the manifest does not declare
+  (`E_CAPTURE_INVALID`);
 - `requestMotion()`, the engine's, from the module's own copy;
-- `mount(element, options)`, which builds the engine's `GameHost` in the
-  element, attaches the device helpers, and plays a run live or replays a
-  given log.
+- `prepare(element, { files })`, which gets the game ready in the element
+  before a run is asked for: it makes the presentation, handing it the
+  version's files folder, mounts it and waits for the engine's
+  `Presentation.prepare`, and fetches the start data packs from the folder.
+  Its `ready` settles with null, or with why the game cannot play here: the
+  engine's `E_PRESENTATION_FAILED` for a device the presentation cannot draw
+  on, carrying what the presentation said, or the engine's pack codes. The
+  prepared game's `mount` plays one run in the element;
+- `mount(element, options)`, which is `prepare` and that `mount` in one
+  call: it builds the engine's `GameHost` in the element once the game is
+  ready, attaches the device helpers, and plays a run live or replays a given
+  log.
 
-`mount` takes the run's seed, config, tick rate, cap, the manifest hash it was
-issued for, and handlers for checkpoints, frames, the end, an error and a
-device notice. It refuses a run issued for another manifest (`E_WRONG_GAME`)
-or a tick rate the game does not run at, before anything is built. It hands
-back `recorded()`, `stop(reason)` and `destroy()`. The presentation fills the
-element it is mounted in, stretched the same way on both axes, because the
-helpers measure a finger across that element.
+A run is `play` or `watch`, and both take the run's seed, config, tick rate,
+the manifest hash it was issued for, and handlers for checkpoints, frames,
+the end, an error and a device notice. A played run has no step limit: it
+goes until the game ends it or the page stops it, and it says whether an
+event a script dispatched is recorded, `scripted: "ignore"` or `"record"`,
+the engine's own switch on its device helpers. A ranked or practice run takes
+its inputs from the player's devices alone, so `playRun` always passes
+`"ignore"`. A watched run takes the recorded inputs and `maxTicks`, where the
+replay stops, which is `Math.max(endTick, 1)` of the run it replays; with
+`draw: false` it builds no presentation at all and reports its checkpoints,
+for a browser that cannot draw the game, such as the platform's page-module
+check. `mount` refuses a run issued for another manifest (`E_WRONG_GAME`), a
+tick rate the game does not run at, a step limit on a played run, or a
+played run that does not say what to do with a scripted event, before
+anything is built. The clock starts only once the game is ready, so no tick
+runs and nothing is recorded before it can be drawn, and a failure to get
+ready arrives at `onError` before tick 0. It hands back `recorded()`,
+`stop(reason)` and `destroy()`; a run stopped while it gets ready ends at
+tick 0 once it is. The presentation fills the element it is mounted in,
+stretched the same way on both axes, because the helpers measure a finger
+across that element.
+
+The data packs the manifest declares are files of the version's files
+folder, at their declared paths. The module fetches the start packs from the
+folder's address before the run starts and a demand pack when the game names
+it, with the engine's pack loader, and the engine checks each one's size and
+SHA-256 before the game may read it.
 
 Everything that crosses between the page and the module is plain data:
 numbers, strings, arrays and objects of them, and functions to call. A
@@ -121,8 +155,12 @@ copy threw it.
 often against different releases of this package. Every release drives every
 contract version an earlier release drove, and a page refuses a module that
 speaks one it does not know with `E_GAME_CONTRACT_UNKNOWN`, naming both,
-rather than misreading it. The browser suite holds the first half to a
-module the first release of contract 1 built, committed and never rebuilt.
+rather than misreading it. A page on this release drives contract 1 as it was
+built: its module stops a run at its own manifest's step limit, whatever the
+page passes, knows no files folder and no word on scripted events, cannot be
+watched without drawing, and is ready at once. The browser suite holds the
+first half to a module the first release of contract 1 built, committed and
+never rebuilt.
 
 `/game` is a value subpath, bundled into every page module, so it holds to
 what a page module may do. It reads nothing from the browser when it loads,
@@ -195,15 +233,18 @@ anything is played, because what arrives was built by somebody else, often
 with another release of this package. In order, each with the code it fails
 with:
 
-1. The address is absolute and https, or http to this machine, and the
-   import succeeds (`E_GAME_UNLOADABLE`, with the address).
+1. The module's address and its files folder's are absolute and https, or
+   http to this machine, the folder's ending in `/`, and the import succeeds
+   (`E_GAME_UNLOADABLE`, with the address).
 2. The default export is an object (`E_GAME_MODULE_INVALID`).
 3. Its `contract` is one this release drives (`E_GAME_CONTRACT_UNKNOWN`).
 4. `mount`, `check` and `requestMotion` are functions, `manifestHash` a
-   string and `needsMotion` a boolean (`E_GAME_MODULE_INVALID`, naming the
-   field).
+   string and `needsMotion` a boolean, and for contract 2 `prepare` a
+   function, `tickHz` a number and `servedConfig` an object or null
+   (`E_GAME_MODULE_INVALID`, naming the field).
 5. Its manifest hash is the version's (`E_WRONG_GAME`).
-6. Its own `check()` finds nothing (the problem's own code).
+6. Its own `check()` finds nothing (the problem's own code; one this release
+   does not know is `E_GAME_MODULE_INVALID` in the module's words).
 7. No built-in a simulation calls has been replaced on the page, removed, or
    set to something that is not a function (`E_PAGE_ALTERS_BUILTINS`, naming
    it). This reads the engine's allowed `Math` functions and the `Array`,
@@ -212,15 +253,21 @@ with:
    somebody determined to hide one.
 
 Load before the click, from what `GET /v1/game` names, so a failure spends no
-run. A failed import is kept by the browser for the life of the page:
+run. A version names its files folder beside its page module, `filesUrl`, and
+the loaded game hands it to the module with every run, so a page never names
+one. A failed import is kept by the browser for the life of the page:
 Chromium, Firefox and WebKit all answer a second `import()` of the same URL
 with the first failure, without asking the network again, so the only retry
 is a reload, and `E_GAME_UNLOADABLE` says so.
 
 **`playRun(element, { client, game, mode, onState, onNotice, title })`**
 runs inside the Play button's click. When the game reads tilt it asks for it
-first, then for the run's lock, both before anything is awaited, and starts
-the run once the lock is held and tilt is granted. The platform says
+first, then for the run's lock, both before anything is awaited. Once the
+lock is held and tilt is granted, it gets the game ready in the element with
+the module's own `prepare`, and starts the run only when it is, so a device
+the game cannot draw on fails with `E_PRESENTATION_FAILED`, in the client's
+sentence, and a pack that did not arrive with the engine's code, before the
+platform is asked for a run. The platform says
 which version each run plays, and the page never chooses: a resumed run plays
 the version it started on, and when its manifest hash is not the loaded
 module's, `playRun` loads the run's own. It compares the hash rather than the
@@ -262,7 +309,7 @@ with `E_BROWSER_UNSUPPORTED`: Safari before 15.4, or a page that is not https.
 
 **`watchRun(element, { client, runId })`** reads a settled run, loads its own
 version's page module and replays its own inputs, to `replayTicks`, where the
-platform's replay stopped. An abandoned run ends where its player left it,
+platform's replay stopped: `Math.max(endTick, 1)`. An abandoned run ends where its player left it,
 not wherever its rules code would have ended it. A run whose replay covers no
 ticks is `E_NOTHING_TO_WATCH`.
 
@@ -570,7 +617,8 @@ guide from one release beside the engine's from another.
 ## Checking a game
 
 `vbz check ./my-game` builds the game, holds the manifest to its schema, runs
-the engine's conformance checks over the built rules code, and holds
+the engine's `every-game` set of conformance checks over the built rules code,
+with every file the manifest declares laid out beside it, and holds
 `src/capture.ts` to the manifest with `checkCapture`. It prints the version,
 its release line and the line's contract hash, `contractSha256`, so a patch
 can be compared with the line it joins before it is uploaded. It exits 0
@@ -637,7 +685,11 @@ recording too, so an author can save the evidence the platform would replay.
 
 The seed is a constant, so a run an author is debugging is the run they had a
 moment ago. The platform's daily seed is a keyed HMAC of the game and the day,
-which does the same job for a different reason.
+which does the same job for a different reason. The config is the manifest's
+served config, what the platform serves a run, and the harness reads both it
+and the tick rate from the manifest `vbz build` wrote, refusing to start
+without one. The files folder is served beside the two modules, and the
+replay is handed the data packs from it.
 
 **A phone** is another machine, and a browser loads a game's code from
 another machine only over https and grants tilt only to a secure page. So
@@ -649,7 +701,8 @@ builds, and so is `0.0.0.0`, which no page can name.
 **`--site`** serves the game's own `site/` in place of the harness page,
 under the same policy with the API added, against a stand-in for the
 platform shipped in the package: the page routes and the sign-in window on
-origins of their own, as one local player, on the harness seed. The harness
+origins of their own, as one local player, on the harness seed and the served
+config, at the platform's limits from `/build`. The harness
 answers the page's `config.json` with the stand-in's origins and page key.
 The stand-in holds chunks and the submit to the manifest the way the
 platform does, and settles a run with the counters its page sent, without a

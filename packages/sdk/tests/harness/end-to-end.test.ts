@@ -29,6 +29,7 @@ const SOURCE = {
   simEntry: "src/sim/index.ts",
   presentEntry: "src/present.ts",
   captureEntry: "src/capture.ts",
+  filesDir: null,
 }
 
 const MANIFEST = {
@@ -100,7 +101,7 @@ describe("building a game", () => {
       )
       await expect(
         buildGameArtifacts({ root: dir, ...SOURCE }),
-      ).rejects.toThrow(/imports nothing/)
+      ).rejects.toThrow(/does not import cw2:sim/)
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
@@ -133,6 +134,7 @@ describe("addressing a game", () => {
     expect(blobKeys(built)).toEqual({
       sim: `g/${GAME}/sim/${built.simSha256}.js`,
       present: `g/${GAME}/present/${built.presentSha256}.js`,
+      files: `g/${GAME}/t/${built.filesSha256}/`,
     })
   })
 })

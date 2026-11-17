@@ -11,6 +11,7 @@ import { join } from "node:path"
 import { DEFAULT_ADDRESS, parseArgs } from "../../src/cli/args"
 import { devSettings } from "../../src/cli/dev"
 import { startHarness } from "../../src/harness"
+import { MANIFEST } from "../game/subject"
 
 const PEM = { "cert.pem": "CERTIFICATE", "key.pem": "PRIVATE KEY" }
 const read = async (path: string) => {
@@ -154,11 +155,17 @@ describe("the harness over https", () => {
     await mkdir(join(dir, "game", "src", "sim"), { recursive: true })
     await writeFile(
       join(dir, "game", "src", "sim", "index.ts"),
-      "export const MANIFEST = {}\n",
+      `export const MANIFEST = ${JSON.stringify(MANIFEST)}\n`,
     )
     await writeFile(
       join(dir, "game", "src", "present.ts"),
       `import { MANIFEST } from "cw2:sim"\nexport default MANIFEST\n`,
+    )
+    // What `vbz build` writes beside the artifacts, which the harness plays.
+    await mkdir(join(dir, "game", "dist"), { recursive: true })
+    await writeFile(
+      join(dir, "game", "dist", "manifest.json"),
+      JSON.stringify(MANIFEST),
     )
   })
 
@@ -183,6 +190,7 @@ describe("the harness over https", () => {
         simEntry: "src/sim/index.ts",
         presentEntry: "src/present.ts",
         captureEntry: "src/capture.ts",
+        filesDir: null,
       },
       hostPort: 0,
       bundlesPort: 0,

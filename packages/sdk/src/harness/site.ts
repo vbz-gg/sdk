@@ -146,10 +146,12 @@ export async function startSite(options: SiteOptions): Promise<RunningSite> {
     built,
     listen,
   })
-  const presentUrl = `${bundles.origin}/${blobKeys(built).present}`
+  const keys = blobKeys(built)
+  const presentUrl = `${bundles.origin}/${keys.present}`
   const standIn = startStandIn({
     manifest,
     presentUrl,
+    filesUrl: `${bundles.origin}/${keys.files}`,
     gameId: options.gameId,
     siteOrigin,
     seed: options.seed,

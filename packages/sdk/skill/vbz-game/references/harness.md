@@ -46,7 +46,11 @@ from the page's own origin and the game's own path and nowhere else, and no
 
 The seed is a constant, so the run you are debugging is the run you had a
 moment ago. The platform's daily seed is a keyed HMAC of the game and the day,
-which does the same job for everybody at once.
+which does the same job for everybody at once. The config is what the
+platform serves a run: every setting the manifest declares, at its default. A
+run has no step limit, and the game's files folder is served beside its two
+modules, under `/g/<game id>/t/<listing sha256>/`, where the page module
+fetches its data packs.
 
 ## A phone
 
@@ -77,8 +81,8 @@ the page's `config.json` with the stand-in's API, sign-in window and page
 key, so the file in `site/` is not read. The stand-in:
 
 - signs the player in through a window of its own, with the same code trade;
-- starts a run on the harness seed, and resumes it on a refresh until it has
-  committed a chunk;
+- starts a run on the harness seed and the served config, and resumes it on
+  a refresh until it has committed a chunk;
 - holds chunks and the submit to the manifest the way the platform does:
   a chunk sent again unchanged, one that conflicts or reaches back, a
   checkpoint at a tick an earlier chunk reached, inputs the manifest does

@@ -7,7 +7,7 @@
  * The earlier release here is the first one whose page modules speak
  * contract 1: the template as it built it, committed under `e2e/frozen/` and
  * never rebuilt, played by a page built from this tree. The later one is
- * this package packed, with its contract raised to 2, as a release that has
+ * this package packed, with its contract raised to 3, as a release that has
  * moved on would be.
  */
 
@@ -55,8 +55,8 @@ test("a page built from this tree plays the module the first release of contract
 test("a module speaking a contract this page does not drive is refused, naming both", async ({
   page,
 }) => {
-  expect(await openModule(page, "contract-2")).toBe("E_GAME_CONTRACT_UNKNOWN")
+  expect(await openModule(page, "contract-3")).toBe("E_GAME_CONTRACT_UNKNOWN")
   const said = (await page.locator("#state").textContent()) ?? ""
-  expect(said).toContain('"module":2')
-  expect(said).toContain('"driven":[1]')
+  expect(said).toContain('"module":3')
+  expect(said).toContain('"driven":[1,2]')
 })

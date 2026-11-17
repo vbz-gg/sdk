@@ -59,16 +59,23 @@ game's path, and the page module is hashed afterwards.
 
 ## 3. The conformance suite
 
-The twelve checks from `@clockwork2/engine/validate`, run against the built
-simulation laid out as a subject directory. They are the subject of the
-engine's guide, clockwork2: determinism, banned APIs, no async, restore,
-bounded runs, counters, headless, assets and the rest.
+The engine's `ranked` set from `@clockwork2/engine/validate`, run against the
+built simulation laid out as a subject directory with its data packs beside
+it, playing the config a run is served: every declared setting at its
+default. The set is every check the engine runs on any game, the subject of
+the engine's guide, clockwork2 (determinism, banned APIs, no async, restore,
+counters, headless, assets and the rest), and two that only a ranked or
+practice run needs. Each check plays its logs to the game's own end or to a
+fixed window; no run has a step limit.
 
-Plus a thirteenth the platform owns, **seed sensitivity**: two different seeds
-on the same input log must reach different states (`E_SEED_IGNORED`). A game
-that ignores its seed passes all twelve - check 1 compares same-seed runs to
-each other, so a seed-blind generator is perfectly deterministic - and turns a
-daily board into an all-time board.
+- **Seed sensitivity**: two different seeds on the same input log must pass
+  through different states (`E_SEED_IGNORED`). A game that ignores its seed
+  passes every other check - determinism compares same-seed runs to each
+  other, so a seed-blind generator is perfectly deterministic - and turns a
+  daily board into an all-time board.
+- **Ranking**: the manifest declares `rankBy` and `tiePolicy`
+  (`E_RANK_UNDECLARED`), which a game played only on its own page may leave
+  out.
 
 ## 4. The cross-engine sweep
 

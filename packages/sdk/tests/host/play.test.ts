@@ -15,15 +15,29 @@ import {
 } from "bun:test"
 import { hashCanonical, type PlainValue } from "@clockwork2/engine"
 import {
+  type CaptureEnvironment,
   ManualScheduler,
   MOTION_REFUSALS,
   type MotionAccess,
 } from "@clockwork2/engine/host"
 import { GlobalRegistrator } from "@happy-dom/global-registrator"
 import type { RunChunk, StartedRun } from "../../src/api/index"
-import type { MountHandle, MountOptions } from "../../src/game/contract"
+import type {
+  MountError,
+  MountHandle,
+  MountOptions,
+  PageModule,
+  PreparedGame,
+  PrepareOptions,
+  RunMount,
+} from "../../src/game/contract"
 import { definePageModule } from "../../src/game/define"
-import type { GameAddress, LoadedGame } from "../../src/host/load"
+import {
+  type GameAddress,
+  type GameMountOptions,
+  type LoadedGame,
+  loadGame,
+} from "../../src/host/load"
 import { playRun, type RunLocks, runLockName } from "../../src/host/play"
 import {
   CLIENT_ERROR,
@@ -67,10 +81,9 @@ const RUN: StartedRun = {
     id: "v-2",
     presentUrl: PRESENT,
     manifestHash: "mh-new",
+    filesUrl: "https://bundles.example/g/g-1/t/new/",
     manifest: {},
     tickHz: 60,
-    maxTicks: 600,
-    maxWallSeconds: 60,
   },
   limits: { chunkBytes: 1_048_576, runBytes: 27_262_976 },
   token: "t-run",
@@ -85,21 +98,44 @@ beforeEach(() => {
 })
 
 class FakeGame implements LoadedGame {
-  readonly contract = 1
-  mounted: MountOptions | null = null
+  readonly contract = 2
+  readonly tickHz = 60
+  readonly servedConfig = {}
+  readonly filesUrl: string
+  mounted: GameMountOptions | null = null
+  /** What `prepare` answers once the game is ready, or not. */
+  unready: MountError | null = null
+  /** When set, `prepare` answers only once this settles. */
+  waiting: Promise<MountError | null> | null = null
+  released = 0
 
   constructor(
     readonly presentUrl: string,
     readonly manifestHash: string,
     readonly needsMotion = false,
-  ) {}
+  ) {
+    this.filesUrl = `${presentUrl}.files/`
+  }
 
   requestMotion(): Promise<MotionAccess> {
     calls.push(`motion ${this.presentUrl}`)
     return Promise.resolve({ granted: true })
   }
 
-  mount(element: HTMLElement, options: MountOptions): MountHandle {
+  prepare(element: HTMLElement): PreparedGame {
+    calls.push(`prepare ${this.presentUrl}`)
+    expect(element).toBe(stage)
+    return {
+      ready: this.waiting ?? Promise.resolve(this.unready),
+      mount: (options: RunMount) => this.mount(element, options),
+      release: () => {
+        this.released += 1
+        calls.push(`release ${this.presentUrl}`)
+      },
+    }
+  }
+
+  mount(element: HTMLElement, options: GameMountOptions): MountHandle {
     calls.push(`mount ${this.presentUrl}`)
     expect(element).toBe(stage)
     this.mounted = options
@@ -212,7 +248,12 @@ describe("the click", () => {
     expect(played.motion).not.toBeNull()
     expect(played.run.current.phase).toBe(RUN_PHASE.LOADING)
     await settle()
-    expect(calls.slice(2, 4)).toEqual(["start {}", `mount ${PRESENT}`])
+    // Then the game gets ready here, before the platform is asked for a run.
+    expect(calls.slice(2, 5)).toEqual([
+      `prepare ${PRESENT}`,
+      "start {}",
+      `mount ${PRESENT}`,
+    ])
   })
 
   /**
@@ -330,8 +371,9 @@ describe("the click", () => {
       locks: locks(),
     })
     await settle()
-    expect(calls.slice(0, 2)).toEqual([
+    expect(calls.slice(0, 3)).toEqual([
       `lock ${runLockName(PAGE_KEY, "practice")}`,
+      `prepare ${PRESENT}`,
       'start {"practice":true}',
     ])
     expect(played.motion).toBeNull()
@@ -354,9 +396,11 @@ describe("which module plays the run", () => {
     await settle()
     expect(calls).toEqual([
       `lock ${runLockName(PAGE_KEY, "ranked")}`,
+      `prepare ${PRESENT}`,
       "start {}",
       `mount ${PRESENT}`,
     ])
+    expect(game.released).toBe(0)
     expect(game.mounted).toMatchObject({
       mode: "play",
       seed: "seed-1",
@@ -385,9 +429,13 @@ describe("which module plays the run", () => {
       load: loader([older]),
     })
     await settle()
+    // What was got ready is the newer patch's, and goes; the run's own module
+    // gets ready inside its mount.
     expect(calls).toEqual([
       `lock ${runLockName(PAGE_KEY, "ranked")}`,
+      `prepare ${PRESENT}`,
       "start {}",
+      `release ${PRESENT}`,
       `load ${OLDER} mh-old`,
       `mount ${OLDER}`,
     ])
@@ -494,7 +542,9 @@ describe("which module plays the run", () => {
     // The lock is let go with the failure, so the next tap can take it.
     expect(calls).toEqual([
       `lock ${runLockName(PAGE_KEY, "ranked")}`,
+      `prepare ${PRESENT}`,
       "start {}",
+      `release ${PRESENT}`,
       `load ${OLDER} mh-old`,
       `unlock ${runLockName(PAGE_KEY, "ranked")}`,
     ])
@@ -511,10 +561,91 @@ describe("which module plays the run", () => {
     expect(calls).toEqual([
       `motion ${OLDER}`,
       `lock ${runLockName(PAGE_KEY, "ranked")}`,
+      `prepare ${OLDER}`,
       "start {}",
       `mount ${OLDER}`,
     ])
     expect(second.run.started?.sessionId).toBe("s-1")
+  })
+
+  /**
+   * A device the game cannot draw on, or a pack that never arrived, is found
+   * before the platform is asked for a run, so it spends none.
+   */
+  test("a game that cannot draw here starts no run, in the client's sentence", async () => {
+    const game = new FakeGame(PRESENT, "mh-new")
+    game.unready = {
+      code: "E_PRESENTATION_FAILED",
+      message:
+        "E_PRESENTATION_FAILED the presentation could not get ready to draw: no usable GPU path",
+    }
+    const states: RunState[] = []
+    playRun(stage, {
+      client: client(),
+      game,
+      mode: "ranked",
+      locks: locks(),
+      onState: (state) => states.push(state),
+    })
+    await settle()
+    const failed = states.at(-1)
+    expect(failed).toMatchObject({
+      phase: RUN_PHASE.FAILED,
+      errorCode: "E_PRESENTATION_FAILED",
+    })
+    expect(failed?.detail).toStartWith(CLIENT_ERROR.E_PRESENTATION_FAILED)
+    expect(String(failed?.detail)).toContain("no usable GPU path")
+    expect(calls).toEqual([
+      `lock ${runLockName(PAGE_KEY, "ranked")}`,
+      `prepare ${PRESENT}`,
+      `release ${PRESENT}`,
+      `unlock ${runLockName(PAGE_KEY, "ranked")}`,
+    ])
+  })
+
+  test("a game whose pack did not arrive starts no run, in the engine's words", async () => {
+    const game = new FakeGame(PRESENT, "mh-new")
+    game.unready = {
+      code: "E_PACK_NOT_DELIVERED",
+      message: "packs/level.json answered 404",
+    }
+    const states: RunState[] = []
+    playRun(stage, {
+      client: client(),
+      game,
+      mode: "ranked",
+      locks: locks(),
+      onState: (state) => states.push(state),
+    })
+    await settle()
+    expect(states.at(-1)).toMatchObject({
+      phase: RUN_PHASE.FAILED,
+      errorCode: "E_PACK_NOT_DELIVERED",
+      detail: "packs/level.json answered 404",
+    })
+    expect(calls.some((call) => call.startsWith("start"))).toBe(false)
+  })
+
+  test("leaving while the game gets ready lets it go, and starts nothing", async () => {
+    const game = new FakeGame(PRESENT, "mh-new")
+    let ready: (answer: MountError | null) => void = () => {}
+    game.waiting = new Promise((resolve) => {
+      ready = resolve
+    })
+    const played = playRun(stage, {
+      client: client(),
+      game,
+      mode: "ranked",
+      locks: locks(),
+    })
+    await settle()
+    expect(calls.at(-1)).toBe(`prepare ${PRESENT}`)
+    played.destroy()
+    expect(game.released).toBe(1)
+    ready(null)
+    await settle()
+    expect(calls.some((call) => call.startsWith("start"))).toBe(false)
+    expect(calls.at(-1)).toBe(`unlock ${runLockName(PAGE_KEY, "ranked")}`)
   })
 
   test("a start the platform refuses fails the run with the platform's code", async () => {
@@ -805,6 +936,39 @@ describe("the page around the run", () => {
   })
 })
 
+/**
+ * A real page module, loaded as a page loads one, whose runs go on the test's
+ * clock and hear the test's keys.
+ */
+async function onTheirClock(
+  module: PageModule,
+  manifestHash: string,
+  scheduler: ManualScheduler,
+  keys: CaptureEnvironment,
+): Promise<LoadedGame> {
+  const devices = { scheduler, environment: keys }
+  return await loadGame(
+    { presentUrl: PRESENT, manifestHash, filesUrl: RUN.game.filesUrl },
+    {
+      importModule: async () => ({
+        default: {
+          ...module,
+          prepare: (element: HTMLElement, options: PrepareOptions) => {
+            const prepared = module.prepare(element, options)
+            return {
+              ready: prepared.ready,
+              mount: (run: RunMount) => prepared.mount({ ...run, ...devices }),
+              release: () => prepared.release(),
+            }
+          },
+          mount: (element: HTMLElement, options: MountOptions) =>
+            module.mount(element, { ...options, ...devices }),
+        },
+      }),
+    },
+  )
+}
+
 describe("a real page module through a real run", () => {
   /**
    * The engine, the module, the driver and the chunks together: keys pressed
@@ -821,15 +985,7 @@ describe("a real page module through a real run", () => {
     const scheduler = new ManualScheduler()
     const keys = devices()
     const hash = hashCanonical(MANIFEST as unknown as PlainValue)
-    const game: LoadedGame = {
-      presentUrl: PRESENT,
-      manifestHash: hash,
-      contract: 1,
-      needsMotion: false,
-      requestMotion: () => module.requestMotion(),
-      mount: (element, options) =>
-        module.mount(element, { ...options, scheduler, environment: keys }),
-    }
+    const game = await onTheirClock(module, hash, scheduler, keys)
     const run: StartedRun = {
       ...RUN,
       config: { endAt: 200 },
@@ -879,15 +1035,7 @@ describe("a real page module through a real run", () => {
     const scheduler = new ManualScheduler()
     const keys = devices()
     const hash = hashCanonical(MANIFEST as unknown as PlainValue)
-    const game: LoadedGame = {
-      presentUrl: PRESENT,
-      manifestHash: hash,
-      contract: 1,
-      needsMotion: false,
-      requestMotion: () => module.requestMotion(),
-      mount: (element, options) =>
-        module.mount(element, { ...options, scheduler, environment: keys }),
-    }
+    const game = await onTheirClock(module, hash, scheduler, keys)
     const platform = client({
       start: { ...RUN, game: { ...RUN.game, manifestHash: hash } },
       chunk: new PlatformRefusal(409, {

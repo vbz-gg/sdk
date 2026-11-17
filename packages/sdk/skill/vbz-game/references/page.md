@@ -68,11 +68,19 @@ playButton.onclick = () => {
 `loadGame` imports the module from its absolute `presentUrl` and checks it
 before anything is played: its contract, its parts, that its manifest hash is
 the version's, its own check of its mapping, and that no script on the page
-replaced a built-in the rules code calls. Load it before the click, so a
-failure spends no run.
+replaced a built-in the rules code calls. The version names its files folder
+too, `filesUrl`, and the loaded game hands it to the module with every run,
+so the page never names one. Load it before the click, so a failure spends no
+run.
 
 `playRun` runs inside the click. When the game reads tilt it asks for it
-first, before anything is awaited, then starts the run once tilt is granted.
+first, before anything is awaited. Once tilt is granted it gets the game ready
+in `stage`, its presentation drawing and its start packs fetched, and only then
+starts the run, so a device the game cannot draw on spends no run: it fails
+with `E_PRESENTATION_FAILED`, and a pack that did not arrive with the
+engine's code for it. A run has no step limit; it goes until the game ends it
+or the player leaves. Its inputs come from the player's devices alone: an
+event a script on the page made is not recorded.
 Any other answer fails the run before the platform is asked for one, with
 the engine's own code for it (`E_MOTION_DENIED` and the four after it under
 Codes below), and `detail` is a sentence that tells the player what happened
@@ -176,5 +184,5 @@ in `@vbz-gg/sdk/api`. A `PlatformClientError` is the client's:
 | `E_BROWSER_UNSUPPORTED` | The browser has no Web Locks, so it cannot keep a run to one tab: Safari before 15.4, or a page not on https. Nothing was started. |
 | `E_RUN_OPEN_ELSEWHERE` | Another tab or window of this browser is playing this game in this mode. Nothing was started. |
 | `E_NOTHING_TO_WATCH` | The run's replay covers no ticks. |
-| `E_SIM_PACKS` | The manifest declares a data pack the simulation reads. The platform cannot store or replay one yet, and refuses such an upload too. |
+| `E_PRESENTATION_FAILED` | The engine's code for a game that cannot draw on this device, such as a renderer that finds no GPU it can use. The game gets ready before a run is asked for, so no run was started. |
 | `E_UNEXPECTED` | An error the client has no code for, or a game error without a code. It is a bug; report the `detail`. |

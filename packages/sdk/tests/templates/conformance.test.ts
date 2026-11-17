@@ -22,7 +22,7 @@ import { loadSubject, validate } from "@clockwork2/engine/validate"
 import { buildGameArtifacts } from "../../src/build/build"
 import { SIM_SPECIFIER } from "../../src/build/contract"
 import { readManifestFromSim } from "../../src/cli/manifest"
-import type { PageModule } from "../../src/game/contract"
+import { PAGE_MODULE_CONTRACT, type PageModule } from "../../src/game/contract"
 
 const ROOT = join(import.meta.dir, "..", "..", "..", "..")
 
@@ -47,6 +47,7 @@ function built(dir: string) {
     simEntry: "src/sim/index.ts",
     presentEntry: "src/present.ts",
     captureEntry: "src/capture.ts",
+    filesDir: null,
   })
 }
 
@@ -67,7 +68,7 @@ async function report(dir: string) {
     return {
       built: { sim, present },
       manifest,
-      result: await validate(await loadSubject(subject), {}),
+      result: await validate(await loadSubject(subject), { set: "ranked" }),
     }
   } finally {
     await rm(subject, { recursive: true, force: true })
@@ -117,7 +118,7 @@ describe("what this repository ships as an example", () => {
           default: PageModule
         }
         const game = loaded.default
-        expect(game.contract).toBe(1)
+        expect(game.contract).toBe(PAGE_MODULE_CONTRACT)
         expect(game.check()).toEqual([])
         expect(game.needsMotion).toBe(subject.needsMotion)
         expect(game.manifestHash).toBe(hashCanonical(manifest as PlainValue))

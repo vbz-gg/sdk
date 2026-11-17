@@ -111,9 +111,13 @@ export const CLIENT_ERROR = {
     "a run of this game in this mode is being played in another tab or window; finish it there first",
   /** The run's replay covers no ticks, so there is nothing to show. */
   E_NOTHING_TO_WATCH: "the run has nothing to replay",
-  /** The manifest declares a data pack the simulation reads. */
-  E_SIM_PACKS:
-    "the game's manifest declares a data pack its simulation reads, which the platform cannot store or replay yet",
+  /**
+   * The engine's code for a presentation that cannot get ready to draw on
+   * this device, such as a renderer that finds no GPU it can use. A page
+   * gets the game ready before it asks for a run, so nothing was started.
+   */
+  E_PRESENTATION_FAILED:
+    "this game cannot draw on this device, so no run was started; try a current browser on another device, or tell the game's studio",
   /** An error this client has no code for: a bug to report, with its detail. */
   E_UNEXPECTED: "the run met an error the client has no code for",
 } as const

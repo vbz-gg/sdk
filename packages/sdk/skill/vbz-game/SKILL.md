@@ -1,13 +1,13 @@
 ---
 name: vbz-game
-description: Build a game that runs on vbz.gg, the backend that replays every run on a server to check and rank a game studio's scores, on top of a Clockwork 2 simulation. Covers why a run is replayed and what that asks of a game - one seeded Prng and never Math.random, and a game that ignores its seed being refused at upload - drawing your own controls and hit-testing them in tick, mapping keys, fingers and tilt to declared inputs through the engine's device helpers, choosing what to record, the two artifacts an upload carries, the manifest the platform reads without running anything, and the page module a studio's page loads. Use when starting a game for vbz.gg, adding randomness, mapping inputs, writing the page module entry, testing against the harness, or working out why ingest refused an upload. For the simulation's full rules - fixed ticks, Prng streams, dmath, snapshots, the twelve checks - use the engine's guide, clockwork2.
+description: Build a game that runs on vbz.gg, the backend that replays every run on a server to check and rank a game studio's scores, on top of a Clockwork 2 simulation. Covers why a run is replayed and what that asks of a game - one seeded Prng and never Math.random, and a game that ignores its seed being refused at upload - drawing your own controls and hit-testing them in tick, mapping keys, fingers and tilt to declared inputs through the engine's device helpers, choosing what to record, the two artifacts an upload carries, the manifest the platform reads without running anything, and the page module a studio's page loads. Use when starting a game for vbz.gg, adding randomness, mapping inputs, writing the page module entry, testing against the harness, or working out why ingest refused an upload. For the simulation's full rules - fixed ticks, Prng streams, dmath, snapshots, the conformance checks - use the engine's guide, clockwork2.
 ---
 
 # Building a game that runs on vbz.gg
 
 Two guides. The engine's, **clockwork2**, is how to write a simulation that
 replays to the same state on somebody else's server: fixed ticks, `Prng`,
-`dmath`, snapshots, the twelve conformance checks. Read it first and keep it
+`dmath`, snapshots, the conformance checks. Read it first and keep it
 open. **This one** is everything between a conforming simulation and a game
 somebody can play on vbz: how it is laid out, how it is built, how a phone
 steers it, and what the platform checks before it will list it. It repeats
@@ -95,11 +95,12 @@ is where that breaks first:
 - The renderer may use `Math.random` for anything the simulation never reads,
   such as which way a spark flies.
 
-A game that ignores its seed passes all twelve of the engine's checks and is
-still refused at upload. The platform's seed-sensitivity check runs one input
-log under two seeds, and a game that reaches the same state under both is
-rejected with `E_SEED_IGNORED`, because every day would be the same puzzle
-and the daily board an all-time one. `clockwork2/references/determinism-rules.md`
+A game that ignores its seed passes every check the engine runs on every game
+and is still refused at upload. The engine's ranked set, which the platform
+runs on an upload, adds a seed check that plays one input log under two seeds,
+and a game that passes through the same states under both is rejected with
+`E_SEED_IGNORED`, because every day would be the same puzzle and the daily
+board an all-time one. `clockwork2/references/determinism-rules.md`
 has the full rules, `dmath` and time included.
 
 ## Inputs

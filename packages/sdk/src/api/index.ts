@@ -100,8 +100,6 @@ export type PublicRefusalCode =
   /** The studio's uploads over the last 24 hours, all its games together. */
   | "E_QUOTA_EXCEEDED"
   | "E_MANIFEST_INVALID"
-  /** The manifest declares a data pack the simulation reads, which the platform cannot replay yet. */
-  | "E_PACKS_UNSUPPORTED"
   | "E_ARTIFACT_NOT_UTF8"
   | "E_ARTIFACT_TOO_LARGE"
   | "E_SIM_NOT_SELF_CONTAINED"
@@ -161,7 +159,6 @@ export type PublicRefusalCode =
   | "E_SESSION_CLOSED"
   | "E_CHUNK_CONFLICT"
   | "E_CHUNK_NOT_FORWARD"
-  | "E_TICK_CAP"
   | "E_RECORDING_MALFORMED"
   | "E_PINNED_MISMATCH"
   | "E_NO_CHUNKS"
@@ -247,6 +244,13 @@ export interface PageGameVersion {
    * `loadGame` in `@vbz-gg/sdk/host` imports it.
    */
   readonly presentUrl: string
+  /**
+   * The version's files folder, absolute and ending in `/`:
+   * `https://<bundles host>/g/<gameId>/t/<listing sha256>/`, named by the
+   * SHA-256 of its listing. The page module finds its art and data packs
+   * here, and `loadGame` hands it to the module.
+   */
+  readonly filesUrl: string
 }
 
 /** Whether ranked runs can start today. */
@@ -471,11 +475,11 @@ export interface StartedRun {
     readonly presentUrl: string
     /** Compared against the page module's own before a tick runs. */
     readonly manifestHash: string
+    /** This run's own version's files folder, absolute, ending in `/`. */
+    readonly filesUrl: string
     /** The manifest of the version this run plays, as uploaded. */
     readonly manifest: unknown
     readonly tickHz: number
-    readonly maxTicks: number
-    readonly maxWallSeconds: number
   }
   readonly limits: RunLimits
   /** The player's token, renewed. Keep this one and drop the last. */
@@ -622,7 +626,6 @@ export interface WatchedRun {
   readonly counters: Readonly<Record<string, number>> | null
   readonly endTick: number | null
   readonly tickHz: number
-  readonly maxTicks: number
   readonly seed: string
   readonly config: unknown
   readonly inputs: readonly unknown[]
@@ -630,10 +633,12 @@ export interface WatchedRun {
   readonly presentUrl: string
   /** The run's own version's manifest hash, which its page module must report. */
   readonly manifestHash: string
+  /** The run's own version's files folder, absolute, ending in `/`. */
+  readonly filesUrl: string
   /**
-   * How many ticks to replay: the validator's `min(max(endTick, 1), cap)`,
-   * so an abandoned run stops where its player left it. Null when the run
-   * has nothing to replay.
+   * How many ticks to replay: the validator's `max(endTick, 1)`, so an
+   * abandoned run stops where its player left it. Null when the run has
+   * nothing to replay.
    */
   readonly replayTicks: number | null
 }

@@ -33,6 +33,7 @@ const SOURCE = {
   simEntry: "src/sim/index.ts",
   presentEntry: "src/present.ts",
   captureEntry: "src/capture.ts",
+  filesDir: null,
 }
 
 let root: string
@@ -68,7 +69,7 @@ describe("checking the template", () => {
     expect(checked.contractSha256).toBe(contractSha256(MANIFEST))
 
     const printed = checkLines(checked, SOURCE.captureEntry).join("\n")
-    expect(printed).toContain("all checks passed")
+    expect(printed).toContain("all checks in the every-game set passed")
     expect(printed).toContain(
       "capture   src/capture.ts maps only inputs the manifest declares",
     )
@@ -146,6 +147,7 @@ describe("the checks' own process", () => {
       subject,
       source,
       manifest: MANIFEST,
+      set: "every-game",
       answer: join(root, "answer.json"),
     })
     expect(found.conformance.ok).toBe(true)
@@ -158,7 +160,16 @@ describe("the checks' own process", () => {
     await writeFile(entry, `process.stderr.write("nothing to say")\n`)
     const sim = new TextEncoder().encode("export const MANIFEST = {}\n")
     await expect(
-      checkInChild({ root, ...SOURCE }, sim, MANIFEST, entry),
+      checkInChild(
+        {
+          source: { root, ...SOURCE },
+          sim,
+          manifest: MANIFEST,
+          declared: new Map(),
+          set: "every-game",
+        },
+        entry,
+      ),
     ).rejects.toThrow(/the checks did not answer: nothing to say/)
   })
 

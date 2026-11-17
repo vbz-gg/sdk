@@ -25,15 +25,16 @@ stage.style.height = "480px"
 loadGame({
   presentUrl: query.get("present") ?? "",
   manifestHash: query.get("hash") ?? "",
+  filesUrl: query.get("files") ?? "",
 })
   .then((game) => {
     document.body.dataset.loaded = "ready"
     game.mount(stage, {
       mode: "play",
       seed: "packed",
-      config: {},
+      config: game.servedConfig ?? {},
       tickHz: Number(query.get("tickHz")),
-      maxTicks: Number(query.get("maxTicks")),
+      scripted: "ignore",
       expect: { manifestHash: game.manifestHash },
       handlers: {
         onCheckpoint: () => {},

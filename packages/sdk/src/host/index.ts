@@ -10,9 +10,11 @@
 export {
   alteredBuiltins,
   type GameAddress,
+  type GameMountOptions,
   type LoadedGame,
   type LoadOptions,
   loadGame,
+  type PagePrepareOptions,
   SIMULATION_BUILTINS,
 } from "./load.js"
 export {

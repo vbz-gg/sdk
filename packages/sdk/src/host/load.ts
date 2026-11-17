@@ -17,37 +17,76 @@
  * and not somebody determined to hide one.
  */
 
+import type { PlainValue } from "@clockwork2/engine"
 import type { MotionAccess } from "@clockwork2/engine/host"
 import {
+  type ContractOneMountOptions,
   DRIVEN_CONTRACTS,
+  type MountError,
   type MountHandle,
   type MountOptions,
   PAGE_MODULE_PROBLEM,
   type PageModuleProblem,
+  type PreparedGame,
+  type PrepareOptions,
+  type RunMount,
 } from "../game/contract.js"
 import {
   type ClientErrorCode,
   PlatformClientError,
 } from "../platform/errors.js"
 
-/** Where a version's page module is, and the manifest hash it must report. */
+/**
+ * Where a version's page module is, the manifest hash it must report, and
+ * where its files folder is: what `GET /v1/game`, a run's start and a run
+ * read back each name.
+ */
 export interface GameAddress {
   /** Absolute: https, or http to this machine. */
   readonly presentUrl: string
   readonly manifestHash: string
+  /** Absolute, ending in `/`: https, or http to this machine. */
+  readonly filesUrl: string
 }
 
-/** A page module that passed every check, ready for a click. */
+/** What a page hands a loaded game to get it ready: the folder is the version's own. */
+export type PagePrepareOptions = Omit<PrepareOptions, "files">
+
+/** What a page hands a loaded game to play a run: the run, and how to get ready. */
+export type GameMountOptions = RunMount & PagePrepareOptions
+
+/**
+ * A page module that passed every check, ready for a click, whichever
+ * contract it speaks. A page drives both the same way: a contract-1 module
+ * is handed what it was built to take, and a run on it still stops at its
+ * own manifest's step limit.
+ */
 export interface LoadedGame {
   readonly presentUrl: string
   readonly manifestHash: string
+  /** The version's files folder, which the module is handed with every run. */
+  readonly filesUrl: string
   readonly contract: number
   /** Whether the game reads tilt, so `playRun` asks for it in the click. */
   readonly needsMotion: boolean
+  /** The game's tick rate. Null for a contract-1 module, which does not say. */
+  readonly tickHz: number | null
+  /**
+   * Every declared setting at its default, what a platform serves a run.
+   * Null for a contract-1 module, which does not say, and for a game with a
+   * required setting that has no default.
+   */
+  readonly servedConfig: PlainValue | null
   /** The module's own `requestMotion`. Call it in the click, before any await. */
   requestMotion(): Promise<MotionAccess>
-  /** The module's own `mount`. `playRun` and `watchRun` call it. */
-  mount(element: HTMLElement, options: MountOptions): MountHandle
+  /**
+   * Gets the game ready in `element` before a run is asked for: its
+   * presentation drawn and its start packs fetched. A contract-1 module
+   * cannot be got ready ahead, and is ready at once.
+   */
+  prepare(element: HTMLElement, options?: PagePrepareOptions): PreparedGame
+  /** The module's own `mount`. `playRun`, `watchRun` and `playLocal` call it. */
+  mount(element: HTMLElement, options: GameMountOptions): MountHandle
 }
 
 export interface LoadOptions {
@@ -197,18 +236,52 @@ function refuse(code: ClientErrorCode, cause?: unknown): never {
   throw new PlatformClientError(code, cause === undefined ? {} : { cause })
 }
 
+/** The kinds a member of a page module is held to. */
+type MemberKind = "function" | "string" | "boolean" | "number" | "plain or null"
+
+/** What each contract a module may speak has to carry, by member and kind. */
+const CONTRACT_MEMBERS: Readonly<
+  Record<number, ReadonlyArray<readonly [string, MemberKind]>>
+> = {
+  1: [
+    ["mount", "function"],
+    ["check", "function"],
+    ["requestMotion", "function"],
+    ["manifestHash", "string"],
+    ["needsMotion", "boolean"],
+  ],
+  2: [
+    ["mount", "function"],
+    ["prepare", "function"],
+    ["check", "function"],
+    ["requestMotion", "function"],
+    ["manifestHash", "string"],
+    ["needsMotion", "boolean"],
+    ["tickHz", "number"],
+    ["servedConfig", "plain or null"],
+  ],
+}
+
+function isKind(value: unknown, kind: MemberKind): boolean {
+  if (kind === "plain or null") {
+    return (
+      value === null || (typeof value === "object" && !Array.isArray(value))
+    )
+  }
+  return typeof value === kind
+}
+
 /**
- * Imports `address`'s page module and checks it, in this order: the URL is
- * absolute https, or http to this machine; the import succeeds; its default
- * export is an object; its contract is one this release drives; `mount`,
- * `check` and `requestMotion` are functions, `manifestHash` a string and
- * `needsMotion` a boolean; the manifest hash is the address's; its own
- * `check()` finds nothing; and no built-in a simulation calls has been
- * replaced on this page.
+ * Imports `address`'s page module and checks it, in this order: the module's
+ * and the files folder's addresses are absolute https, or http to this
+ * machine; the import succeeds; its default export is an object; its
+ * contract is one this release drives; every member that contract names is
+ * of its kind; the manifest hash is the address's; its own `check()` finds
+ * nothing; and no built-in a simulation calls has been replaced on this page.
  *
  * Each failure is a `PlatformClientError`: `E_GAME_UNLOADABLE`,
  * `E_GAME_MODULE_INVALID` naming the field, `E_GAME_CONTRACT_UNKNOWN`,
- * `E_WRONG_GAME`, the module's own `E_SIM_PACKS`, `E_CAPTURE_INVALID` or
+ * `E_WRONG_GAME`, the module's own `E_CAPTURE_INVALID` or
  * `E_GAME_MODULE_INVALID` with its problems, or `E_PAGE_ALTERS_BUILTINS`
  * naming the built-in.
  */
@@ -216,7 +289,8 @@ export async function loadGame(
   address: GameAddress,
   options: LoadOptions = {},
 ): Promise<LoadedGame> {
-  const url = addressOf(address.presentUrl)
+  const url = secureUrl(address.presentUrl, "the page module's").toString()
+  const filesUrl = filesAddressOf(address.filesUrl)
 
   let loaded: unknown
   try {
@@ -239,21 +313,19 @@ export async function loadGame(
   const game = module as Record<string, unknown>
 
   const contract = game.contract
-  if (typeof contract !== "number" || !DRIVEN_CONTRACTS.includes(contract)) {
+  const members =
+    typeof contract === "number" && DRIVEN_CONTRACTS.includes(contract)
+      ? CONTRACT_MEMBERS[contract]
+      : undefined
+  if (typeof contract !== "number" || members === undefined) {
     refuse("E_GAME_CONTRACT_UNKNOWN", {
       url,
       module: contract,
       driven: DRIVEN_CONTRACTS,
     })
   }
-  for (const [field, kind] of [
-    ["mount", "function"],
-    ["check", "function"],
-    ["requestMotion", "function"],
-    ["manifestHash", "string"],
-    ["needsMotion", "boolean"],
-  ] as const) {
-    if (typeof game[field] !== kind) {
+  for (const [field, kind] of members) {
+    if (!isKind(game[field], kind)) {
       refuse("E_GAME_MODULE_INVALID", {
         url,
         field,
@@ -264,9 +336,10 @@ export async function loadGame(
   const parts = game as unknown as {
     readonly manifestHash: string
     readonly needsMotion: boolean
+    readonly tickHz?: number
+    readonly servedConfig?: PlainValue | null
     check(): unknown
     requestMotion(): Promise<MotionAccess>
-    mount(element: HTMLElement, options: MountOptions): MountHandle
   }
 
   if (parts.manifestHash !== address.manifestHash) {
@@ -284,24 +357,118 @@ export async function loadGame(
   const altered = alteredBuiltins()
   if (altered.length > 0) refuse("E_PAGE_ALTERS_BUILTINS", { altered })
 
+  const driven =
+    contract === 1
+      ? contractOne(game as unknown as ContractOneModule)
+      : contractTwo(game as unknown as ContractTwoModule, filesUrl)
   return {
     presentUrl: url,
     manifestHash: parts.manifestHash,
+    filesUrl,
     contract,
     needsMotion: parts.needsMotion,
+    tickHz: parts.tickHz ?? null,
+    servedConfig: parts.servedConfig ?? null,
     requestMotion: () => parts.requestMotion(),
-    mount: (element, mountOptions) => parts.mount(element, mountOptions),
+    ...driven,
   }
 }
 
-function addressOf(presentUrl: string): string {
+interface ContractOneModule {
+  mount(element: HTMLElement, options: ContractOneMountOptions): MountHandle
+}
+
+interface ContractTwoModule {
+  prepare(element: HTMLElement, options: PrepareOptions): PreparedGame
+  mount(element: HTMLElement, options: MountOptions): MountHandle
+}
+
+type Driven = Pick<LoadedGame, "prepare" | "mount">
+
+/** A handle on a run refused before it started. */
+function refused(options: RunMount, error: MountError): MountHandle {
+  options.handlers.onError(error)
+  return {
+    recorded: () => (options.mode === "watch" ? (options.inputs ?? []) : []),
+    stop: () => {},
+    destroy: () => {},
+  }
+}
+
+/**
+ * A contract-1 module, driven as its own release built it. Its `mount` takes
+ * a step limit for every run and clamps it to its manifest's, so a played
+ * run is given the largest one it takes and still stops at the manifest's.
+ * It knows nothing of a files folder, of scripted events or of watching
+ * without drawing: a run asking for that last one is refused.
+ */
+function contractOne(module: ContractOneModule): Driven {
+  const mount = (
+    element: HTMLElement,
+    options: GameMountOptions,
+  ): MountHandle => {
+    if (options.mode === "watch" && options.draw === false) {
+      return refused(options, {
+        code: "E_ARG_INVALID",
+        message:
+          "this page module speaks contract 1, which cannot be watched without drawing",
+      })
+    }
+    return module.mount(element, {
+      mode: options.mode,
+      seed: options.seed,
+      config: options.config,
+      tickHz: options.tickHz,
+      maxTicks:
+        options.mode === "watch" ? options.maxTicks : Number.MAX_SAFE_INTEGER,
+      ...(options.mode === "watch" ? { inputs: options.inputs } : {}),
+      expect: options.expect,
+      handlers: options.handlers,
+      ...(options.presentationContext === undefined
+        ? {}
+        : { presentationContext: options.presentationContext }),
+      ...(options.scheduler === undefined
+        ? {}
+        : { scheduler: options.scheduler }),
+      ...(options.environment === undefined
+        ? {}
+        : { environment: options.environment }),
+    })
+  }
+  return {
+    prepare: (element, prepareOptions = {}) => {
+      let run: MountHandle | null = null
+      return {
+        ready: Promise.resolve(null),
+        mount: (options) => {
+          run = mount(element, { ...prepareOptions, ...options })
+          return run
+        },
+        release: () => run?.destroy(),
+      }
+    },
+    mount,
+  }
+}
+
+/** A contract-2 module, handed its own version's files folder with every run. */
+function contractTwo(module: ContractTwoModule, files: string): Driven {
+  return {
+    prepare: (element, options = {}) =>
+      module.prepare(element, { ...options, files }),
+    mount: (element, options) => module.mount(element, { ...options, files }),
+  }
+}
+
+/** `raw` as an absolute URL, https or http to this machine, or a refusal. */
+function secureUrl(raw: string, whose: string): URL {
   let url: URL
   try {
-    url = new URL(presentUrl)
+    url = new URL(raw)
   } catch {
     return refuse("E_GAME_UNLOADABLE", {
-      url: presentUrl,
-      problem: "the address is not an absolute URL",
+      url: raw,
+      problem: `${whose} address is not an absolute URL`,
     })
   }
   const allowed =
@@ -309,14 +476,34 @@ function addressOf(presentUrl: string): string {
     (url.protocol === "http:" && LOOPBACK_HOSTS.has(url.hostname))
   if (!allowed) {
     refuse("E_GAME_UNLOADABLE", {
-      url: presentUrl,
+      url: raw,
       problem: "a game's code is loaded over https, or http to this machine",
+    })
+  }
+  return url
+}
+
+/**
+ * A files folder's address: absolute, https or http to this machine, and
+ * ending in `/`, or every file's address loses the folder's last segment.
+ */
+function filesAddressOf(filesUrl: string): string {
+  const url = secureUrl(filesUrl, "the files folder's")
+  if (!url.pathname.endsWith("/") || url.search !== "" || url.hash !== "") {
+    refuse("E_GAME_UNLOADABLE", {
+      url: filesUrl,
+      problem: "the files folder's address ends in / and carries no query",
     })
   }
   return url.toString()
 }
 
-/** The module's own check, held to its shape: a list of problems it knows. */
+/**
+ * The module's own check, held to its shape: a list of problems, each with a
+ * code and a sentence. A code this page does not know, such as one an older
+ * release's module answered, is still a module that cannot play, and is
+ * `E_GAME_MODULE_INVALID` carrying the problem as the module said it.
+ */
 function problemsOf(parts: { check(): unknown }): PageModuleProblem[] {
   let answer: unknown
   try {
@@ -324,14 +511,13 @@ function problemsOf(parts: { check(): unknown }): PageModuleProblem[] {
   } catch (error) {
     return [{ code: PAGE_MODULE_PROBLEM.MODULE, message: String(error) }]
   }
-  const known = new Set<string>(Object.values(PAGE_MODULE_PROBLEM))
   if (
     !Array.isArray(answer) ||
     !answer.every(
       (problem: unknown) =>
         typeof problem === "object" &&
         problem !== null &&
-        known.has(String((problem as { code?: unknown }).code)) &&
+        typeof (problem as { code?: unknown }).code === "string" &&
         typeof (problem as { message?: unknown }).message === "string",
     )
   ) {
@@ -342,7 +528,15 @@ function problemsOf(parts: { check(): unknown }): PageModuleProblem[] {
       },
     ]
   }
-  return answer as PageModuleProblem[]
+  const known = new Set<string>(Object.values(PAGE_MODULE_PROBLEM))
+  return (answer as Array<{ code: string; message: string }>).map((problem) =>
+    known.has(problem.code)
+      ? (problem as PageModuleProblem)
+      : {
+          code: PAGE_MODULE_PROBLEM.MODULE,
+          message: `${problem.code}: ${problem.message}`,
+        },
+  )
 }
 
 /**

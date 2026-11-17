@@ -40,7 +40,7 @@ import type {
   MountedEnd,
   MountHandle,
   MountHandlers,
-  MountOptions,
+  PlayMount,
 } from "../game/contract.js"
 import {
   byteLengthOf,
@@ -95,10 +95,10 @@ export interface RunState {
 
 /**
  * What the run asks of the game: plays it with these options, which carry
- * the handlers the run listens with. `playRun` binds it to the page module's
- * own `mount` and the element the game is drawn in.
+ * the handlers the run listens with. `playRun` binds it to the game prepared
+ * in the element it is drawn in, or to the page module's own `mount`.
  */
-export type MountRun = (options: MountOptions) => MountHandle
+export type MountRun = (options: PlayMount) => MountHandle
 
 export interface RunOptions {
   readonly client: Pick<PlatformClient, "sendChunk" | "submit" | "awaitResult">
@@ -199,7 +199,9 @@ export class Run {
       seed: run.seed,
       config: run.config,
       tickHz: run.game.tickHz,
-      maxTicks: run.game.maxTicks,
+      // A run's inputs come from the player's devices alone: an event a
+      // script on the page made is not recorded as the player's.
+      scripted: "ignore",
       expect: { manifestHash: run.game.manifestHash },
       handlers: {
         onCheckpoint: (checkpoint) => {
@@ -228,7 +230,8 @@ export class Run {
 
   /**
    * Ends a run that has not started playing, with the reason: the start
-   * refused, the game's code not loaded, or a tap that has to come again.
+   * refused, the game's code not loaded or not able to play on this device,
+   * or a tap that has to come again.
    */
   refuse(error: unknown): void {
     if (this.state.phase !== RUN_PHASE.LOADING) return
@@ -468,6 +471,10 @@ export class Run {
    * rather than leaving it waiting forever behind a rejection nobody holds.
    */
   private failWith(error: unknown): void {
+    if (isMountError(error)) {
+      this.fail(error.code, error.message)
+      return
+    }
     if (error instanceof PlatformRefusal) {
       this.fail(error.code, error.message, error.detail ?? null)
       return
@@ -483,6 +490,20 @@ export class Run {
     }
     this.fail("E_UNEXPECTED", String(error))
   }
+}
+
+/**
+ * A page module's own failure, as plain data: the module's classes are not
+ * the page's, so it is read by its shape, never by `instanceof`.
+ */
+function isMountError(error: unknown): error is MountError {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    !(error instanceof Error) &&
+    typeof (error as { code?: unknown }).code === "string" &&
+    typeof (error as { message?: unknown }).message === "string"
+  )
 }
 
 function causeOf(cause: unknown): string {

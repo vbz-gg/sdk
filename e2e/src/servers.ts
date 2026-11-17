@@ -45,7 +45,10 @@ import { join } from "node:path"
 import { hashCanonical, type PlainValue } from "@clockwork2/engine"
 import { $ } from "bun"
 import {
+  EMPTY_LISTING,
+  filesBaseFor,
   type GameSource,
+  listingSha256,
   presentPathFor,
   sha256Hex,
   simPathFor,
@@ -85,7 +88,8 @@ const ENTRIES = {
 } as const
 
 function sourceAt(root: string): GameSource {
-  return { root, ...ENTRIES }
+  // Neither subject names a files folder.
+  return { root, ...ENTRIES, filesDir: null }
 }
 
 // The SDK's own `dist` first: the subjects' page modules bundle
@@ -226,6 +230,8 @@ interface Held {
   readonly simKey: string
   readonly present: Uint8Array
   readonly presentKey: string
+  /** The files folder's base, without the leading slash. */
+  readonly filesKey: string
 }
 
 function held(game: SubjectName, built: BuiltGame): Held {
@@ -237,6 +243,7 @@ function held(game: SubjectName, built: BuiltGame): Held {
     simKey: keys.sim,
     present: built.present,
     presentKey: keys.present,
+    filesKey: keys.files,
   }
 }
 
@@ -262,6 +269,8 @@ async function frozen(folder: string): Promise<Held> {
     simKey,
     present,
     presentKey: presentPathFor(gameId, sha256Hex(present)).slice(1),
+    // A contract-1 module knows no folder; a page names one all the same.
+    filesKey: filesBaseFor(gameId, listingSha256(EMPTY_LISTING)).slice(1),
   }
 }
 
@@ -284,12 +293,12 @@ const studioModules = {
   "contract-1": await frozen("contract-1"),
   // A release that has moved on to a contract this tree's pages do not
   // drive, which is the one thing a page must refuse rather than misread.
-  "contract-2": held(
+  "contract-3": held(
     "template",
-    await templateBuiltApart("contract-2", (text) =>
+    await templateBuiltApart("contract-3", (text) =>
       text.replace(
-        "export const PAGE_MODULE_CONTRACT = 1;",
         "export const PAGE_MODULE_CONTRACT = 2;",
+        "export const PAGE_MODULE_CONTRACT = 3;",
       ),
     ),
   ),
@@ -333,23 +342,27 @@ function presentUrlOf(name: ModuleName): string {
   return `${studioBundlesOrigin}/${studioModules[name].presentKey}`
 }
 
+function filesUrlOf(name: ModuleName): string {
+  return `${studioBundlesOrigin}/${studioModules[name].filesKey}`
+}
+
 interface Module {
   readonly presentUrl: string
   readonly manifestHash: string
+  readonly filesUrl: string
   readonly tickHz: number
-  readonly maxTicks: number
 }
 
 const modules: Record<string, Module> = {}
 for (const name of Object.keys(studioModules) as ModuleName[]) {
   const manifest = studioModules[name].manifest as {
-    readonly session: { readonly tickHz: number; readonly maxTicks: number }
+    readonly session: { readonly tickHz: number }
   }
   modules[name] = {
     presentUrl: presentUrlOf(name),
     manifestHash: hashCanonical(manifest as unknown as PlainValue),
+    filesUrl: filesUrlOf(name),
     tickHz: manifest.session.tickHz,
-    maxTicks: manifest.session.maxTicks,
   }
 }
 
@@ -360,6 +373,7 @@ for (const name of Object.keys(SUBJECTS) as SubjectName[]) {
     startStandIn({
       manifest: manifests.get(name),
       presentUrl: presentUrlOf(name),
+      filesUrl: filesUrlOf(name),
       gameId: SUBJECTS[name].gameId,
       siteOrigin: STUDIO_ORIGIN,
       seed: HARNESS_SEED,

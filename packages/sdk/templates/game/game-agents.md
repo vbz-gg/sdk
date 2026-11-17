@@ -26,9 +26,9 @@ seed, its config, its input log and the data packs its manifest pins, and
 must produce the same bits on V8, JavaScriptCore and SpiderMonkey. The server
 replays it with nothing else, on whichever engine it runs, so a simulation
 that reads anything more, such as `Math.random`, the clock or the page,
-replays to a different state and the run never reaches the board. vbz.gg
-does not yet take a simulation that reads a data pack, so for a game here
-that leaves the seed, the config and the input log.
+replays to a different state and the run never reaches the board. A data
+pack is a file of the game's files folder, the one `package.json` names, and
+the platform stores it with the version and hands it to the replay.
 
 ## The guides
 

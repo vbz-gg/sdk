@@ -9,8 +9,8 @@ import { CONTROL_ORIGIN, STUDIO_ORIGIN, type SubjectName } from "./env"
 export interface StudioModule {
   readonly presentUrl: string
   readonly manifestHash: string
+  readonly filesUrl: string
   readonly tickHz: number
-  readonly maxTicks: number
 }
 
 export interface StudioInfo {

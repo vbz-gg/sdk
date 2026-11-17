@@ -23,6 +23,7 @@ function rig() {
     ...capture,
     manifest: MANIFEST,
     queue,
+    scripted: "ignore",
     environment: browser.environment,
   })
   helper.attach()
