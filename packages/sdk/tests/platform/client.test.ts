@@ -248,6 +248,11 @@ describe("signing a player in", () => {
     await settle()
     signedInThroughBox(page)
     expect(page.box?.removed).toBe(true)
+    // Once the trade has been sent.
+    for (let turn = 0; turn < 10 && page.sent.length === 0; turn += 1) {
+      await Promise.resolve()
+    }
+    expect(page.sent).toHaveLength(1)
     platform.closeSignIn()
     await settle()
     expect(seen.code).toBe("E_SIGNIN_CANCELLED")
@@ -264,6 +269,28 @@ describe("signing a player in", () => {
     expect(page.boxes).toHaveLength(2)
     page.box?.cancel()
     await caught(() => next)
+  })
+
+  /**
+   * Closed in the very turn the hand-off arrived, before anything awaiting
+   * the code has run: the code is never traded, and the sign-in rejects at
+   * once rather than after a trade's round trip.
+   */
+  test("closed in the turn the code arrives, it trades nothing and rejects at once", async () => {
+    const { page, client: platform } = client()
+    const changes: unknown[] = []
+    platform.onPlayerChange((player) => changes.push(player))
+    const seen = outcome(platform.signIn())
+    await settle()
+    signedInThroughBox(page)
+    platform.closeSignIn()
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(seen.code).toBe("E_SIGNIN_CANCELLED")
+    await settle()
+    expect(page.sent).toEqual([])
+    expect(platform.player()).toBeNull()
+    expect(changes).toEqual([])
   })
 
   test("closed before its frame was pointed anywhere, the box comes down and nothing loads", async () => {

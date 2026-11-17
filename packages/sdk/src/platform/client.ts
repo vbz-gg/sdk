@@ -290,16 +290,16 @@ export function createPlatformClient(
         pageKey: options.pageKey,
         readyMs,
       })
-      // Closed by the page while the code is traded: what the trade
-      // answers is nobody's, and the sign-in ends now rather than then.
-      let trading = false
+      // Closed by the page once the code has arrived: the sign-in ends now,
+      // the code is not traded if the trade has not begun, and what a trade
+      // already sent answers is nobody's.
       let abandoned = false
       let abandon: (error: unknown) => void = () => {}
       const closed = new Promise<never>((_, reject) => {
         abandon = reject
       })
       const traded = asked.grant.then(async (grant) => {
-        trading = true
+        if (abandoned) throw new PlatformClientError("E_SIGNIN_CANCELLED")
         const signedIn = await request("POST /v1/oauth/token", {
           body: {
             code: grant.code,
@@ -318,9 +318,13 @@ export function createPlatformClient(
           abandoned = true
           // Before the code arrived the box is what there is to close, and
           // its own rejection, or the failure already on its way, is the
-          // sign-in's answer.
-          asked.cancel()
-          if (trading) abandon(new PlatformClientError("E_SIGNIN_CANCELLED"))
+          // sign-in's answer. From the turn it arrived, whether or not the
+          // trade has begun, the sign-in is over at once.
+          if (asked.handedOver) {
+            abandon(new PlatformClientError("E_SIGNIN_CANCELLED"))
+          } else {
+            asked.cancel()
+          }
         },
       }
       signingIn = open

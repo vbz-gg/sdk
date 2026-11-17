@@ -67,6 +67,11 @@ export interface OpenSignIn {
   /** The code and its verifier, once the player has signed in. */
   readonly grant: Promise<SignInGrant>
   /**
+   * Whether the sign-in has handed the code over: true from the turn the
+   * hand-off arrived in, before anything awaiting `grant` has run.
+   */
+  readonly handedOver: boolean
+  /**
    * The page closing the box itself: `grant` rejects with
    * `E_SIGNIN_CANCELLED`. Nothing, once it has settled.
    */
@@ -103,6 +108,7 @@ export function openSignIn(options: {
   })
 
   let settled = false
+  let handedOver = false
   let pkce: Awaited<ReturnType<typeof makePkce>> | null = null
   /** The wait for a ready still owed, while there is one. */
   let waiting: unknown
@@ -156,7 +162,10 @@ export function openSignIn(options: {
     } else if (type === HANDOFF && typeof data.code === "string") {
       const code = data.code
       const { verifier } = pkce
-      if (finish()) resolveGrant({ code, verifier })
+      if (finish()) {
+        handedOver = true
+        resolveGrant({ code, verifier })
+      }
     }
   }
 
@@ -178,7 +187,7 @@ export function openSignIn(options: {
   } catch (error) {
     settled = true
     rejectGrant(error)
-    return { grant, cancel: () => {} }
+    return { grant, handedOver: false, cancel: () => {} }
   }
   environment.addMessageListener(listen)
 
@@ -202,5 +211,11 @@ export function openSignIn(options: {
     (error: unknown) => fail(error),
   )
 
-  return { grant, cancel: () => failWith("E_SIGNIN_CANCELLED") }
+  return {
+    grant,
+    get handedOver() {
+      return handedOver
+    },
+    cancel: () => failWith("E_SIGNIN_CANCELLED"),
+  }
 }
