@@ -311,12 +311,27 @@ than about determinism:
   `tiePolicy`, so a ranked run has nothing to be ordered by. A game played
   only on its own page may leave both out; `vbz check --ranked` reports the
   same code before an upload does.
-- `E_REPLAY_OVER_BUDGET` - the code the version's checks end in when one
-  replay of the bot's log on the platform's replay service did not finish
-  inside 5 minutes of CPU or 128 MB of memory, the platform's figures for
-  one replay on Cloudflare. Make a step cheaper, or hold less at once in the
-  rules code, its data packs and its state; every ranked run's replay has
-  the same budget.
+
+After the upload, the checks decide, and `vbz publish` prints the code of the
+first one that failed. Besides the engine's own codes, the platform's checks
+end a version in these:
+
+- `E_SIM_NO_MANIFEST`, `E_MANIFEST_MISMATCH` - the built simulation exports
+  no `MANIFEST`, or one that is not the uploaded `dist/manifest.json`. Build
+  again rather than editing either by hand.
+- `E_ENGINE_DIVERGED` - JavaScriptCore, V8 and SpiderMonkey computed
+  different states from the same bytes: something the simulation calls is
+  not the same on every engine, which the engine's guide covers.
+- `E_PAGE_MODULE_UNLOADABLE`, `E_PAGE_MODULE_INVALID`,
+  `E_PAGE_MODULE_THREW`, `E_PAGE_MODULE_DIVERGED` - the page module would
+  not load in the checks' browser, was not one a page plays, failed while it
+  played, or played the bot's log to another state than the replay of it.
+- `E_REPLAY_OVER_BUDGET` - one replay of the bot's log on the platform's
+  replay service ran out of its CPU time, its wall time or its memory: 5
+  minutes of CPU, 7.5 minutes of wall time and 128 MB of memory, the
+  platform's figures for one replay on Cloudflare. Make a step cheaper, or
+  hold less at once in the rules code, its data packs and its state; every
+  ranked run's replay has the same budget.
 
 `references/ingest.md` has the whole path from an upload to a listing.
 

@@ -55,6 +55,9 @@ the platform's. Within `/v1` a change only adds, from the day vbz-gg/platform's
 `AGENTS.md` marks the platform deployed; until then a shape may change in
 place, here first. `packages/sdk/tests/api.test.ts`
 holds the subpath to exporting no value, because a studio's page bundles it.
+`PublicRefusalCode` is what a route answers; `VersionCheckCode` is what the
+platform's own checks end a version in, read back as its `rejectedCode` and
+never a refusal's body, and the platform holds its table of them to it.
 
 ## The page's client
 
@@ -392,12 +395,12 @@ see: the limit tables in `references/files.md` and `docs/sdk.md` name every
 package README's table matches too; every artifact refusal named anywhere in
 the guide, `docs/sdk.md` or the package README exists, and every one that
 exists is explained; every code the guide's refusal list and
-`references/ingest.md` name is one `PublicRefusalCode` or the engine names,
-read from the union's declaration with TypeScript's parser, and every
-public code a version's replay ends in is explained in both; a manifest
-with no ranking goes by one name everywhere, the engine's
-`E_RANK_UNDECLARED`; `references/page.md` explains every client code and no
-other; every prose copy of what a release line fixes (in `SKILL.md`,
+`references/ingest.md` name is one `PublicRefusalCode`, `VersionCheckCode`
+or the engine names, the two unions read from their declarations with
+TypeScript's parser, and every code `VersionCheckCode` names is explained
+in both; a manifest with no ranking goes by one name everywhere, the
+engine's `E_RANK_UNDECLARED`; `references/page.md` explains every client
+code and no other; every prose copy of what a release line fixes (in `SKILL.md`,
 `references/ingest.md` and `docs/sdk.md`) names exactly the fields
 `LINE_RULES` fixes; every need the prose shows a `package.json` naming is
 one `vbz` takes; the policy the null3d recipe and `docs/sdk.md` print for a
@@ -410,8 +413,8 @@ it quotes is on the engine's `Prng`, every file of the engine's guide it
 names is one the installed engine ships, and it calls that guide
 `clockwork2` and nothing older. Adding a client code fails it until
 `page.md` has a row, adding a limit fails it until both tables have one,
-and adding an `E_REPLAY` code to `PublicRefusalCode` fails it until the
-refusal list and `references/ingest.md` explain it.
+and adding a code to `VersionCheckCode` fails it until the refusal list
+and `references/ingest.md` explain it.
 
 ## Tests
 

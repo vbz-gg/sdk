@@ -8,11 +8,12 @@ dry run.
 
 `vbz publish <dir> --game <id>` is how a submission arrives. It sends the
 files folder's listing with the version's manifest and asks which files the
-platform lacks; the platform answers the refusals of sections 0 and 2 that
-the manifest and the listing alone decide, and the quota, before any file
-goes up, so a version it would refuse stores nothing. Then the command
-uploads each missing file on its own, sends the version with the listing
-beside it, then
+platform lacks. The platform answers every refusal of sections 0 and 1,
+`E_RANK_UNDECLARED` included, those of section 2 that the listing and its
+data packs decide, and the quota, before any file goes up, so a version it
+would refuse stores nothing; only the two modules' own checks in section 2
+wait for the upload that carries them. Then the command uploads each
+missing file on its own, sends the version with the listing beside it, then
 reads the version back until the checks below decide, and prints the code
 and the first failed check of a rejection. The platform keeps a file once
 per game, in its private store under the hash of its bytes
@@ -56,10 +57,6 @@ it a declared counter (`E_MANIFEST_INVALID`). Then one thing
   leave both out, and one uploaded without them would give a ranked run
   nothing to be ordered by.
 
-The manifest is also compared against the one the built simulation exports.
-The code's copy wins: a submission whose JSON says something the simulation
-does not is refused rather than believed.
-
 ## 2. The artifacts and the files folder
 
 The contract in `references/artifacts.md`, on the uploaded bytes:
@@ -78,10 +75,15 @@ game's path, and the page module is hashed afterwards.
 
 ## 3. The conformance suite
 
-The engine's `ranked` set from `@clockwork2/engine/validate`, run against the
-built simulation laid out as a subject directory with its data packs beside
-it, playing the config a run is served: every declared setting at its
-default. The set is every check the engine runs on any game, the subject of
+First the manifest is compared with the one the built simulation exports.
+The code's copy wins: a simulation that exports no `MANIFEST` is refused
+(`E_SIM_NO_MANIFEST`), and so is a submission whose JSON says something the
+simulation does not (`E_MANIFEST_MISMATCH`), rather than believed.
+
+Then the engine's `ranked` set from `@clockwork2/engine/validate`, run
+against the built simulation laid out as a subject directory with its data
+packs beside it, playing the config a run is served: every declared setting
+at its default. The set is every check the engine runs on any game, the subject of
 the engine's guide, clockwork2 (determinism, banned APIs, no async, restore,
 counters, headless, assets and the rest), and two that only a ranked or
 practice run needs. Each check plays its logs to the game's own end or to a
@@ -98,7 +100,8 @@ fixed window; no run has a step limit.
 ## 4. The cross-engine sweep
 
 The candidate's own logs replayed under JavaScriptCore and SpiderMonkey as
-well as V8, once per version rather than per play.
+well as V8, once per version rather than per play. Engines that reach
+different states refuse the version with `E_ENGINE_DIVERGED`.
 
 This is the real admission boundary. `banned-apis` is a static scan and a
 static scan is evadable: `Math["si"+"n"]` walks past it and straight into
@@ -109,8 +112,11 @@ differ for `Math.hypot` between JavaScriptCore and V8, 10.3% for `Math.exp`,
 ## 5. The page module
 
 The page module is loaded in a headless browser and played for a short run
-with the bot's inputs, so one that will not load, will not mount or fails as
-it plays is refused before any player meets it. The checks' browser has no
+with the bot's inputs, so one that will not load (`E_PAGE_MODULE_UNLOADABLE`),
+is not one a page plays or will not mount (`E_PAGE_MODULE_INVALID`), fails as
+it plays (`E_PAGE_MODULE_THREW`), or plays the log to another state than the
+replay of it (`E_PAGE_MODULE_DIVERGED`) is refused before any player meets
+it. The checks' browser has no
 WebGL and no WebGPU, so a game drawn with them cannot get ready there; a
 watched run's `draw: false` is the SDK's way to play a page module without
 its presentation, so its checkpoints can still be compared with the
@@ -122,10 +128,11 @@ The checks above run on a machine of their own, which is not where a run is
 replayed and has more memory than a replay gets. So before the version
 publishes, the platform replays the bot's log the checks play once more, on
 the replay service that replays every ranked and practice run. One replay
-there has 5 minutes of CPU and 128 MB of memory, the platform's figures for
-its replay service on Cloudflare, and a version whose replay cannot finish
-inside them is refused with `E_REPLAY_OVER_BUDGET`, before any player's run
-fails the same way. That is the game's to fix. A replay service that gives
+there has 5 minutes of CPU, 7.5 minutes of wall time and 128 MB of memory,
+the platform's figures for its replay service on Cloudflare, and a version
+whose replay runs out of its CPU time, its wall time or its memory is
+refused with `E_REPLAY_OVER_BUDGET`, before any player's run fails the same
+way. That is the game's to fix. A replay service that gives
 no answer is the platform's: the check is tried again, and the version stays
 pending.
 
@@ -135,10 +142,11 @@ declares, and plays every step the run took, so:
 
 - **Make a step cheaper.** At 60 steps a second an hour of play is 216,000
   steps, and 5 minutes of CPU leaves about 1.4 ms for each. A ranked run
-  whose replay runs out of either budget is a `log_fault` and never ranks.
+  whose replay runs out of any of the three is a `log_fault` and never
+  ranks.
 - **Hold less at once.** The rules code as loaded, its data packs and the
-  game's state share the 128 MB. Keep level data in packs rather than in
-  the rules code, and let the state drop what no later step reads.
+  game's state share the 128 MB of memory. Keep level data in packs rather
+  than in the rules code, and let the state drop what no later step reads.
 
 ## 7. Published
 

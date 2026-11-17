@@ -96,6 +96,51 @@ function section(markdown: string, heading: string): string {
   return markdown.slice(start, end === -1 ? undefined : end)
 }
 
+/**
+ * The string literals of every union `/api` declares, by the union's name,
+ * read from its source with TypeScript's parser. `/api` is types only, so a
+ * union there has no value to import, and a copy of one here would drift
+ * from it with nothing failing.
+ */
+async function apiUnions(): Promise<ReadonlyMap<string, ReadonlySet<string>>> {
+  const path = join(PACKAGE, "src", "api", "index.ts")
+  const source = ts.createSourceFile(
+    path,
+    await readFile(path, "utf8"),
+    ts.ScriptTarget.Latest,
+  )
+  const unions = new Map<string, ReadonlySet<string>>()
+  for (const statement of source.statements) {
+    if (
+      ts.isTypeAliasDeclaration(statement) &&
+      ts.isUnionTypeNode(statement.type)
+    ) {
+      const literals = new Set<string>()
+      for (const member of statement.type.types) {
+        if (
+          ts.isLiteralTypeNode(member) &&
+          ts.isStringLiteral(member.literal)
+        ) {
+          literals.add(member.literal.text)
+        }
+      }
+      unions.set(statement.name.text, literals)
+    }
+  }
+  return unions
+}
+
+/** `/api`'s unions and the guide's refusal list, each read once a run. */
+const API_UNIONS = await apiUnions()
+function apiUnion(name: string): ReadonlySet<string> {
+  const literals = API_UNIONS.get(name)
+  if (literals === undefined) throw new Error(`/api declares no union ${name}`)
+  return literals
+}
+const PUBLIC_REFUSALS = apiUnion("PublicRefusalCode")
+const CHECK_CODES = apiUnion("VersionCheckCode")
+const REFUSAL_LIST = section(await read("SKILL.md"), "When ingest refuses")
+
 describe("the guide's front matter", () => {
   test("its name is its folder's, which is what a tool installs it under", async () => {
     // `vbz new` and `vbz guides` copy the folder into a game by its name, and
@@ -228,15 +273,17 @@ describe("what the prose restates from the code", () => {
   /**
    * A code in the prose that the code does not raise sends an author looking
    * for a failure that cannot happen. Only the artifact refusals are checked
-   * here: the manifest and rank codes belong to the platform and cannot be
-   * imported from this repository.
+   * here, by their prefixes; the next block holds the rest of what ingest
+   * refuses.
    */
   test("every artifact refusal named is one that exists", async () => {
     // The engine's own codes share prefixes with the build's, such as
-    // E_PRESENTATION_FAILED beside E_PRESENT_WORKER, and are the engine's.
+    // E_PRESENTATION_FAILED beside E_PRESENT_WORKER, and are the engine's;
+    // E_SIM_NO_MANIFEST is a check's.
     const owned = new Set<string>([
       ...Object.values(BUILD_REFUSAL),
       ...Object.keys(ERROR_CODES),
+      ...CHECK_CODES,
     ])
     const text = [
       await everything(),
@@ -269,87 +316,56 @@ describe("what the prose restates from the code", () => {
   })
 })
 
-/**
- * Every code `PublicRefusalCode` names, read from its declaration with
- * TypeScript's parser. `/api` is types only, so the union has no value to
- * import, and a copy of it here would drift from it with nothing failing.
- */
-async function publicRefusalCodes(): Promise<ReadonlySet<string>> {
-  const path = join(PACKAGE, "src", "api", "index.ts")
-  const source = ts.createSourceFile(
-    path,
-    await readFile(path, "utf8"),
-    ts.ScriptTarget.Latest,
-  )
-  const codes = new Set<string>()
-  for (const statement of source.statements) {
-    if (
-      ts.isTypeAliasDeclaration(statement) &&
-      statement.name.text === "PublicRefusalCode" &&
-      ts.isUnionTypeNode(statement.type)
-    ) {
-      for (const member of statement.type.types) {
-        if (
-          ts.isLiteralTypeNode(member) &&
-          ts.isStringLiteral(member.literal)
-        ) {
-          codes.add(member.literal.text)
-        }
-      }
-    }
-  }
-  return codes
-}
-
 describe("the platform's refusals of a version", () => {
-  test("the union is read whole", async () => {
+  test("the unions are read whole", () => {
     // Every refusal the build makes is a public code, which `api.test.ts`
     // holds at compile time, so a reading that misses one missed the union.
-    const codes = await publicRefusalCodes()
-    for (const code of Object.values(BUILD_REFUSAL))
-      expect(codes).toContain(code)
-    expect(codes).toContain("E_BAD_REQUEST")
+    for (const code of Object.values(BUILD_REFUSAL)) {
+      expect(PUBLIC_REFUSALS).toContain(code)
+    }
+    expect(PUBLIC_REFUSALS).toContain("E_BAD_REQUEST")
+    expect(CHECK_CODES.size).toBeGreaterThan(5)
+    for (const code of CHECK_CODES) expect(code).toMatch(/^E_[A-Z_]+$/)
   })
 
   /**
-   * A code in the refusal list that the platform never answers sends an
+   * A code in the refusal list that the platform never gives sends an
    * author looking for a failure that cannot happen, and leaves the one
    * that does unexplained. `references/ingest.md` also names what the
    * engine's checks end in, which reaches a build system as the version's
    * `rejectedCode`.
    */
   test("every code the guide's refusal list and ingest.md name is one that exists", async () => {
-    const codes = await publicRefusalCodes()
-    const list = section(await read("SKILL.md"), "When ingest refuses")
-    const listed = list.match(/E_[A-Z0-9_]+/g) ?? []
+    const listed = REFUSAL_LIST.match(/E_[A-Z0-9_]+/g) ?? []
     expect(listed.length).toBeGreaterThan(4)
-    for (const code of listed) expect(codes).toContain(code)
+    for (const code of listed) {
+      expect(
+        `${code}: ${PUBLIC_REFUSALS.has(code) || CHECK_CODES.has(code)}`,
+      ).toBe(`${code}: true`)
+    }
     const engine = new Set(Object.keys(ERROR_CODES))
     const ingest = (await read("references", "ingest.md")).match(
       /E_[A-Z0-9_]+/g,
     )
     for (const code of ingest ?? []) {
-      expect(`${code}: ${codes.has(code) || engine.has(code)}`).toBe(
-        `${code}: true`,
-      )
+      const known =
+        PUBLIC_REFUSALS.has(code) || CHECK_CODES.has(code) || engine.has(code)
+      expect(`${code}: ${known}`).toBe(`${code}: true`)
     }
   })
 
   /**
-   * A version over a limit of the replay service is refused by the
-   * platform's checks after the upload, where no `vbz build` can see it
-   * first, so the guide is the only place an author learns what to change.
+   * The platform's own checks refuse a version after the upload, where no
+   * `vbz build` can see it first, so the guide is the only place an author
+   * learns what each of their codes means and what to change.
    */
-  test("every code a version's replay ends in is in the refusal list and in ingest.md", async () => {
-    const replay = [...(await publicRefusalCodes())].filter((code) =>
-      code.startsWith("E_REPLAY"),
-    )
-    expect(replay.length).toBeGreaterThan(0)
-    const list = section(await read("SKILL.md"), "When ingest refuses")
+  test("every code a version's checks end in is in the refusal list and in ingest.md", async () => {
     const ingest = await read("references", "ingest.md")
-    for (const code of replay) {
-      expect(list).toContain(`\`${code}\``)
-      expect(ingest).toContain(`\`${code}\``)
+    for (const code of CHECK_CODES) {
+      expect(`${code}: ${REFUSAL_LIST.includes(`\`${code}\``)}`).toBe(
+        `${code}: true`,
+      )
+      expect(`${code}: ${ingest.includes(`\`${code}\``)}`).toBe(`${code}: true`)
     }
   })
 
@@ -367,9 +383,8 @@ describe("the platform's refusals of a version", () => {
     const spellings = new Set(text.match(/E_RANK[A-Z_]*UNDECLARED/g) ?? [])
     expect([...spellings]).toEqual(["E_RANK_UNDECLARED"])
     expect(Object.keys(ERROR_CODES)).toContain("E_RANK_UNDECLARED")
-    expect(await publicRefusalCodes()).toContain("E_RANK_UNDECLARED")
-    const list = section(await read("SKILL.md"), "When ingest refuses")
-    expect(list).toContain("`E_RANK_UNDECLARED`")
+    expect(PUBLIC_REFUSALS).toContain("E_RANK_UNDECLARED")
+    expect(REFUSAL_LIST).toContain("`E_RANK_UNDECLARED`")
   })
 })
 

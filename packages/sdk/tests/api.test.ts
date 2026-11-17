@@ -9,11 +9,12 @@
 import { describe, expect, test } from "bun:test"
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
-import { ERROR_CODES } from "@clockwork2/engine"
+import type { ERROR_CODES } from "@clockwork2/engine"
 import type {
   PageGame,
   PublicRefusalCode,
   RefusalDetails,
+  VersionCheckCode,
 } from "../src/api/index.js"
 import type { BuildRefusalCode } from "../src/build/errors.js"
 
@@ -69,7 +70,18 @@ describe("the shapes a page reads", () => {
       PublicRefusalCode,
       keyof typeof ERROR_CODES
     >
-    expect(ERROR_CODES[code]).toContain("rankBy and tiePolicy")
+    expect(code).toBe("E_RANK_UNDECLARED")
+  })
+
+  /**
+   * A check's code reaches a build system as a version's `rejectedCode`,
+   * after the upload was answered, so no route answers one as a refusal and
+   * a page switching on `PublicRefusalCode` never meets one.
+   */
+  test("no code a version's checks end in is a refusal a route answers", () => {
+    type Both = Extract<VersionCheckCode, PublicRefusalCode>
+    const none: [Both] extends [never] ? true : Both = true
+    expect(none).toBe(true)
   })
 
   /**

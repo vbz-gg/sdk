@@ -37,8 +37,7 @@ export interface ApiErrorBody {
 }
 
 /**
- * Every refusal a public route can answer, by name, and the code a version's
- * checks end in when it is over a limit of the platform's replay service.
+ * Every refusal a public route can answer, by name.
  *
  * A client switches on the code, never on the status. The platform holds its
  * refusal tables to this union at compile time, so a code it can answer and
@@ -155,17 +154,6 @@ export type PublicRefusalCode =
   | "E_PACKS_TOO_LARGE"
   /** The platform could not rewrite the page module's import. Not reached in practice. */
   | "E_REWRITE_FAILED"
-  // A version's checks.
-  /**
-   * Never a refusal's body: the code a version's checks end in, read back as
-   * `VersionStatus.rejectedCode`, when one replay of the version's bot log on
-   * the platform's replay service could not finish inside the CPU time or
-   * the memory a replay has there. The game's step is too heavy, or its
-   * rules code, data packs and state hold too much at once. A replay service
-   * that gave no answer is the platform's fault and is tried again, never
-   * this.
-   */
-  | "E_REPLAY_OVER_BUDGET"
   // Player sign-in.
   | "E_SIGNIN_GRANT_INVALID"
   | "E_CODE_VERIFIER_INVALID"
@@ -468,6 +456,52 @@ export interface VersionServing {
   readonly practice: boolean
 }
 
+/**
+ * Every code the platform's own checks can end a version in, beyond the
+ * engine's: what `VersionStatus.rejectedCode` holds when one of them refused
+ * it. The engine's checks end a version in the engine's own codes, its
+ * `ERROR_CODES`, such as `E_SEED_IGNORED`. None of these is ever a refusal's
+ * body, because the upload has been answered before any check runs. The
+ * platform holds its table of its checks' codes to this union.
+ */
+export type VersionCheckCode =
+  // The manifest agreement, before the engine's checks.
+  /** The rules code exports no `MANIFEST` of its own. */
+  | "E_SIM_NO_MANIFEST"
+  /** The uploaded manifest is not the one the rules code carries. */
+  | "E_MANIFEST_MISMATCH"
+  // The cross-engine sweep.
+  /** Two JavaScript engines computed different states from the same bytes. */
+  | "E_ENGINE_DIVERGED"
+  // The page module, in the checks' browser.
+  /**
+   * The browser could not import the page module, or the rules code it
+   * imports: a syntax error, a throw at the top level, or an import the
+   * page's policy or the bundles origin would not serve.
+   */
+  | "E_PAGE_MODULE_UNLOADABLE"
+  /**
+   * The page module loaded and is not one a page plays: `loadGame` refused
+   * it, or its `mount` refused the run before a tick.
+   */
+  | "E_PAGE_MODULE_INVALID"
+  /** The page module failed while it was mounted or played. */
+  | "E_PAGE_MODULE_THREW"
+  /**
+   * The page module played the bot's log to another state than the
+   * platform's own replay of the same log reached.
+   */
+  | "E_PAGE_MODULE_DIVERGED"
+  // One replay on the replay service.
+  /**
+   * One replay of the bot's log on the platform's replay service, the one
+   * every ranked and practice run is replayed on, ran out of its CPU time,
+   * its wall time or its memory. The game's step is too heavy, or its rules
+   * code, data packs and state hold too much at once. A replay service that
+   * gave no answer is the platform's fault and is tried again, never this.
+   */
+  | "E_REPLAY_OVER_BUDGET"
+
 /** A version as a studio's build system reads it back. */
 export interface VersionStatus {
   readonly gameVersionId: string
@@ -477,10 +511,9 @@ export interface VersionStatus {
   readonly line: string
   readonly state: VersionState
   /**
-   * The code the checks refused it with, when they did: one of the engine's
-   * checks' codes, such as `E_SEED_IGNORED`, one of the platform's own
-   * checks', or `E_REPLAY_OVER_BUDGET`. A string, because the engine and the
-   * platform each name their own checks' codes.
+   * The code the checks refused it with, when they did: an engine code, one
+   * of its `ERROR_CODES`, or a `VersionCheckCode`. Typed as a string in this
+   * release, so a page built against it keeps compiling as either list grows.
    */
   readonly rejectedCode: string | null
   /** The first check that failed, when one did. */

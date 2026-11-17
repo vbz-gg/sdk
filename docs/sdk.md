@@ -109,9 +109,9 @@ author runs `/harness`, whose page loads the game with `/host` too.
 `/api` is types only: every route a game's page or a build system calls,
 keyed by method and path in `PlatformRoutes`, with its credential, its body
 and its answer, and `PublicRefusalCode`, every refusal those routes answer by
-name. One code in it is never a refusal's body: `E_REPLAY_OVER_BUDGET` is
-what a version's checks end in when its replay is over a limit of the
-replay service, read back as the version's `rejectedCode`. A route whose
+name, and `VersionCheckCode`, every code the platform's own checks can end
+a version in, read back as its `rejectedCode` beside the engine's codes and
+never a refusal's body. A route whose
 credential is `secret-key` takes what a build system sends, the studio's
 secret key, and the platform also takes a member's access token there, from
 its dashboard, when the member's role holds the permission the route's
@@ -842,17 +842,19 @@ a matter of how fast it records inputs: the engine guide's
 listing the folder's limits allow, which the platform takes as the body of
 the route that asks which files it lacks.
 
-One replay has two more limits, which no constant here holds because only a
-replay measures them: 5 minutes of CPU and 128 MB of memory, the platform's
-figures for its replay service on Cloudflare. The rules code as loaded, the
-data packs the manifest declares and the game's state share the memory.
-Before a version publishes, the platform's checks replay the bot's log once
-more on that service, and a version whose replay cannot finish inside them
+One replay has three more limits, which no constant here holds because only
+a replay measures them: 5 minutes of CPU, 7.5 minutes of wall time and
+128 MB of memory, the platform's figures for its replay service on
+Cloudflare. The rules code as loaded, the data packs the manifest declares
+and the game's state share the memory. Before a version publishes, the
+platform's checks replay the bot's log once more on that service, and a
+version whose replay runs out of its CPU time, its wall time or its memory
 ends in `E_REPLAY_OVER_BUDGET`, which is the game's to fix; a service that
 gives no answer is the platform's, and the check is tried again. A player's
 run can be longer than the bot's. At 60 steps a second an hour of play is
 216,000 steps, and 5 minutes of CPU leaves about 1.4 ms for each; a ranked
-run whose replay runs out of either is a `log_fault` and never ranks.
+run whose replay runs out of any of the three is a `log_fault` and never
+ranks.
 
 ## Drawing with null3d
 
