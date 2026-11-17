@@ -97,6 +97,28 @@ function standIn(extra: Partial<StandInOptions> = {}) {
   return { page, client, started }
 }
 
+/**
+ * A sign-in request for the page at `page`, as a query or a form carries
+ * it, with each override set, or left out where it is null.
+ */
+function signInQuery(
+  page: string,
+  overrides: Readonly<Record<string, string | null>>,
+): URLSearchParams {
+  const fields = new URLSearchParams({
+    client_id: STAND_IN_PAGE_KEY,
+    redirect_uri: page,
+    state: "s",
+    code_challenge: "c",
+    code_challenge_method: "S256",
+  })
+  for (const [name, value] of Object.entries(overrides)) {
+    if (value === null) fields.delete(name)
+    else fields.set(name, value)
+  }
+  return fields
+}
+
 /** What a sign-in page carries for its script, as data. */
 interface SignInRead {
   readonly origin?: string
@@ -319,20 +341,8 @@ describe("signing in", () => {
     const made = standIn()
     const sign = made.started.signInOrigin
     const page = made.page.origin
-    const query = (overrides: Record<string, string | null>) => {
-      const fields = new URLSearchParams({
-        client_id: STAND_IN_PAGE_KEY,
-        redirect_uri: page,
-        state: "s",
-        code_challenge: "c",
-        code_challenge_method: "S256",
-      })
-      for (const [name, value] of Object.entries(overrides)) {
-        if (value === null) fields.delete(name)
-        else fields.set(name, value)
-      }
-      return fields
-    }
+    const query = (overrides: Record<string, string | null>) =>
+      signInQuery(page, overrides)
     const rows: ReadonlyArray<
       readonly [string, () => Promise<Response>, number, string | null]
     > = [
@@ -451,9 +461,53 @@ describe("signing in", () => {
       `${made.started.signInOrigin}/authorize?client_id=vbz_pk_other`,
     )
     const html = await answer.text()
-    expect(html).toContain("Refused: the page key is not the stand-in&#39;s.")
+    expect(html).toContain(
+      "Refused: the page key &quot;vbz_pk_other&quot; is not the stand-in&#39;s",
+    )
     expect(html).not.toContain('id="signin"')
     expect(html).not.toContain("<script")
+  })
+
+  /**
+   * A refused request's page is framed for nobody, so the page that asked
+   * shows an empty box and hears only E_SIGNIN_UNREACHABLE. The reason goes
+   * to the terminal `vbz dev` runs in, where an author reads it.
+   */
+  test("says why it refused a request in the terminal, which the page cannot show", async () => {
+    const lines: string[] = []
+    const made = standIn({ log: (line) => lines.push(line) })
+    const sign = made.started.signInOrigin
+    const query = (overrides: Record<string, string | null>) =>
+      signInQuery(made.page.origin, overrides)
+    const asked = [
+      query({ client_id: "vbz_pk_other" }),
+      query({ redirect_uri: "https://elsewhere.example" }),
+      query({ code_challenge_method: "plain" }),
+      query({ state: "" }),
+    ]
+    for (const search of asked) {
+      await (await fetch(`${sign}/authorize?${search}`)).text()
+    }
+    await (
+      await fetch(`${sign}/continue`, {
+        method: "POST",
+        headers: { origin: "https://elsewhere.example" },
+        body: query({}),
+      })
+    ).text()
+    expect(lines).toHaveLength(5)
+    for (const line of lines) {
+      expect(line).toStartWith(
+        "stand-in sign-in: refused, so the page's box stays empty and signIn() ends in E_SIGNIN_UNREACHABLE: ",
+      )
+    }
+    expect(lines[0]).toContain('the page key "vbz_pk_other"')
+    expect(lines[0]).toContain(STAND_IN_PAGE_KEY)
+    expect(lines[1]).toContain('"https://elsewhere.example"')
+    expect(lines[1]).toContain("http://127.0.0.1:4310")
+    expect(lines[2]).toContain("no S256 challenge")
+    expect(lines[3]).toContain("no state")
+    expect(lines[4]).toContain("not posted from the sign-in's own page")
   })
 
   /**

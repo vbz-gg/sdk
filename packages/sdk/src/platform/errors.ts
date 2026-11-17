@@ -47,11 +47,13 @@ export const CLIENT_ERROR = {
   /**
    * The sign-in did not say it had loaded in its box in time. A browser that
    * refuses to frame it shows nothing in the box and tells the page nothing,
-   * so this is every refusal: a policy with no `frame-src` for the sign-in,
-   * a page framed by another site, or a page the game does not allow.
+   * and the sign-in refuses a request it cannot check by framing its answer
+   * for nobody, so this is every refusal: a policy with no `frame-src` for
+   * the sign-in, a page framed by another site, a page key that is not the
+   * game's, or a page origin the game does not allow.
    */
   E_SIGNIN_UNREACHABLE:
-    "the sign-in did not load in its box; check that the page's Content-Security-Policy has frame-src naming the sign-in origin, https://signin.vbz.gg, that the page is not itself in a frame on another site, and that the page's origin is one the game allows",
+    "the sign-in did not load in its box; check that the page's Content-Security-Policy has frame-src naming the sign-in origin, https://signin.vbz.gg, that the page is not itself in a frame on another site, that the page key is the game's, and that the page's origin is one the game allows",
   /** A player route, and no player is signed in on this page. */
   E_NOT_SIGNED_IN: "no player is signed in on this page",
   /** `fetch` threw: the request may or may not have reached the platform. */

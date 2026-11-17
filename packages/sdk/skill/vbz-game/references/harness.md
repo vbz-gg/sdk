@@ -108,7 +108,8 @@ mode, the stand-in's API, sign-in and page key, so the origins and key in
   sign-in framed exactly as the platform's is (framed for the site's exact
   origin, with the headers that let it render under COOP and COEP, the ready
   message as it loads, and the code posted to the site's origin alone), with
-  a Continue button and the same code trade;
+  a Continue button and the same code trade, and says in the terminal why
+  it refused a request, which the page's empty box cannot;
 - starts a run on the harness seed and the served config, and resumes it on
   a refresh until it has committed a chunk;
 - holds chunks and the submit to the manifest the way the platform does:

@@ -280,6 +280,7 @@ export function startStandIn(options: StandInOptions): RunningStandIn {
       signInOrigin: () => signInOrigin,
       player: LOCAL_PLAYER,
       grants,
+      log,
     }),
   })
   const signInOrigin = originOf(options.listen, signIn.port ?? 0)

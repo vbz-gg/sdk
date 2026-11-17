@@ -146,6 +146,13 @@ export interface SignInPagesOptions {
   readonly player: SignedInPlayer["player"]
   /** Where a code is kept until it is traded. */
   readonly grants: Map<string, SignInGrant>
+  /**
+   * A line for the terminal. A refused request's page is framed for nobody,
+   * so the page that asked shows an empty box and learns only
+   * `E_SIGNIN_UNREACHABLE`; the reason is said here, where an author
+   * running `vbz dev` reads it.
+   */
+  readonly log?: (line: string) => void
 }
 
 /** The sign-in's every answer. */
@@ -185,8 +192,12 @@ ${body}${
 </html>
 `
 
-  const refused = (why: string) =>
-    html(
+  const log = options.log ?? (() => {})
+  const refused = (why: string) => {
+    log(
+      `stand-in sign-in: refused, so the page's box stays empty and signIn() ends in E_SIGNIN_UNREACHABLE: ${why}`,
+    )
+    return html(
       page(
         "Sign-in refused",
         `    <p id="status">Refused: ${escapeHtml(why)}.</p>`,
@@ -194,6 +205,7 @@ ${body}${
       400,
       null,
     )
+  }
 
   /** The request a query or a form carries, or why it cannot be checked. */
   const check = (fields: URLSearchParams | FormData): Asking | string => {
@@ -204,11 +216,12 @@ ${body}${
     const redirect = field("redirect_uri")
     const state = field("state")
     const challenge = field("code_challenge")
-    if (field("client_id") !== options.pageKey) {
-      return "the page key is not the stand-in's"
+    const pageKey = field("client_id")
+    if (pageKey !== options.pageKey) {
+      return `the page key ${JSON.stringify(pageKey)} is not the stand-in's, ${options.pageKey}`
     }
     if (redirect !== options.siteOrigin) {
-      return `the page asking is not ${options.siteOrigin}`
+      return `the page asking, ${JSON.stringify(redirect)}, is not ${options.siteOrigin}, the one origin the stand-in lets frame its sign-in`
     }
     if (
       field("code_challenge_method") !== "S256" ||
