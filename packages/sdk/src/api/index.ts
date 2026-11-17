@@ -493,8 +493,10 @@ export type VersionCheckCode =
   // The engine's checks an upload runs, on the checks' own machine.
   /**
    * The engine's checks an upload runs ran out of the time the platform
-   * gives them: `CHECK_STEP_BUDGET_US` in `/build` for every step they play,
-   * what one step of an hour's run may cost its replay. Written only once
+   * gives them, which `/build` exports: for every step they play,
+   * `CHECK_STEP_BUDGET_US` at the game's tick rate, what one step of an hour
+   * of its own play may cost its replay, and for each time they load the
+   * rules code and run `init`, `CHECK_INIT_BUDGET_MS`. Written only once
    * every attempt has run out, so a moment's slowness on the platform's side
    * refuses nothing. `vbz check --ranked` prints what a step cost on the
    * author's machine in its `performance` check.

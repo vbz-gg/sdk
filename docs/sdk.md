@@ -1076,23 +1076,29 @@ browser cannot draw is mounted with `draw: false` and gets ready without
 drawing, and a page module of contract 1, which has no `draw: false`, is
 then loaded and not mounted.
 
-Two of the upload's limits are time, and `/build` exports both. The
-engine's checks an upload runs are given 1,389 microseconds of one CPU for
-every step they play (`CHECK_STEP_BUDGET_US`), what one step of an hour's
-run may cost its replay: `REPLAY_CPU_BUDGET_MS` over an hour of play at 60
-steps a second, 216,000 steps. The page module has to load and be ready
-within 60 seconds of the checks' browser starting (`CHECK_READY_MS`), its
-presentation's `prepare` settled and its start packs fetched, with the
-version's files folder served beside it and nothing else: no other network,
-nobody to press anything and no permission granted. A check that runs out
-of either is tried again, and only once every attempt has run out is the
-version refused, with `E_CHECKS_OVER_BUDGET` or `E_PAGE_MODULE_NOT_READY`,
-so a moment's slowness on the platform's side refuses nothing, and the
-refusal can arrive after `vbz publish` has stopped waiting.
-`vbz check --ranked` prints what a step cost on the author's machine in its
-`performance` check. A `prepare` that waits on something outside the game's
-files folder, on a permission, or on a network the checks do not have never
-gets ready there.
+The upload's checks are held to time as well as size, and `/build` exports
+each limit. The engine's checks an upload runs are given, for every step
+they play, what one step of an hour of the game's own play at its own rate
+may cost its replay, `REPLAY_CPU_BUDGET_MS` over that hour's steps
+(`CHECK_STEP_BUDGET_US`, keyed by tick rate): 2,778 microseconds of one CPU
+a step at 30 steps a second, 1,389 at 60 and 695 at 120, so a game whose
+steps fit plays an hour in one replay. Each time they load the rules code,
+once for the headless check and up to six times for the seed check,
+importing it, reading its start packs and running `init` are given 5 seconds
+of one CPU a load (`CHECK_INIT_BUDGET_MS`); the platform counts the loads.
+The page module has to load and be ready within 60 seconds of the checks'
+browser starting (`CHECK_READY_MS`), its presentation's `prepare` settled
+and its start packs fetched, with the version's files folder served beside
+it and nothing else: no other network, nobody to press anything and no
+permission granted. A check that runs out of any of these is tried again,
+and only once every attempt has run out is the version refused, with
+`E_CHECKS_OVER_BUDGET` or `E_PAGE_MODULE_NOT_READY`, so a moment's slowness
+on the platform's side refuses nothing, and the refusal can arrive after
+`vbz publish` has stopped waiting. `vbz check --ranked` prints what a step
+cost on the author's machine in its `performance` check, and a large start
+pack parsed in `init` is paid for at every load. A `prepare` that waits on
+something outside the game's files folder, on a permission, or on a network
+the checks do not have never gets ready there.
 
 The engine's checks read the rules code with TypeScript's own parser, so
 `vbz check` needs `typescript` installed in the game, and the template's
@@ -1323,13 +1329,14 @@ prints the release line the version joined, and then reads the version back
 at
 `GET /v1/studios/:studioId/versions/:versionId` every two seconds until the
 platform's checks decide. The upload's answer names the studio, so the
-command needs only the game's id. It waits up to 31 minutes,
+command needs only the game's id. It waits up to 34 minutes,
 `CHECK_WAIT_MS`, the platform's worst case for one attempt with headroom,
 rounded up to whole minutes: 10 minutes for the ingest job to wait in the
-platform's queue (`CHECK_QUEUE_ALLOWANCE_MS`); 7 minutes for the checks
+platform's queue (`CHECK_QUEUE_ALLOWANCE_MS`); 10 minutes for the checks
 container, as long as the platform waits for one
 (`CHECKS_CONTAINER_WAIT_MS`), over the platform's worst case for one check
-with the container's start, 6 minutes 29 seconds; the 7.5 minutes of wall
+with the container's start, about 9 minutes 41 seconds for a game at 30
+steps a second; the 7.5 minutes of wall
 time one replay may take (`REPLAY_WALL_BUDGET_MS`), which the
 replay-service check and a patch's replays share, since they run beside
 each other, and the 10 seconds the
@@ -1378,7 +1385,9 @@ verdict and prints it as the platform measured it, such as
 `patch check: 2 of 3 recent ranked runs on line 1.2 end differently under
 this version`. A line's first version has no runs of its line to replay, and
 the command says so. A published version always carries `patchScores`; it
-is null only while a version is pending and for a rejected one.
+is null only while a version is pending and for a rejected one, and the
+command takes a published version's answer without it as unreadable
+(`E_PUBLISH_ANSWER_UNREADABLE`) rather than print a verdict that lacks it.
 
 The two files routes and the version's upload each take the studio's secret
 key, or the access token of a member whose role may upload versions
@@ -1405,7 +1414,8 @@ names them or the platform removes them, a day after each was last sent. A
 refusal stops the command before the version is sent. A
 publish can still stop between the files and the version, or the upload be
 refused after them because another version arrived in between: the files it
-stored are named by no version, and the platform removes them a day later.
+stored are named by no version, and the platform removes them a day after
+each was last sent.
 Reading the version back is safe to repeat too, and a read the platform
 fails to answer is tried again until the wait runs out.
 

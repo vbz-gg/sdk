@@ -128,10 +128,11 @@ export function checkWaitOf(parts: readonly number[]): number {
  * platform holds the replay to its whole wall budget and its margin, then
  * runs the version's job again, half a minute later at the soonest, which
  * this does not wait for. Nor does it wait for the checks that run out of
- * time: the engine's checks over `CHECK_STEP_BUDGET_US` a step, or a page
- * module not ready within `CHECK_READY_MS`, are tried again, and the
- * version is refused (`E_CHECKS_OVER_BUDGET`, `E_PAGE_MODULE_NOT_READY`)
- * only once every attempt has run out, which can be after this has stopped.
+ * time: the engine's checks over `CHECK_STEP_BUDGET_US` a step at the game's
+ * rate or `CHECK_INIT_BUDGET_MS` a load, or a page module not ready within
+ * `CHECK_READY_MS`, are tried again, and the version is refused
+ * (`E_CHECKS_OVER_BUDGET`, `E_PAGE_MODULE_NOT_READY`) only once every
+ * attempt has run out, which can be after this has stopped.
  *
  * A version still pending after this is still being checked: the command
  * says so in the platform's terms, names where to read it later, and exits
@@ -834,7 +835,10 @@ const RANKED_SERVING: ReadonlySet<string> = new Set<VersionServing["ranked"]>([
  * `suspended` would otherwise read as served, a missing `serving` would print
  * nothing about which runs play it, a missing `firstFailure` would crash the
  * line that prints it, and a `patchScores` that is not two counts would
- * print a measurement the platform never made.
+ * print a measurement the platform never made. A published version always
+ * carries its count, so a published answer with none is not one the
+ * platform gives, and is refused rather than printed without it; a pending
+ * or rejected version's is null.
  */
 function asStatus(value: unknown): VersionStatus {
   if (
@@ -853,7 +857,14 @@ function asStatus(value: unknown): VersionStatus {
     (value.firstFailure === null || isFailure(value.firstFailure)) &&
     (value.patchScores === null || isPatchScores(value.patchScores))
   ) {
-    return value as unknown as VersionStatus
+    const status = value as unknown as VersionStatus
+    if (status.state === "published" && status.patchScores === null) {
+      throw new PublishError(
+        PUBLISH_ERROR.ANSWER_UNREADABLE,
+        `the platform's answer says version ${status.version} is published and carries no patch check, which every published version has`,
+      )
+    }
+    return status
   }
   throw new PublishError(
     PUBLISH_ERROR.ANSWER_UNREADABLE,
@@ -901,44 +912,46 @@ function practiceLine(practice: boolean): string {
     : "practice runs: none, because a newer version is playable or the game offers no practice"
 }
 
+/** A published version's patch check, which its answer always carries. */
+type PatchScores = NonNullable<VersionStatus["patchScores"]>
+
 /**
  * What the platform measured of a published version against its line's
- * recent ranked runs, in its own terms. A published version always carries
- * the count, and an answer without one prints nothing rather than a count
- * the platform never made. The count decides nothing; it is printed for the
- * studio to read.
+ * recent ranked runs, in its own terms. The count decides nothing; it is
+ * printed for the studio to read.
  */
-function patchScoreLines(status: VersionStatus): string[] {
-  const scores = status.patchScores
-  if (scores === null) return []
+function patchScoreLine(line: string, scores: PatchScores): string {
   if (scores.compared === 0) {
-    return [
-      `patch check: line ${status.line} has no settled ranked runs yet to compare this version with`,
-    ]
+    return `patch check: line ${line} has no settled ranked runs yet to compare this version with`
   }
   const runs = scores.compared === 1 ? "run" : "runs"
   const end = scores.differing === 1 ? "ends" : "end"
-  return [
-    `patch check: ${scores.differing} of ${scores.compared} recent ranked ${runs} on line ${status.line} ${end} differently under this version`,
-  ]
+  return `patch check: ${scores.differing} of ${scores.compared} recent ranked ${runs} on line ${line} ${end} differently under this version`
 }
 
 /**
  * The verdict a build log shows. A version that passed its checks and is
  * published exits 0, with which runs it serves and what the platform
  * measured of it against its line's runs; one an operator has taken down is
- * published and still exits 1, because no player is served it.
+ * published and still exits 1, because no player is served it. It reads a
+ * state the command has checked, so a published one carries its count.
  */
 export function verdictOf(status: VersionStatus): Verdict {
   if (status.state === "pending") {
     throw new Error("a version still being checked has no verdict yet")
   }
   if (status.state === "published") {
+    if (status.patchScores === null) {
+      throw new Error(
+        "a published version's state carries its patch check, and the command refuses an answer without one",
+      )
+    }
+    const patch = patchScoreLine(status.line, status.patchScores)
     if (status.suspended) {
       return {
         lines: [
           `published version ${status.version}, but an operator has taken it down, so no player is served it`,
-          ...patchScoreLines(status),
+          patch,
         ],
         exitCode: 1,
       }
@@ -948,7 +961,7 @@ export function verdictOf(status: VersionStatus): Verdict {
         `published version ${status.version}, in release line ${status.line}`,
         RANKED_LINES[status.serving.ranked],
         practiceLine(status.serving.practice),
-        ...patchScoreLines(status),
+        patch,
       ],
       exitCode: 0,
     }

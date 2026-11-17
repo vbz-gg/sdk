@@ -21,11 +21,12 @@ per game, in its private store under the hash of its bytes
 sent is not sent again, and a version whose listing names a file the
 platform does not hold is refused with `E_FILES_MISSING`. Files stored for a
 version that never arrives, because the publish stopped between them or
-another version arrived first, are named by nothing and removed a day later.
-Until a version names them they count against what a game may hold in files
-no version names, 1 GiB (`MAX_UNNAMED_FILES_BYTES`), and a file whose upload
-would take the game past it is refused with `E_QUOTA_EXCEEDED` before a byte
-is stored: publish the version that names them, or wait for the day to pass.
+another version arrived first, are named by nothing and removed a day after
+each was last sent. Until a version names them they count against what a
+game may hold in files no version names, 1 GiB (`MAX_UNNAMED_FILES_BYTES`),
+and a file whose upload would take the game past it is refused with
+`E_QUOTA_EXCEEDED` before a byte is stored: publish the version that names
+them, or wait for the day to pass.
 
 ## 0. The version
 
@@ -111,15 +112,21 @@ setting at its default. The engine's guide, clockwork2, explains each check.
   and turns a daily board into an all-time board.
 
 These checks play the game: `init` and 600 steps for the headless check, and
-the seed check's runs under two seeds. The platform gives them 1,389
-microseconds of one CPU for every step they play (`CHECK_STEP_BUDGET_US`):
-what one step of an hour's run may cost its replay, 5 minutes of CPU over an
-hour of play at 60 steps a second. Checks that run out of that time are
-tried again, and only once every attempt has run out is the version refused,
-with `E_CHECKS_OVER_BUDGET`, so a moment's slowness on the platform's side
-refuses nothing. `vbz check --ranked` prints what a step cost on your
-machine in its `performance` check. Make the step cheaper, as section 5 says
-for a player's run.
+the seed check's runs under two seeds, each on the rules code loaded afresh.
+The platform gives each step they play what one step of an hour of the
+game's own play at its own rate may cost its replay, 5 minutes of CPU over
+that hour's steps (`CHECK_STEP_BUDGET_US`): 2,778 microseconds of one CPU a
+step at 30 steps a second, 1,389 at 60 and 695 at 120, so a game whose steps
+fit plays an hour in one replay. Starting the game, importing the rules
+code, reading its start packs and running `init`, is given 5 seconds of one
+CPU a load (`CHECK_INIT_BUDGET_MS`), and the checks load it once for the
+headless check and up to six times for the seed check. Checks that run out
+of either are tried again, and only once every attempt has run out is the
+version refused, with `E_CHECKS_OVER_BUDGET`, so a moment's slowness on the
+platform's side refuses nothing. `vbz check --ranked` prints what a step
+cost on your machine in its `performance` check. Make the step cheaper, as
+section 5 says for a player's run, or the start: a large start pack parsed
+in `init` is paid for at every load.
 
 The platform does not run the engine's determinism, restore, counters,
 replay or performance checks, and nothing at upload holds a version to

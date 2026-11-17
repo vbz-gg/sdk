@@ -222,6 +222,11 @@ measures it. The tables in `docs/sdk.md` and the guide's
 `references/files.md` name every `MAX_` constant `/build` exports, at its
 value, and the guide's test holds both ways.
 
+**A value's size as JSON has one measure**, `byteLengthOf` in
+`src/wire/json.ts`, which imports nothing: a page's chunks and recording
+and `vbz build`'s manifest are counted by it, and `/build` reaches none of
+`/platform` for it. `tests/wire/json.test.ts` holds both.
+
 **null3d is a recipe, never a dependency.** Nothing in `packages/sdk`
 imports null3d, which is not on npm. The recipe, the guide's
 `references/null3d.md`, says a vbz game creates null3d with
@@ -337,7 +342,9 @@ names another, and the key is sent only over https or to this machine.
 line the version joined, a refusal's `detail` (the fields a patch changed and
 the minor to publish instead, or the versions an upload had to be above), and
 once the checks pass, which runs the version serves and how many of its
-line's recent ranked runs end differently under it.
+line's recent ranked runs end differently under it. A published version
+always carries that count, so an answer saying published without one is
+`E_PUBLISH_ANSWER_UNREADABLE`, never a verdict printed without it.
 
 **The wait for a verdict is derived, never written as a number.**
 `CHECK_WAIT_MS` is `checkWaitOf` over the queue's and the public-store
@@ -423,8 +430,9 @@ everywhere, the engine's `E_RANK_UNDECLARED`; every figure the guide and
 `REPLAY_` budget, every count of a patch's replays they, the package README
 and `/api` quote is `PATCH_SCORE_RUNS`, and the publish wait `docs/sdk.md`
 states is `CHECK_WAIT_MS` and its parts; every figure they quote for a
-step's allowance at upload or the page module's wait to get ready is
-`CHECK_STEP_BUDGET_US` or `CHECK_READY_MS`, and the refusal list,
+step's allowance at each tick rate, a load's start at upload or the page
+module's wait to get ready is `CHECK_STEP_BUDGET_US`, `CHECK_INIT_BUDGET_MS`
+or `CHECK_READY_MS`, and the refusal list,
 `references/ingest.md` and `docs/sdk.md` each explain the two codes written
 once every attempt has run out of time: that they come only then, the
 limit and what to change; `references/page.md` explains

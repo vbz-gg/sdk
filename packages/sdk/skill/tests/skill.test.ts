@@ -22,6 +22,7 @@ import type { VersionCheckCode } from "../../src/api/index.js"
 import * as build from "../../src/build/index.js"
 import {
   BUILD_REFUSAL,
+  CHECK_INIT_BUDGET_MS,
   CHECK_READY_MS,
   CHECK_STEP_BUDGET_US,
   CHECKS_CONTAINER_WAIT_MS,
@@ -628,28 +629,46 @@ describe("one replay's budget", () => {
 })
 
 describe("the time the checks allow a version", () => {
+  /** A number of microseconds or seconds as the prose writes it. */
+  const figure = (value: number): string => value.toLocaleString("en")
+
+  /**
+   * The step allowance at every tick rate, as the prose quotes the table:
+   * the first rate with its unit, the others by rate, in the engine's order.
+   */
+  const STEP_TABLE = ((): string => {
+    const [first, second, third] = TICK_RATES
+    return (
+      `${figure(CHECK_STEP_BUDGET_US[first])} microseconds of one CPU a step at ${first} steps a second, ` +
+      `${figure(CHECK_STEP_BUDGET_US[second])} at ${second} and ${figure(CHECK_STEP_BUDGET_US[third])} at ${third}`
+    )
+  })()
+  const INIT = `${figure(CHECK_INIT_BUDGET_MS / 1000)} seconds of one CPU a load`
+  const READY = `within ${figure(CHECK_READY_MS / 1000)} seconds of the checks' browser starting`
+
   /**
    * The two codes the platform writes only once every attempt at a
-   * version's checks has run out of time, each with the limit it is written
-   * past, as the prose quotes it, and what an author can do about it.
+   * version's checks has run out of time, each with the limits it is
+   * written past, as the prose quotes them, and what an author can do about
+   * it.
    */
   const TIMED_OUT = {
     E_CHECKS_OVER_BUDGET: {
-      limit: `${CHECK_STEP_BUDGET_US.toLocaleString("en")} microseconds of one CPU`,
-      constant: "`CHECK_STEP_BUDGET_US`",
-      remedy: ["`vbz check --ranked`", "`performance`"],
+      limits: [STEP_TABLE, INIT],
+      constants: ["`CHECK_STEP_BUDGET_US`", "`CHECK_INIT_BUDGET_MS`"],
+      remedy: ["`vbz check --ranked`", "`performance`", "`init`"],
     },
     E_PAGE_MODULE_NOT_READY: {
-      limit: `within ${CHECK_READY_MS / 1000} seconds of the checks' browser starting`,
-      constant: "`CHECK_READY_MS`",
+      limits: [READY],
+      constants: ["`CHECK_READY_MS`"],
       remedy: ["`prepare`", "permission", "network"],
     },
   } as const satisfies Partial<
     Record<
       VersionCheckCode,
       {
-        readonly limit: string
-        readonly constant: string
+        readonly limits: readonly string[]
+        readonly constants: readonly string[]
         readonly remedy: readonly string[]
       }
     >
@@ -673,20 +692,21 @@ describe("the time the checks allow a version", () => {
    * A refusal for running out of time that an author reads as a verdict on
    * the first slow attempt is one they chase after a moment of the
    * platform's own slowness. Each place that explains check codes says what
-   * the code means, the limit at its value, that it comes only once every
+   * the code means, each limit at its value, that it comes only once every
    * attempt ran out, and what to change.
    */
-  test("each code written only once every attempt ran out of time is explained with its limit and its remedy", async () => {
+  test("each code written only once every attempt ran out of time is explained with its limits and its remedy", async () => {
     for (const [where, pieces] of Object.entries(await explanations())) {
-      for (const [code, { limit, constant, remedy }] of Object.entries(
+      for (const [code, { limits, constants, remedy }] of Object.entries(
         TIMED_OUT,
       )) {
         const explained = pieces.some(
           (piece) =>
             piece.includes(`\`${code}\``) &&
             /every attempt/.test(piece) &&
-            piece.includes(limit) &&
-            (where === "SKILL.md" || piece.includes(constant)) &&
+            limits.every((limit) => piece.includes(limit)) &&
+            (where === "SKILL.md" ||
+              constants.every((constant) => piece.includes(constant))) &&
             remedy.every((word) => piece.includes(word)),
         )
         expect(`${where} ${code}: ${explained}`).toBe(`${where} ${code}: true`)
@@ -694,32 +714,53 @@ describe("the time the checks allow a version", () => {
     }
   })
 
-  /** A figure quoted for either limit anywhere is the constant's. */
-  test("every figure quoted for a step's allowance or the wait to get ready is the constant's", async () => {
+  /**
+   * A figure quoted for any of the three limits anywhere is the constant's,
+   * and a step's allowance is never quoted without its tick rate: a game at
+   * 120 steps a second held to the allowance at 60 publishes and then cannot
+   * replay an hour.
+   */
+  test("every figure quoted for a step's allowance, a load or the wait to get ready is the constant's", async () => {
     const texts: Readonly<Record<string, string>> = {
       guide: await everything(),
       "docs/sdk.md": await readRepository("docs", "sdk.md"),
       "README.md": await readFile(join(PACKAGE, "README.md"), "utf8"),
     }
-    const seen = { step: 0, ready: 0 }
+    const seen = { step: 0, init: 0, ready: 0 }
+    const count = (text: string, phrase: RegExp): number =>
+      [...text.matchAll(phrase)].length
     for (const [where, raw] of Object.entries(texts)) {
       const text = raw.replace(/\s+/g, " ")
-      for (const match of text.matchAll(/([\d,]+) microseconds of one CPU/g)) {
-        seen.step += 1
-        expect(`${where}: ${match[1]}`).toBe(
-          `${where}: ${CHECK_STEP_BUDGET_US.toLocaleString("en")}`,
-        )
+      const tables = [
+        ...text.matchAll(
+          /[\d,]+ microseconds of one CPU a step at \d+ steps a second, [\d,]+ at \d+ and [\d,]+ at \d+/g,
+        ),
+      ]
+      for (const match of tables) {
+        expect(`${where}: ${match[0]}`).toBe(`${where}: ${STEP_TABLE}`)
       }
+      expect(`${where}: ${count(text, /microseconds of one CPU/g)}`).toBe(
+        `${where}: ${tables.length}`,
+      )
+      seen.step += tables.length
+      const loads = [...text.matchAll(/([\d,]+) seconds of one CPU a load/g)]
+      for (const match of loads) {
+        expect(`${where}: ${match[0]}`).toBe(`${where}: ${INIT}`)
+      }
+      // From a word's start, since "microseconds" ends in "seconds".
+      expect(`${where}: ${count(text, /\bseconds of one CPU/g)}`).toBe(
+        `${where}: ${loads.length}`,
+      )
+      seen.init += loads.length
       for (const match of text.matchAll(
-        /within (\d+) seconds of the checks' browser starting/g,
+        /within [\d,]+ seconds of the checks' browser starting/g,
       )) {
         seen.ready += 1
-        expect(`${where}: ${match[1]}`).toBe(
-          `${where}: ${CHECK_READY_MS / 1000}`,
-        )
+        expect(`${where}: ${match[0]}`).toBe(`${where}: ${READY}`)
       }
     }
     expect(seen.step).toBeGreaterThanOrEqual(3)
+    expect(seen.init).toBeGreaterThanOrEqual(3)
     expect(seen.ready).toBeGreaterThanOrEqual(3)
   })
 })

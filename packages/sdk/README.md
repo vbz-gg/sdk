@@ -92,8 +92,8 @@ with one of your studio's secret keys from `VBZ_STUDIO_KEY`: first each file
 of the files folder the platform does not already hold, then the version.
 The platform answers a version it would refuse, one that is not newer or a
 patch that changes its line's rules, before any file goes up, and files
-stored for a version that never arrives are removed a day later. Then it
-waits for the platform's checks:
+stored for a version that never arrives are removed a day after each was
+last sent. Then it waits for the platform's checks:
 
 ```bash
 VBZ_STUDIO_KEY=vbz_sk_... vbz publish . --game <game id>

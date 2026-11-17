@@ -327,12 +327,16 @@ end a version in these:
   no `MANIFEST`, or one that is not the uploaded `dist/manifest.json`. Build
   again rather than editing either by hand.
 - `E_CHECKS_OVER_BUDGET` - the engine's checks the platform runs at upload
-  ran out of time on the game's steps. They are given 1,389 microseconds of
-  one CPU for every step they play, what one step of an hour's run may cost
-  its replay. Written only once every attempt has run out, so a moment's
-  slowness on the platform's side refuses nothing. `vbz check --ranked`
-  prints what a step cost on your machine in its `performance` check; make
-  the step cheaper.
+  ran out of time on the game's start or its steps. Each step they play is
+  given what one step of an hour of the game's own play at its own rate may
+  cost its replay: 2,778 microseconds of one CPU a step at 30 steps a
+  second, 1,389 at 60 and 695 at 120. Each time they load the rules code,
+  once for the headless check and up to six times for the seed check,
+  importing it, reading its start packs and running `init` are given 5
+  seconds of one CPU a load. Written only once every attempt has run out, so
+  a moment's slowness on the platform's side refuses nothing.
+  `vbz check --ranked` prints what a step cost on your machine in its
+  `performance` check; make the step, or the start, cheaper.
 - `E_PAGE_MODULE_UNLOADABLE`, `E_PAGE_MODULE_INVALID`,
   `E_PAGE_MODULE_THREW` - the page module would not load in the checks'
   browser, was not one a page plays, or failed while it was mounted in

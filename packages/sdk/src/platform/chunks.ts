@@ -13,6 +13,10 @@
  */
 
 import type { RunChunk } from "../api/index.js"
+import { byteLengthOf } from "../wire/json.js"
+
+/** The bytes a body takes on the wire, as JSON in UTF-8. */
+export { byteLengthOf }
 
 export interface ChunkReach {
   /** The last tick the game reported, after a frame or at its end. */
@@ -32,11 +36,6 @@ export function throughTickFor(reach: ChunkReach): number | null {
 
 /** What a chunk holds besides its sequence number, which the sender assigns. */
 export type ChunkBody = Omit<RunChunk, "seq">
-
-/** The bytes a body takes on the wire, as JSON in UTF-8. */
-export function byteLengthOf(body: unknown): number {
-  return new TextEncoder().encode(JSON.stringify(body)).byteLength
-}
 
 /** A checkpoint, as a chunk carries it. */
 type Checkpoint = RunChunk["checkpoints"][number]

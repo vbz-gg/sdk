@@ -1,3 +1,4 @@
+import type { TickRate } from "@clockwork2/engine/manifest"
 import { MAX_FILE_PATH_LENGTH } from "../game/files.js"
 
 /**
@@ -136,23 +137,53 @@ export const REPLAY_ANSWER_MARGIN_MS = 10_000
  */
 export const PATCH_SCORE_RUNS = 3
 
-/** An hour of play at 60 steps a second: 216,000 steps. */
-const STEPS_IN_AN_HOUR = 60 * 60 * 60
+/** An hour, in seconds: what one replay's CPU budget is sized to play. */
+const SECONDS_IN_AN_HOUR = 60 * 60
+
+/**
+ * What one step of an hour's play at `tickHz` steps a second may cost its
+ * replay: `REPLAY_CPU_BUDGET_MS` over that hour's steps, in microseconds of
+ * one CPU, rounded up.
+ */
+function stepBudgetUs(tickHz: TickRate): number {
+  return Math.ceil(
+    (REPLAY_CPU_BUDGET_MS * 1000) / (SECONDS_IN_AN_HOUR * tickHz),
+  )
+}
 
 /**
  * The CPU time the platform's checks allow each step of a version's rules
- * code that they play at upload, in microseconds of one CPU: what one step
- * of an hour's run may cost its replay, `REPLAY_CPU_BUDGET_MS` over an hour
- * of play at 60 steps a second, 216,000 steps, rounded up to 1,389. A game
- * whose steps the replay service can afford for an hour finishes its checks.
- * The engine's checks an upload runs are given this for every step they
- * play; checks that run out of it are tried again, and only once every
- * attempt has run out is the version refused, `E_CHECKS_OVER_BUDGET`. The
- * platform takes its allowance from here.
+ * code that they play at upload, by the game's tick rate, in microseconds
+ * of one CPU: what one step of an hour of the game's own play at its own
+ * rate may cost its replay, `REPLAY_CPU_BUDGET_MS` over that hour's steps,
+ * rounded up. That is 2,778 at 30 steps a second, 1,389 at 60 and 695 at
+ * 120, so a game whose steps fit its rate's allowance plays an hour in one
+ * replay's CPU budget. The engine's checks an upload runs are given this
+ * for every step they play, beside `CHECK_INIT_BUDGET_MS` for each time
+ * they load the rules code; checks that run out are tried again, and only
+ * once every attempt has run out is the version refused,
+ * `E_CHECKS_OVER_BUDGET`. Keyed by the engine's `TickRate`, so a rate the
+ * engine adds fails to compile here until this table gives it an allowance.
+ * The platform takes its allowance from here.
  */
-export const CHECK_STEP_BUDGET_US = Math.ceil(
-  (REPLAY_CPU_BUDGET_MS * 1000) / STEPS_IN_AN_HOUR,
-)
+export const CHECK_STEP_BUDGET_US: Readonly<Record<TickRate, number>> = {
+  30: stepBudgetUs(30),
+  60: stepBudgetUs(60),
+  120: stepBudgetUs(120),
+}
+
+/**
+ * The CPU time the platform's checks allow each load of a version's rules
+ * code at upload, before its first step, in milliseconds of one CPU: 5
+ * seconds for importing the module, reading its start packs and running
+ * `init`. The engine's checks an upload runs load it afresh for every run
+ * they play: the headless check once, and the seed check up to six times,
+ * once for each of its three logs under each of two seeds. The platform
+ * counts the loads exactly and allows each this beside the steps'
+ * `CHECK_STEP_BUDGET_US`. A replay pays the same start once, out of
+ * `REPLAY_CPU_BUDGET_MS`.
+ */
+export const CHECK_INIT_BUDGET_MS = 5_000
 
 /**
  * How long the platform's page-module check waits, once the checks' browser
@@ -169,11 +200,12 @@ export const CHECK_STEP_BUDGET_US = Math.ceil(
 export const CHECK_READY_MS = 60_000
 
 /**
- * How long the platform waits for one checks container to answer: 7
+ * How long the platform waits for one checks container to answer: 10
  * minutes, over the longest one check can hold its container on the
- * platform, 6 minutes 29 seconds, the container's start included, in which
- * every part of the check is held to a timeout sized from measurements in
- * the checks image. The platform takes its wait from here and keeps its
- * container's own deadline under it.
+ * platform, about 9 minutes 41 seconds for a game at 30 steps a second, the
+ * container's start included. Every part of the check is held to a timeout
+ * sized from the step allowance at the game's rate, the allowance for each
+ * load and measurements in the checks image. The platform takes its wait
+ * from here and keeps its container's own deadline under it.
  */
-export const CHECKS_CONTAINER_WAIT_MS = 7 * 60_000
+export const CHECKS_CONTAINER_WAIT_MS = 10 * 60_000

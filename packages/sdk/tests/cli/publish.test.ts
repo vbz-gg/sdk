@@ -27,7 +27,6 @@ import {
   EMPTY_LISTING,
   listingSha256,
 } from "../../src/build/files.js"
-import { CHECKS_CONTAINER_WAIT_MS } from "../../src/build/limits.js"
 import { parseArgs } from "../../src/cli/args.js"
 import { TEMPLATE_DIR } from "../../src/cli/new.js"
 import {
@@ -146,7 +145,8 @@ function status(
       ranked: state === "published" ? "today" : "none",
       practice: state === "published",
     },
-    patchScores: null,
+    // A published version always carries its patch check.
+    patchScores: state === "published" ? { compared: 3, differing: 0 } : null,
     createdAt: "2026-11-11T05:59:00.000Z",
     ...overrides,
   }
@@ -701,18 +701,6 @@ describe("waiting for the checks", () => {
     expect(wait - least).toBeLessThan(60_000)
     expect(`${CHECK_WAIT_MS / 60_000}`).toMatch(/^\d+$/)
   })
-
-  /**
-   * A build system sets its own timeout from the wait the docs state. The
-   * checks container's wait sits over the platform's worst case for one
-   * check, 6 minutes 29 seconds with the container's start, so the whole
-   * wait is 31 minutes: 10 in the queue, 7 for the container, 7.5 and 10
-   * seconds for a replay, 5 for the copy and 1 of headroom, rounded up.
-   */
-  test("the wait for a verdict is 31 minutes, 7 of them for the checks container", () => {
-    expect(CHECKS_CONTAINER_WAIT_MS).toBe(7 * 60_000)
-    expect(CHECK_WAIT_MS).toBe(31 * 60_000)
-  })
 })
 
 describe("the verdict a build log shows", () => {
@@ -792,18 +780,17 @@ describe("the verdict a build log shows", () => {
   })
 
   /**
-   * A published version always carries its count; an answer that does not
-   * prints no count rather than one the platform never made.
+   * The command reads a published version's state only once it has checked
+   * it carries its count, so the verdict never prints a published version
+   * without one.
    */
-  test("a published version answered with no count prints no patch check", () => {
-    const verdict = verdictOf(status("published"))
-    expect(verdict.lines).toHaveLength(3)
-    expect(verdict.lines.some((line) => line.startsWith("patch check"))).toBe(
-      false,
+  test("a published state with no count has no verdict", () => {
+    expect(() => verdictOf(status("published", { patchScores: null }))).toThrow(
+      "a published version's state carries its patch check",
     )
     expect(
       verdictOf(status("published", { suspended: true })).lines,
-    ).toHaveLength(1)
+    ).toHaveLength(2)
   })
 
   test("published and taken down exits 1, because no player is served it", () => {
@@ -1584,6 +1571,36 @@ describe("a version's answer is checked in every field the verdict reads", () =>
         status("published", { patchScores: { compared: 3, differing: 3 } }),
       ),
     ).toBe("ok")
+  })
+
+  /**
+   * A published version always carries its count, so a published answer
+   * with none is not one the platform gives, and the command stops on it
+   * rather than printing a verdict without the count. Before the verdict,
+   * and for a rejection, the count is null and the answer is read.
+   */
+  test("a published answer with no patch check is unreadable, and a pending or rejected one's null is read", async () => {
+    await writeDist(dir)
+    const net = world([
+      () => json(uploaded(), 201),
+      () => json(status("published", { patchScores: null })),
+    ])
+    const refused = await refusalOf(publish(settings(), net.deps))
+    expect(refused.code).toBe(PUBLISH_ERROR.ANSWER_UNREADABLE)
+    expect(refused.message).toBe(
+      "the platform's answer says version 1.2.0 is published and carries no patch check, which every published version has (E_PUBLISH_ANSWER_UNREADABLE)",
+    )
+    expect(await readBack(status("rejected"))).toBe("ok")
+    await writeDist(dir)
+    const waited = world([
+      () => json(uploaded(), 201),
+      () => json(status("pending")),
+      () => json(status("published")),
+    ])
+    expect((await publish(settings(), waited.deps)).patchScores).toEqual({
+      compared: 3,
+      differing: 0,
+    })
   })
 
   test("an upload answer that does not name its line is unreadable", async () => {

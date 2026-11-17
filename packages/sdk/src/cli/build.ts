@@ -23,6 +23,7 @@ import { hashCanonical, type PlainValue } from "@clockwork2/engine"
 import { DIST_DIR, DIST_FILES, DIST_FILES_DIR } from "../build/dist.js"
 import { refuse } from "../build/errors.js"
 import {
+  assertManifestBytes,
   assertPacksListed,
   buildGameArtifacts,
   canonicalListing,
@@ -30,7 +31,6 @@ import {
   type ListedFolder,
   listingSha256,
 } from "../build/index.js"
-import { assertManifestBytes } from "../build/manifest.js"
 import { parseReleaseVersion, releaseLine } from "../build/version.js"
 import { type GameNeeds, versionNeeds } from "../harness/csp.js"
 import type { LocalBuild } from "../host/local.js"

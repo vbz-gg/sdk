@@ -8,6 +8,7 @@
  * passes the upload.
  */
 
+import { byteLengthOf } from "../wire/json.js"
 import { refuse } from "./errors.js"
 import { MAX_MANIFEST_BYTES } from "./limits.js"
 
@@ -16,7 +17,7 @@ import { MAX_MANIFEST_BYTES } from "./limits.js"
  * counted in UTF-8 bytes rather than characters (`E_MANIFEST_INVALID`).
  */
 export function assertManifestBytes(manifest: unknown): void {
-  const bytes = new TextEncoder().encode(JSON.stringify(manifest)).byteLength
+  const bytes = byteLengthOf(manifest)
   if (bytes > MAX_MANIFEST_BYTES) {
     refuse(
       "E_MANIFEST_INVALID",

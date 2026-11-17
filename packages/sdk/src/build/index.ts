@@ -53,6 +53,7 @@ export {
   missingFiles,
 } from "./files.js"
 export {
+  CHECK_INIT_BUDGET_MS,
   CHECK_READY_MS,
   CHECK_STEP_BUDGET_US,
   CHECKS_CONTAINER_WAIT_MS,
