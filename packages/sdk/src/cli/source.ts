@@ -8,11 +8,12 @@
  * that served another would play a game nobody uploads. It is named, never
  * guessed: a game whose `package.json` says nothing has no folder and lists
  * nothing, and one naming a folder that is not there stops. What the game
- * needs of a page's policy is named there too, and the pages `vbz dev`
- * serves add exactly that.
+ * needs of a page's policy that its build cannot show is named there too,
+ * and the pages `vbz dev` serves add exactly that, and what the build shows:
+ * a folder that lists any file is fetched from.
  *
  * ```json
- * { "vbz": { "files": "files", "needs": { "wasm": true, "workers": true, "files": true } } }
+ * { "vbz": { "files": "files", "needs": { "wasm": true, "workers": true } } }
  * ```
  */
 
@@ -20,7 +21,7 @@ import { readFile, stat } from "node:fs/promises"
 import { isAbsolute, join, relative, resolve, sep } from "node:path"
 import { DIST_DIR } from "../build/dist.js"
 import type { GameSource } from "../build/index.js"
-import type { GameNeeds } from "../harness/csp.js"
+import type { DeclaredNeeds } from "../harness/csp.js"
 import type { Options } from "./args.js"
 
 /** The key in a game's `package.json` that holds what the kit reads there. */
@@ -62,17 +63,18 @@ async function settingsOf(root: string): Promise<{
   return { where, settings: settings as Readonly<Record<string, unknown>> }
 }
 
-/** Each need a game may name, as `GameNeeds` names it. */
-const NEEDS = ["wasm", "workers", "files"] as const satisfies ReadonlyArray<
-  keyof GameNeeds
+/** Each need a game may name, as `DeclaredNeeds` names it. */
+const NEEDS = ["wasm", "workers"] as const satisfies ReadonlyArray<
+  keyof DeclaredNeeds
 >
 
 /**
  * What a game's `package.json` says it needs of a page's policy: nothing,
  * unless it names a need. A need that is not one, or not true or false, is
- * refused rather than read as nothing.
+ * refused rather than read as nothing, and so is `files`, which the build
+ * shows rather than the game saying it.
  */
-export async function needsOf(root: string): Promise<GameNeeds> {
+export async function needsOf(root: string): Promise<DeclaredNeeds> {
   const { where, settings } = await settingsOf(root)
   const named = settings.needs
   if (named === undefined) return {}
@@ -80,6 +82,11 @@ export async function needsOf(root: string): Promise<GameNeeds> {
     typeof named === "object" && named !== null && !Array.isArray(named)
       ? Object.entries(named)
       : null
+  if (entries?.some(([need]) => need === "files")) {
+    throw new Error(
+      `${where}: "${PACKAGE_KEY}.needs" does not name files: a game whose files folder lists any file is fetched from, and the build says so; take it out`,
+    )
+  }
   const unknown = entries?.find(
     ([need, value]) =>
       !NEEDS.some((known) => known === need) || typeof value !== "boolean",
@@ -89,7 +96,7 @@ export async function needsOf(root: string): Promise<GameNeeds> {
       `${where}: "${PACKAGE_KEY}.needs" names what the game needs of a page's policy, each of ${NEEDS.join(", ")} true or false`,
     )
   }
-  return Object.fromEntries(entries) as GameNeeds
+  return Object.fromEntries(entries) as DeclaredNeeds
 }
 
 /**

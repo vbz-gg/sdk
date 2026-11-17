@@ -283,6 +283,9 @@ describe("a game with a files folder", () => {
       "engine/entry.js",
       "packs/one.json",
     ])
+    // A start pack is fetched from the folder before tick 0, so the page's
+    // policy needs the game's path in connect-src, and nobody had to say so.
+    expect(built.needs).toEqual({ files: true })
     // The page module keeps its import as written, for the upload to rewrite.
     expect(new TextDecoder().decode(built.present)).toContain(
       "cw2:files/engine/entry.js",

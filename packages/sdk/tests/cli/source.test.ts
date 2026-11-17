@@ -84,6 +84,14 @@ describe("what a game needs of a page's policy", () => {
     expect(await needsOf(root)).toEqual({ wasm: true, workers: false })
   })
 
+  /** The folder shows whether it is fetched from, so nobody says it. */
+  test("files is not a need a game names", async () => {
+    await packageJson({ vbz: { needs: { files: true } } })
+    await expect(needsOf(root)).rejects.toThrow(
+      '"vbz.needs" does not name files',
+    )
+  })
+
   /** A misspelt need would otherwise read as one never asked for. */
   test("a need that is not one, or not true or false, is refused", async () => {
     for (const needs of [

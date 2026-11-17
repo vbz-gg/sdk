@@ -17,7 +17,9 @@
  * and evaluates no JavaScript, so `unsafe-eval` stays out whatever a game
  * needs. One that starts workers needs `worker-src blob:` and the game's
  * path. One that fetches its own files, data packs or art needs the game's
- * path in `connect-src`.
+ * path in `connect-src`, and a version whose folder lists any file is one:
+ * a page module of contract 2 fetches every data pack the manifest declares
+ * from the folder, and the folder holds every one.
  *
  * A page that signs a player in frames the platform's sign-in, so its
  * policy names the sign-in origin in `frame-src`. Measured in Chromium and
@@ -26,15 +28,27 @@
  * and frames nothing.
  */
 
+import type { FilesListing } from "../build/files.js"
+
 /** What a version needs of a page's policy, beyond its two modules. */
 export interface GameNeeds {
   /** It compiles WebAssembly: `'wasm-unsafe-eval'` in `script-src`. */
   readonly wasm?: boolean
   /** It starts workers: `worker-src blob:` and the game's path. */
   readonly workers?: boolean
-  /** It fetches files of its folder: the game's path in `connect-src`. */
+  /**
+   * It fetches files of its folder: the game's path in `connect-src`. Any
+   * version whose folder lists a file does.
+   */
   readonly files?: boolean
 }
+
+/**
+ * What a game says it needs, in its `package.json`: what its build cannot
+ * show. Whether it fetches files of its folder is the folder's to show, so
+ * it is never said.
+ */
+export type DeclaredNeeds = Omit<GameNeeds, "files">
 
 interface PolicyOptions {
   /** Origins the page's own code talks to, beside its own. */
@@ -64,20 +78,23 @@ export interface PageCspOptions extends PolicyOptions {
 
 /**
  * What a version needs of a page's policy: what its game says it needs, in
- * its `package.json`, held to what its build shows. A page module that
- * starts a worker cannot start one under a policy without `worker-src`, so a
- * game whose page module does is refused until it says it needs workers.
+ * its `package.json`, held to what its build shows, and what the build
+ * shows on its own. A page module that starts a worker cannot start one
+ * under a policy without `worker-src`, so a game whose page module does is
+ * refused until it says it needs workers. A folder that lists any file is
+ * fetched from, so the game's path goes in `connect-src` whatever the game
+ * says.
  */
 export function versionNeeds(
-  declared: GameNeeds,
-  build: { readonly workers: number },
+  declared: DeclaredNeeds,
+  build: { readonly workers: number; readonly files: FilesListing },
 ): GameNeeds {
   if (build.workers > 0 && declared.workers !== true) {
     throw new Error(
       `the page module starts a worker with new Worker ${build.workers === 1 ? "once" : `${build.workers} times`}, which a page's policy admits only with worker-src blob: and the game's path; say the game needs workers in its package.json, as "vbz": { "needs": { "workers": true } }`,
     )
   }
-  return declared
+  return build.files.files.length > 0 ? { ...declared, files: true } : declared
 }
 
 /** The path every module and file of one game is served under. */

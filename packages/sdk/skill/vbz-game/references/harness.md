@@ -94,8 +94,10 @@ mode, and a file naming none is refused.
   for the platform.
 
 What the game's `package.json` names under `"vbz": { "needs": { ... } }`
-(`wasm`, `workers`, `files`) is added to the policy in both modes, and to the
-harness page's.
+(`wasm`, `workers`) is added to the policy in both modes, and to the
+harness page's, and so is the game's path in `connect-src` whenever its
+files folder lists a file, which nobody names: the page module fetches its
+data packs from there.
 
 The stand-in runs on origins of its own: the page routes and the sign-in
 window, as one local player. The harness answers the page's `config.json`

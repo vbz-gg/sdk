@@ -93,7 +93,10 @@ function packsOf(manifest: unknown): Parameters<typeof assertPacksListed>[0] {
  */
 export async function buildGame(source: GameSource): Promise<BuiltGame> {
   const { sim, present, imports, files } = await buildGameArtifacts(source)
-  const needs = versionNeeds(await needsOf(source.root), imports)
+  const needs = versionNeeds(await needsOf(source.root), {
+    workers: imports.workers,
+    files: files.listing,
+  })
   const manifest = await readManifestFromSim(sim)
   const release = releaseOf(manifest)
   assertPacksListed(packsOf(manifest), files.listing)

@@ -13,6 +13,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { hashCanonical, type PlainValue } from "@clockwork2/engine"
+import { EMPTY_LISTING } from "../../src/build/files"
 import {
   HARNESS_GAME_ID,
   HARNESS_SEED,
@@ -268,6 +269,71 @@ describe("the harness, started whole", () => {
   })
 })
 
+/**
+ * A page module of contract 2 fetches its start packs from the folder before
+ * tick 0. A game that says nothing in its package.json still gets the
+ * game's path in connect-src, or the page would refuse the fetch.
+ */
+describe("a game with a start pack and nothing said of its needs", () => {
+  const PACK = new TextEncoder().encode(`{"level":1}`)
+  let root: string
+
+  beforeAll(async () => {
+    root = await mkdtemp(join(tmpdir(), "sdk-pack-"))
+    const manifest = {
+      ...DIST_MANIFEST,
+      assets: [
+        {
+          path: "packs/one.json",
+          sha256: new Bun.CryptoHasher("sha256").update(PACK).digest("hex"),
+          bytes: PACK.byteLength,
+          requiredForSim: true,
+          license: "CC0",
+        },
+      ],
+    }
+    await mkdir(join(root, "src", "sim"), { recursive: true })
+    await mkdir(join(root, "files", "packs"), { recursive: true })
+    await writeFile(join(root, "files", "packs", "one.json"), PACK)
+    await writeFile(
+      join(root, "src", "sim", "index.ts"),
+      `export const MANIFEST = ${JSON.stringify(manifest)}\n`,
+    )
+    await writeFile(
+      join(root, "src", "present.ts"),
+      `import { MANIFEST } from "cw2:sim"\ndocument.title = MANIFEST.name\n`,
+    )
+    await mkdir(join(root, "dist"), { recursive: true })
+    await writeFile(
+      join(root, "dist", "manifest.json"),
+      JSON.stringify(manifest),
+    )
+  })
+
+  afterAll(async () => {
+    await rm(root, { recursive: true, force: true })
+  })
+
+  test("is served under a policy that lets the page fetch from the game's path", async () => {
+    const harness = await startHarness({
+      source: { root, ...SOURCE, filesDir: join(root, "files") },
+      hostPort: 0,
+      bundlesPort: 0,
+      ranked: false,
+    })
+    try {
+      const path = gamePath(harness.bundlesOrigin, HARNESS_GAME_ID)
+      expect(harness.csp).toContain(`connect-src 'self' ${path};`)
+      const csp = (await fetch(harness.hostOrigin)).headers.get(
+        "content-security-policy",
+      )
+      expect(csp).toBe(harness.csp)
+    } finally {
+      await harness.stop()
+    }
+  })
+})
+
 describe("a game with a setting that has no default", () => {
   const UNSERVED = {
     ...DIST_MANIFEST,
@@ -412,16 +478,36 @@ describe("the policy and the origins", () => {
    * starts a worker cannot under a policy without worker-src.
    */
   test("a page module that starts a worker needs workers said", () => {
-    expect(versionNeeds({}, { workers: 0 })).toEqual({})
-    expect(versionNeeds({ wasm: true }, { workers: 0 })).toEqual({ wasm: true })
-    expect(versionNeeds({ workers: true }, { workers: 3 })).toEqual({
+    const files = EMPTY_LISTING
+    expect(versionNeeds({}, { workers: 0, files })).toEqual({})
+    expect(versionNeeds({ wasm: true }, { workers: 0, files })).toEqual({
+      wasm: true,
+    })
+    expect(versionNeeds({ workers: true }, { workers: 3, files })).toEqual({
       workers: true,
     })
-    expect(() => versionNeeds({}, { workers: 2 })).toThrow(
+    expect(() => versionNeeds({}, { workers: 2, files })).toThrow(
       "starts a worker with new Worker 2 times",
     )
-    expect(() => versionNeeds({ workers: false }, { workers: 1 })).toThrow(
-      '"vbz": { "needs": { "workers": true } }',
+    expect(() =>
+      versionNeeds({ workers: false }, { workers: 1, files }),
+    ).toThrow('"vbz": { "needs": { "workers": true } }')
+  })
+
+  /**
+   * A page module of contract 2 fetches every data pack its manifest
+   * declares from the folder, so a folder that lists anything is fetched
+   * from, and the game's path goes in connect-src without anybody saying so.
+   */
+  test("a folder that lists any file is fetched from, said or not", () => {
+    const listed = {
+      files: [{ path: "packs/level.bin", bytes: 4, sha256: "a".repeat(64) }],
+    }
+    expect(versionNeeds({}, { workers: 0, files: listed })).toEqual({
+      files: true,
+    })
+    expect(versionNeeds({ wasm: true }, { workers: 0, files: listed })).toEqual(
+      { wasm: true, files: true },
     )
   })
 

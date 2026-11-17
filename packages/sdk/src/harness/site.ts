@@ -32,7 +32,12 @@ import { DIST_DIR, DIST_FILES } from "../build/dist.js"
 import type { GameSource } from "../build/index.js"
 import { contentTypeFor } from "../serve/blobs.js"
 import { type BuiltGame, blobKeys, buildAndAddress } from "./artifacts.js"
-import { type GameNeeds, localPageCsp, pageCsp, versionNeeds } from "./csp.js"
+import {
+  type DeclaredNeeds,
+  localPageCsp,
+  pageCsp,
+  versionNeeds,
+} from "./csp.js"
 import { readBuiltManifest, readBuiltPresent } from "./dist-manifest.js"
 import {
   type Listen,
@@ -78,8 +83,11 @@ export interface SiteOptions {
   readonly listen?: Listen
   /** A line for the terminal, from the stand-in. */
   readonly log?: (line: string) => void
-  /** What the game needs of the page's policy, beyond its two modules. */
-  readonly needs?: GameNeeds
+  /**
+   * What the game says it needs of the page's policy, beyond its two
+   * modules; what its build shows is added.
+   */
+  readonly needs?: DeclaredNeeds
   /** For a test: the stand-in's ranked play and bar. */
   readonly ranked?: "open" | "paused"
   readonly barredUntil?: string | null
@@ -231,9 +239,9 @@ export async function startSite(options: SiteOptions): Promise<RunningSite> {
 
   if (mode === "local") {
     config = { mode: "local" }
-    const { imports } = await readBuiltPresent(root)
+    const { imports, listing } = await readBuiltPresent(root)
     csp = localPageCsp({
-      needs: versionNeeds(needs, imports),
+      needs: versionNeeds(needs, { workers: imports.workers, files: listing }),
       inlineScripts,
     })
     return {

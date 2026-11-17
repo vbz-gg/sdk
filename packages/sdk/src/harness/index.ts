@@ -29,7 +29,7 @@ import { DIST_DIR, DIST_FILES } from "../build/dist.js"
 import type { GameSource } from "../build/index.js"
 import { type BuiltGame, blobKeys, buildAndAddress } from "./artifacts.js"
 import { givenConfig, servedOrRefused } from "./config.js"
-import { type GameNeeds, pageCsp, versionNeeds } from "./csp.js"
+import { type DeclaredNeeds, pageCsp, versionNeeds } from "./csp.js"
 import { readBuiltManifest } from "./dist-manifest.js"
 import { HARNESS_STYLE, harnessPage } from "./page/document.js"
 import { replayInChild } from "./replay.js"
@@ -55,8 +55,11 @@ export interface HarnessOptions {
    * practice run is held to, `vbz dev --ranked`, or says it as a figure.
    */
   readonly ranked: boolean
-  /** What the game needs of the page's policy, beyond its two modules. */
-  readonly needs?: GameNeeds
+  /**
+   * What the game says it needs of the page's policy, beyond its two
+   * modules; what its build shows is added.
+   */
+  readonly needs?: DeclaredNeeds
   /**
    * A config of the author's own for the page's runs, `vbz dev --config`,
    * held to the manifest's settings. The served config by default, which a
@@ -284,6 +287,7 @@ export {
   buildAndAddress,
 } from "./artifacts.js"
 export {
+  type DeclaredNeeds,
   type GameNeeds,
   gamePath,
   inlineScriptSource,

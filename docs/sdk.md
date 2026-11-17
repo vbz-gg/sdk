@@ -459,6 +459,10 @@ WebAssembly and evaluates no JavaScript; one that starts workers needs
 `worker-src blob:` and the game's path, and a game whose page module starts
 one does not build until it says so; and a game that fetches files of its
 folder, its data packs or its art, needs the game's path in `connect-src`.
+That last is never said: a page module of contract 2 fetches every data
+pack its manifest declares from the folder, which holds every one, so any
+version whose folder lists a file is given it, and `"vbz": { "needs" }` in
+a game's `package.json` names `wasm` and `workers` only.
 Nothing a game needs adds `unsafe-eval`. A page carrying an inline script,
 such as an import map, names it in `inlineScripts` and the policy admits it by
 the SHA-256 of its exact text. `localPageCsp` is the same policy for a page
@@ -815,11 +819,12 @@ against a stand-in for the platform shipped in the package: the page routes
 and the sign-in window on origins of their own, as one local player, on the
 harness seed and the served config, at the platform's limits from `/build`,
 and the harness answers the page's `config.json` with the mode, the
-stand-in's origins and its page key. In either mode an inline script the page carries, such as its
-import map, is admitted by the SHA-256 of its text, and what the game's
-`package.json` says it needs of a page's policy,
-`"vbz": { "needs": { "wasm": true, "workers": true, "files": true } }`, is
-added to the harness page's policy and the site's.
+stand-in's origins and its page key. In either mode an inline script the
+page carries, such as its import map, is admitted by the SHA-256 of its
+text, and what the game's `package.json` says it needs of a page's policy,
+`"vbz": { "needs": { "wasm": true, "workers": true } }`, is added to the
+harness page's policy and the site's, with the game's path in
+`connect-src` whenever the build's folder lists a file.
 The stand-in holds chunks and the submit to the manifest the way the
 platform does, and settles a run with the counters its page sent, without a
 replay, which the terminal says each time. It reads a run from a day still
