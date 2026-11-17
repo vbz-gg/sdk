@@ -12,8 +12,11 @@
  * and fetches every other package from npm, through `BUN_CONFIG_REGISTRY`.
  * Each run gets its own `TMPDIR` and bun cache: `bunx` keeps its install
  * under `TMPDIR` and reuses it, and npm already has a kit and an engine at
- * these version numbers. No studio key is in the environment, since nothing
- * here should need one.
+ * these version numbers.
+ *
+ * The commands run on a machine as an author's would be before they have
+ * installed anything: nothing outside the run's own directory resolves, and
+ * no studio key is in the environment, since nothing here should need one.
  */
 
 import { type ChildProcess, spawn } from "node:child_process"
@@ -49,8 +52,8 @@ function started(
   return spawn(command, args, { cwd, env, stdio: ["ignore", "pipe", "pipe"] })
 }
 
-/** Runs a command to its end, and fails the test unless it exits 0. */
-async function run(
+/** Runs a command to its end, however it ends. */
+async function ran(
   command: string,
   args: readonly string[],
   cwd: string,
@@ -69,24 +72,64 @@ async function run(
     child.on("error", reject)
     child.on("close", resolve)
   })
-  expect(code, `${command} ${args.join(" ")}\n${stdout}\n${stderr}`).toBe(0)
   return { code, stdout, stderr }
 }
 
+/** Runs a command to its end, and fails the test unless it exits 0. */
+async function run(
+  command: string,
+  args: readonly string[],
+  cwd: string,
+  env: Env,
+): Promise<Ran> {
+  const done = await ran(command, args, cwd, env)
+  expect(
+    done.code,
+    `${command} ${args.join(" ")}\n${done.stdout}\n${done.stderr}`,
+  ).toBe(0)
+  return done
+}
+
 /**
- * The environment every command runs in: the suite's registry, a temporary
- * directory and a bun cache of the run's own, and no studio key.
+ * What the commands take from the machine running the suite: where `bun` is,
+ * and the way out to the network when it goes through a proxy. Nothing that
+ * says where to resolve a package from: a `NODE_PATH` naming a global
+ * `node_modules` lets a command import a package nobody installed for it,
+ * so a command that needs one passes here and fails for an author.
+ */
+const FROM_THE_MACHINE = [
+  "PATH",
+  "HTTP_PROXY",
+  "HTTPS_PROXY",
+  "NO_PROXY",
+  "http_proxy",
+  "https_proxy",
+  "no_proxy",
+  "NODE_EXTRA_CA_CERTS",
+] as const
+
+/**
+ * The environment every command runs in, built up rather than copied from
+ * the suite's own: what it takes from the machine, a home, a temporary
+ * directory and a bun cache of the run's own, and the suite's registry. A
+ * home of its own keeps out a global `.bunfig.toml` or `.npmrc`, and
+ * anything a command could find under the suite's `~/.bun`.
  */
 async function isolated(dir: string, registry: string): Promise<Env> {
-  const env: Record<string, string | undefined> = {
-    ...process.env,
-    BUN_CONFIG_REGISTRY: registry,
-    TMPDIR: join(dir, "tmp"),
+  const home = join(dir, "home")
+  const tmp = join(dir, "tmp")
+  await mkdir(home, { recursive: true })
+  await mkdir(tmp, { recursive: true })
+  const env: Record<string, string> = {
+    HOME: home,
+    TMPDIR: tmp,
     BUN_INSTALL_CACHE_DIR: join(dir, "cache"),
+    BUN_CONFIG_REGISTRY: registry,
   }
-  delete env.VBZ_STUDIO_KEY
-  delete env.VBZ_API_ORIGIN
-  await mkdir(join(dir, "tmp"), { recursive: true })
+  for (const name of FROM_THE_MACHINE) {
+    const value = process.env[name]
+    if (value !== undefined) env[name] = value
+  }
   return env
 }
 
@@ -161,6 +204,18 @@ test("a game made from the packed kit installs, refreshes its guides, checks and
     // own, and the game made by the command that installed.
     await writeFile(join(dir, "package.json"), '{ "private": true }\n')
     await run("bun", ["add", tarballs.sdk, tarballs.engine], dir, env)
+    // TypeScript is an optional peer of the engine, so nothing installed it,
+    // and nothing on the machine may hand it over: that is what an author has
+    // before the game's own install, which is where `vbz new` has to work.
+    const engine = join(dir, "node_modules", "@clockwork2", "engine")
+    const unreachable = await ran(
+      "bun",
+      ["-e", 'Bun.resolveSync("typescript", process.cwd())'],
+      engine,
+      env,
+    )
+    expect(unreachable.code).not.toBe(0)
+    expect(unreachable.stderr).toContain("Cannot find package 'typescript'")
     const made = await run(
       join(dir, "node_modules", ".bin", "vbz"),
       ["new", "pocket-run"],

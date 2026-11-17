@@ -387,6 +387,12 @@ What only a browser can settle, and what each spec found:
   through `BUN_CONFIG_REGISTRY`, which `bunx` reads and a `bunfig.toml` in
   its working directory does not. `bunx` reuses its install under `TMPDIR`
   from one run to the next, so every run gets its own `TMPDIR` and bun cache.
+  Each command's environment is built up from `PATH`, the machine's proxy if
+  it has one, and a home of the run's own, never copied from the suite's: a
+  copied `NODE_PATH` naming a global `node_modules` let `vbz new` load
+  TypeScript, which no game has before its own install, and pass here while
+  it failed on a machine with nothing global. The spec holds TypeScript
+  unreachable from the installed engine before `vbz new` runs.
 
 Chromium runs every spec; Firefox and WebKit run the one about the policy,
 which is each engine's to decide. The fingers and the sensor override are
