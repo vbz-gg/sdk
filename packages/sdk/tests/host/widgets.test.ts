@@ -194,8 +194,22 @@ describe("the sign-in button", () => {
   test("gives focus back to its button once the box comes down, however it closed", async () => {
     const SIGN_IN = "https://signin.vbz.example"
     const page = new FakePage()
-    // The real box, over this document, for a client otherwise scripted.
-    page.mountSignInBox = (handlers) => mountSignInBox(document, handlers)
+    // The real box, over this document, for a client otherwise scripted,
+    // whose frame is told where to go and goes nowhere: what loads in it is
+    // the browser suite's question.
+    let pointed = ""
+    page.mountSignInBox = (handlers) => {
+      const box = mountSignInBox(document, handlers)
+      return {
+        get frame() {
+          return box.frame
+        },
+        load: (url) => {
+          pointed = url
+        },
+        remove: () => box.remove(),
+      }
+    }
     const client = createPlatformClient({
       apiOrigin: "https://api.vbz.example",
       signInOrigin: SIGN_IN,
@@ -226,7 +240,7 @@ describe("the sign-in button", () => {
     button().click()
     await settlePage()
     const shown = frame()
-    const state = new URL(shown?.src ?? "").searchParams.get("state")
+    const state = new URL(pointed).searchParams.get("state")
     for (const data of [
       { type: "vbz.signin.ready", state },
       { type: "vbz.signin", code: "c", state },

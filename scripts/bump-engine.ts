@@ -4,7 +4,7 @@
  *
  *   bun run scripts/bump-engine.ts 0.8.0
  *
- * The engine's version is written in six places and they have to move
+ * The engine's version is written in seven places and they have to move
  * together: the root's exact pin, the package's peer range, the template's
  * own dependency, the kernel version each example manifest declares, and the
  * range `docs/sdk.md` quotes. Leaving one behind is not loud - a stale
@@ -92,6 +92,7 @@ function edits(from: EngineVersions, to: string): Edit[] {
     ...[
       "packages/sdk/templates/game/src/sim/manifest.ts",
       "fixtures/paddle/src/sim/manifest.ts",
+      "fixtures/folder/src/sim/manifest.ts",
     ].map((file) => ({
       file,
       find: `kernel: { version: "${from.pinned}" }`,
