@@ -14,7 +14,10 @@ import type {
   PlatformClientError,
   PlatformRefusal,
 } from "../../src/platform/errors"
-import { SIGN_IN_READY_MS } from "../../src/platform/signin"
+import {
+  MAX_SIGN_IN_READY_MS,
+  SIGN_IN_READY_MS,
+} from "../../src/platform/signin"
 import { FakePage, settle } from "./fake-page"
 
 const API = "https://api.vbz.example"
@@ -463,7 +466,25 @@ describe("signing a player in", () => {
     page.advance(1)
     await settle()
     expect(seen.code).toBe("E_SIGNIN_UNREACHABLE")
-    for (const readyMs of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+    // The most a browser's timer waits is taken; one past it would fire at once.
+    expect(() =>
+      createPlatformClient({
+        apiOrigin: API,
+        signInOrigin: SIGN_IN,
+        pageKey: KEY,
+        environment: page,
+        signInReadyMs: MAX_SIGN_IN_READY_MS,
+      }),
+    ).not.toThrow()
+    expect(MAX_SIGN_IN_READY_MS).toBe(2_147_483_647)
+    for (const readyMs of [
+      0,
+      -1,
+      1.5,
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      MAX_SIGN_IN_READY_MS + 1,
+    ]) {
       expect(() =>
         createPlatformClient({
           apiOrigin: API,

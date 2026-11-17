@@ -478,7 +478,10 @@ which page it was about. While a page is unanswered, the client waits the
 ready time from its load, or from asking for the first page:
 `SIGN_IN_READY_MS`, 15 seconds, an estimate nobody measured on a slow
 network, unless the page gives `createPlatformClient` a `signInReadyMs` of
-its own, as the browser suite does with 3 seconds. With no answer,
+its own, as the browser suite does with 3 seconds: a whole number of
+milliseconds up to `MAX_SIGN_IN_READY_MS`, 2,147,483,647, the most a
+browser's timer waits, past which it would fire at once, so a client is
+not made with more. With no answer,
 `signIn()` rejects with `E_SIGNIN_UNREACHABLE` and the box comes down.
 
 `vbz.signin` carries the code, which the client trades at

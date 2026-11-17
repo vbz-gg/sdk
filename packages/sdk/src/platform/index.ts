@@ -59,4 +59,4 @@ export {
   SUBMIT_ATTEMPTS,
   SUBMIT_RETRY_MS,
 } from "./run.js"
-export { SIGN_IN_READY_MS } from "./signin.js"
+export { MAX_SIGN_IN_READY_MS, SIGN_IN_READY_MS } from "./signin.js"

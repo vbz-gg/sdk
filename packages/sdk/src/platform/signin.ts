@@ -50,6 +50,13 @@ import { makePkce } from "./pkce.js"
  */
 export const SIGN_IN_READY_MS = 15_000
 
+/**
+ * The longest ready time a page may name: 2,147,483,647 ms, the most a
+ * browser's `setTimeout` waits. Past it, browsers run the timer at once, so
+ * a page asking for more would get an empty box given up on immediately.
+ */
+export const MAX_SIGN_IN_READY_MS = 2_147_483_647
+
 /** Each message's `type`, as the platform's sign-in posts it. */
 const READY: SignInReady["type"] = "vbz.signin.ready"
 const HANDOFF: SignInHandoff["type"] = "vbz.signin"
