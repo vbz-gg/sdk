@@ -117,8 +117,10 @@ export interface PlatformClient {
    */
   signIn(): Promise<SignedInPlayer["player"]>
   /**
-   * Takes the sign-in's box off the page, if one is open: its `signIn()`
-   * rejects with `E_SIGNIN_CANCELLED`. Nothing otherwise.
+   * Ends the sign-in open on the page, if there is one: its box comes down
+   * and its `signIn()` rejects with `E_SIGNIN_CANCELLED`, also once the
+   * player has signed in and the code is being traded, whose answer is then
+   * kept for nobody. Nothing otherwise.
    */
   closeSignIn(): void
   /** Forgets the player on this page. No route signs a player out. */
@@ -274,7 +276,16 @@ export function createPlatformClient(
         signInOrigin: options.signInOrigin,
         pageKey: options.pageKey,
       })
-      const player = asked.grant.then(async (grant) => {
+      // Closed by the page while the code is traded: what the trade
+      // answers is nobody's, and the sign-in ends now rather than then.
+      let trading = false
+      let abandoned = false
+      let abandon: (error: unknown) => void = () => {}
+      const closed = new Promise<never>((_, reject) => {
+        abandon = reject
+      })
+      const traded = asked.grant.then(async (grant) => {
+        trading = true
         const signedIn = await request("POST /v1/oauth/token", {
           body: {
             code: grant.code,
@@ -282,10 +293,22 @@ export function createPlatformClient(
             clientId: options.pageKey,
           },
         })
+        if (abandoned) throw new PlatformClientError("E_SIGNIN_CANCELLED")
         keep(signedIn.token, signedIn.expiresIn, signedIn.player)
         return signedIn.player
       })
-      const open = { player, close: asked.cancel }
+      const player = Promise.race([traded, closed])
+      const open = {
+        player,
+        close: () => {
+          abandoned = true
+          // Before the code arrived the box is what there is to close, and
+          // its own rejection, or the failure already on its way, is the
+          // sign-in's answer.
+          asked.cancel()
+          if (trading) abandon(new PlatformClientError("E_SIGNIN_CANCELLED"))
+        },
+      }
       signingIn = open
       const done = () => {
         if (signingIn === open) signingIn = null

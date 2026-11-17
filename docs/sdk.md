@@ -399,7 +399,9 @@ from asking for the first. With none, `signIn()` rejects with
 `POST /v1/oauth/token`. `vbz.signin.cancel` is Escape inside the frame,
 which the page cannot hear while the frame has focus. The Cancel button,
 Escape in the page, the sign-in's cancel and the page's own `closeSignIn()`
-reject with `E_SIGNIN_CANCELLED` and take the box down. A second `signIn()`
+reject with `E_SIGNIN_CANCELLED` and take the box down. `closeSignIn()` also
+ends a sign-in whose code is still being traded: the player signed in, and
+the page keeps nobody from it. A second `signIn()`
 while one is open answers the first's promise and opens nothing.
 
 The box makes three things true that a window did not. A player's remembered

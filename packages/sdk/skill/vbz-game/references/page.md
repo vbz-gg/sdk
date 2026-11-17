@@ -28,7 +28,8 @@ signInButton.onclick = () => platform.signIn() // from the click, nothing awaite
   click, which is when a phone opens its keyboard. Call it straight from the
   handler. A second call while the box is up answers the same promise.
   The player closes the box with its Cancel button or Escape, and
-  `closeSignIn()` closes it from the page; each rejects with
+  `closeSignIn()` closes it from the page, even while the code is being
+  traded, when the page then keeps nobody; each rejects with
   `E_SIGNIN_CANCELLED`. The sign-in frames only for your page's exact origin,
   so the page's policy names it in `frame-src`, and a page shown inside
   another page whose origin is not its own, the same site's included, cannot

@@ -197,6 +197,41 @@ describe("signing a player in", () => {
     }
   })
 
+  /**
+   * The page closes the sign-in after the player signed in, while the code
+   * is being traded. The page asked for no player, so the trade's answer is
+   * kept for nobody and nothing hears of one.
+   */
+  test("closed by the page while the code is traded, it rejects E_SIGNIN_CANCELLED and keeps nobody", async () => {
+    const { page, client: platform } = client()
+    page.answers.push({
+      status: 200,
+      body: { token: "t-1", expiresIn: 7_776_000, player: PLAYER },
+    })
+    const changes: unknown[] = []
+    platform.onPlayerChange((player) => changes.push(player))
+    const seen = outcome(platform.signIn())
+    await settle()
+    signedInThroughBox(page)
+    expect(page.box?.removed).toBe(true)
+    platform.closeSignIn()
+    await settle()
+    expect(seen.code).toBe("E_SIGNIN_CANCELLED")
+    // The trade was asked for, and what it answered is nobody's.
+    await settle()
+    expect(page.sent.map((sent) => sent.url.pathname)).toEqual([
+      "/v1/oauth/token",
+    ])
+    expect(platform.player()).toBeNull()
+    expect(page.kept.size).toBe(0)
+    expect(changes).toEqual([])
+    // The next sign-in opens a box of its own.
+    const next = platform.signIn()
+    expect(page.boxes).toHaveLength(2)
+    page.box?.cancel()
+    await caught(() => next)
+  })
+
   test("closed before its frame was pointed anywhere, the box comes down and nothing loads", async () => {
     const { page, client: platform } = client()
     const seen = outcome(platform.signIn())
