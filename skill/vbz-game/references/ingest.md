@@ -91,6 +91,16 @@ reaches the next ranked start, because a ranked run plays the line's highest
 published patch. A new minor or major waits for the next day's seed. Practice
 plays the newest playable version of any line.
 
+As it publishes, the platform replays up to 50 of the line's most recent
+settled ranked runs under the new rules code and counts the runs whose end
+tick, terminal or counters come out different. The version publishes
+whatever the count is. `vbz publish` prints it, for example
+`patch check: 3 of 50 recent ranked runs on line 1.2 end differently under
+this version`, and prints nothing while the platform has not measured it.
+It measures the part of a patch's promise no manifest shows, whether the same
+play still scores the same; `docs/sdk.md` under "Versions and release lines"
+says what a patch may change.
+
 A studio never takes a version down. It supersedes one by publishing a newer
 version, so a broken patch is fixed by the next patch, which today's ranked
 runs reach once it passes. Only a vbz operator takes a version down. When

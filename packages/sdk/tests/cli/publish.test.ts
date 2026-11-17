@@ -106,6 +106,7 @@ function status(
       ranked: state === "published" ? "today" : "none",
       practice: state === "published",
     },
+    patchScores: null,
     createdAt: "2026-11-11T05:59:00.000Z",
     ...overrides,
   }
@@ -555,6 +556,57 @@ describe("the verdict a build log shows", () => {
     expect(older.lines[1]).toMatch(/^ranked runs: none/)
   })
 
+  /**
+   * The platform replays the line's recent ranked runs under a patch's rules
+   * code as it publishes, and says how many ended differently. It decides
+   * nothing, so the command prints it after which runs the version serves.
+   */
+  test("a published version says how many of its line's recent ranked runs end differently", () => {
+    const verdict = verdictOf(
+      status("published", { patchScores: { compared: 50, differing: 3 } }),
+    )
+    expect(verdict.exitCode).toBe(0)
+    expect(verdict.lines).toHaveLength(4)
+    expect(verdict.lines[3]).toBe(
+      "patch check: 3 of 50 recent ranked runs on line 1.2 end differently under this version",
+    )
+    expect(
+      verdictOf(
+        status("published", { patchScores: { compared: 1, differing: 1 } }),
+      ).lines[3],
+    ).toBe(
+      "patch check: 1 of 1 recent ranked run on line 1.2 ends differently under this version",
+    )
+    expect(
+      verdictOf(
+        status("published", { patchScores: { compared: 0, differing: 0 } }),
+      ).lines[3],
+    ).toBe(
+      "patch check: line 1.2 has no settled ranked runs yet to compare this version with",
+    )
+    const takenDown = verdictOf(
+      status("published", {
+        suspended: true,
+        patchScores: { compared: 50, differing: 0 },
+      }),
+    )
+    expect(takenDown.exitCode).toBe(1)
+    expect(takenDown.lines[1]).toBe(
+      "patch check: 0 of 50 recent ranked runs on line 1.2 end differently under this version",
+    )
+  })
+
+  test("a version the platform has not measured prints no patch check", () => {
+    const verdict = verdictOf(status("published"))
+    expect(verdict.lines).toHaveLength(3)
+    expect(verdict.lines.some((line) => line.startsWith("patch check"))).toBe(
+      false,
+    )
+    expect(
+      verdictOf(status("published", { suspended: true })).lines,
+    ).toHaveLength(1)
+  })
+
   test("published and taken down exits 1, because no player is served it", () => {
     const verdict = verdictOf(status("published", { suspended: true }))
     expect(verdict.exitCode).toBe(1)
@@ -759,7 +811,9 @@ describe("the real command", () => {
 
   test("uploads a build with no Origin header and exits 0 when it goes live", async () => {
     await writeDist(dir)
-    const { server, seen } = platform(status("published"))
+    const { server, seen } = platform(
+      status("published", { patchScores: { compared: 50, differing: 3 } }),
+    )
     try {
       const result = await run(`http://127.0.0.1:${server.port}`, {
         [STUDIO_KEY_VARIABLE]: KEY,
@@ -770,6 +824,9 @@ describe("the real command", () => {
       )
       expect(result.stdout).toContain("ranked runs: today's")
       expect(result.stdout).toContain("practice runs: from the next start")
+      expect(result.stdout).toContain(
+        "patch check: 3 of 50 recent ranked runs on line 1.2 end differently under this version",
+      )
       expect(seen.origin).toBeNull()
       expect(seen.authorization).toBe(`Bearer ${KEY}`)
       // Byte for byte what `vbz build` wrote, whichever runtime sent it.
@@ -993,6 +1050,26 @@ describe("a version's answer is checked in every field the verdict reads", () =>
     expect(await readBack({ ...status("published"), serving: "today" })).toBe(
       PUBLISH_ERROR.ANSWER_UNREADABLE,
     )
+  })
+
+  test("a patch check that is not two counts is not printed", async () => {
+    for (const patchScores of [
+      { compared: 3, differing: 4 },
+      { compared: -1, differing: 0 },
+      { compared: 1.5, differing: 0 },
+      { compared: 50 },
+      "3 of 50",
+      undefined,
+    ]) {
+      expect(await readBack({ ...status("published"), patchScores })).toBe(
+        PUBLISH_ERROR.ANSWER_UNREADABLE,
+      )
+    }
+    expect(
+      await readBack(
+        status("published", { patchScores: { compared: 50, differing: 50 } }),
+      ),
+    ).toBe("ok")
   })
 
   test("an upload answer that does not name its line is unreadable", async () => {

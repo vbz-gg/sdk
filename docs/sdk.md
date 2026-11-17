@@ -667,6 +667,18 @@ that does not answer all exit 1 with a code that names which, and a refusal
 prints its `detail`: the fields a patch changed and the minor to publish
 instead, or the versions an upload had to be above.
 
+A published version also comes back with `patchScores`. As a version
+publishes, the platform replays up to 50 of its line's most recent settled
+ranked runs, played on the line's other versions, under the new rules code,
+and counts the runs whose end tick, terminal or counters come out different.
+That is the part of a patch's promise a manifest cannot show: a fix that
+changes what the same play scores. The count decides nothing, and the
+command prints it as the platform measured it, such as
+`patch check: 3 of 50 recent ranked runs on line 1.2 end differently under
+this version`. A line's first version has no runs of its line to replay, and
+the command says so. While the platform has not measured a version,
+`patchScores` is null and nothing is printed.
+
 The studio's secret key comes from `VBZ_STUDIO_KEY` and nowhere else. A flag
 would put it in shell history and in the process list. The request carries
 no `Origin` header, which is how the platform tells a build system from a

@@ -348,6 +348,23 @@ export interface VersionStatus {
    */
   readonly suspended: boolean
   readonly serving: VersionServing
+  /**
+   * What publishing this version does to its line's scores. As a version
+   * publishes, the platform replays up to 50 of its release line's most
+   * recent settled ranked runs, played on the line's other versions, under
+   * this version's rules code, and counts the runs whose end tick, terminal
+   * or counters come out different. It decides nothing: the version
+   * publishes whatever the count says, and the studio is told. `compared` is
+   * 0 for a line's first version, which has no runs of its own line to
+   * replay. Null while the version is pending or rejected, or when the
+   * platform has not measured it.
+   */
+  readonly patchScores: {
+    /** The line's runs replayed under this version's rules code. */
+    readonly compared: number
+    /** Of those, the runs that ended differently. */
+    readonly differing: number
+  } | null
   readonly createdAt: string
 }
 

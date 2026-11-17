@@ -231,7 +231,8 @@ names another, and the key is sent only over https or to this machine.
 **It prints what the platform decided, in the platform's terms**: the release
 line the version joined, a refusal's `detail` (the fields a patch changed and
 the minor to publish instead, or the versions an upload had to be above), and
-once the checks pass, which runs the version serves.
+once the checks pass, which runs the version serves and how many of its
+line's recent ranked runs end differently under it.
 
 **Its exit code is the verdict.** 0 means the version passed its checks and
 is published, and the command has printed which runs it serves. Anything
