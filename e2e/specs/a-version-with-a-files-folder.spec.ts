@@ -184,8 +184,12 @@ test("as a ranked run, it gets ready before the platform is asked for a run, and
   )
 
   // What the stand-in hands a page to watch the run, replayed away from
-  // the page with the pack the bundles origin serves.
-  await expect(page.locator("#watched-run")).not.toBeEmpty()
+  // the page with the pack the bundles origin serves. A refusal is
+  // published with its code, which the assertion then names.
+  await expect(page.locator("body")).toHaveAttribute("data-watched-run", /.+/)
+  expect(await page.locator("body").getAttribute("data-watched-run")).toBe(
+    "read",
+  )
   const watched = await published<{
     readonly seed: string
     readonly config: unknown

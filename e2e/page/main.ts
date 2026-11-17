@@ -305,10 +305,19 @@ async function runs(): Promise<void> {
           settled = next.result.sessionId
           publish("run", next.result)
           // What the platform hands a page to watch the run: its seed,
-          // config and inputs, which a spec replays away from the page.
-          void client.watch(settled).then((watched) => {
-            publish("watched-run", watched)
-          })
+          // config and inputs, which a spec replays away from the page; or
+          // the code it was refused with, so a spec names the cause.
+          client.watch(settled).then(
+            (watched) => {
+              publish("watched-run", watched)
+              body.dataset.watchedRun = "read"
+            },
+            (error: unknown) => {
+              const { code } = error as { code?: string }
+              publish("watched-run", { refused: code ?? String(error) })
+              body.dataset.watchedRun = code ?? "refused"
+            },
+          )
         }
       },
     })
