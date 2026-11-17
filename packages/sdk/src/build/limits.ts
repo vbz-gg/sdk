@@ -1,8 +1,9 @@
 import { MAX_FILE_PATH_LENGTH } from "../game/files.js"
 
 /**
- * Every size the platform holds a version and a run to, and the budget one
- * replay of a run has, in one place.
+ * Every size the platform holds a version and a run to, the budget one
+ * replay of a run has, and how long the platform waits on its checks, in one
+ * place.
  *
  * The platform imports these, and so does everything here that checks one:
  * `vbz build`, the stand-in a studio's page runs against, and the agent
@@ -95,3 +96,20 @@ export const REPLAY_WALL_BUDGET_MS = REPLAY_CPU_BUDGET_MS * 1.5
  * in powers of ten or of two.
  */
 export const REPLAY_MEMORY_MB = 128
+
+/**
+ * How long the platform waits past `REPLAY_WALL_BUDGET_MS` for the replay
+ * service's answer before it counts a replay as unanswered: 10 seconds, for
+ * the request and the answer on their way. The platform takes its margin
+ * from here.
+ */
+export const REPLAY_ANSWER_MARGIN_MS = 10_000
+
+/**
+ * How long the platform waits for one checks container to answer: 12
+ * minutes, which covers the checks child's two minutes, two for each of the
+ * sweep's three engines and two for the page-module check's browser running
+ * out, a cold start and two bundle builds. The platform takes its wait from
+ * here and keeps its container's own deadline under it.
+ */
+export const CHECKS_CONTAINER_WAIT_MS = 12 * 60_000

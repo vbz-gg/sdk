@@ -1261,19 +1261,25 @@ prints the release line the version joined, and then reads the version back
 at
 `GET /v1/studios/:studioId/versions/:versionId` every two seconds until the
 platform's checks decide. The upload's answer names the studio, so the
-command needs only the game's id. It waits up to 29.5 minutes,
-`CHECK_WAIT_MS`, made of 10 minutes for the ingest job to wait in the
-platform's queue (`CHECK_QUEUE_ALLOWANCE_MS`), 12 minutes for the checks
-container running the game in three engines (`CHECK_CONTAINER_ALLOWANCE_MS`,
-the platform's own wait for one), and the 7.5 minutes of wall time the
-replay-service check's one replay may take before the replay service
-answers (`REPLAY_WALL_BUDGET_MS`). It covers one attempt: when the replay
-service gives no answer, the platform runs the version's job again, which
-the wait does not cover. A version still pending after that is reported in
-the platform's terms, still pending, with the address to read its state at
-later and a reminder that uploading it again is refused as
-`E_VERSION_EXISTS`, and the command exits 1, because only a published
-version exits 0.
+command needs only the game's id. It waits up to 36 minutes,
+`CHECK_WAIT_MS`, the platform's worst case for one attempt with headroom,
+rounded up to whole minutes: 10 minutes for the ingest job to wait in the
+platform's queue (`CHECK_QUEUE_ALLOWANCE_MS`); 12 minutes for the checks
+container running the game in three engines, as long as the platform waits
+for one (`CHECKS_CONTAINER_WAIT_MS`); the 7.5 minutes of wall time the
+replay-service check's one replay may take (`REPLAY_WALL_BUDGET_MS`) and the
+10 seconds the platform waits past it for the answer
+(`REPLAY_ANSWER_MARGIN_MS`); 5 minutes for copying a published version's
+files to the public store before the verdict is written
+(`CHECK_PUBLISH_ALLOWANCE_MS`), which nobody has timed; and 1 minute of
+headroom (`CHECK_WAIT_HEADROOM_MS`). The platform takes its own waits and
+the replay's budget from the same `/build` constants. The wait covers one
+attempt: when the replay service gives no answer, the platform runs the
+version's job again, which it does not cover. A version still pending after
+that is reported in the platform's terms, still pending, with the address
+to read its state at later and a reminder that uploading it again is
+refused as `E_VERSION_EXISTS`, and the command exits 1, because only a
+published version exits 0.
 
 Each of the four goes as a file part carrying the file's bytes as they are
 on disk. A text part would not arrive that way: an encoder that follows the

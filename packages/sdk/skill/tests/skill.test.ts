@@ -21,6 +21,7 @@ import ts from "typescript"
 import * as build from "../../src/build/index.js"
 import {
   BUILD_REFUSAL,
+  CHECKS_CONTAINER_WAIT_MS,
   MAX_CHUNK_BYTES,
   MAX_FILE_BYTES,
   MAX_FILES,
@@ -31,6 +32,7 @@ import {
   MAX_RUN_BYTES,
   MAX_SIM_BYTES,
   MAX_VERSION_PART,
+  REPLAY_ANSWER_MARGIN_MS,
   REPLAY_CPU_BUDGET_MS,
   REPLAY_MEMORY_MB,
   REPLAY_WALL_BUDGET_MS,
@@ -40,8 +42,9 @@ import { CAPABILITY_RULES, LINE_RULES } from "../../src/build/line.js"
 import { COMMANDS } from "../../src/cli/index.js"
 import { TEMPLATE_DIR } from "../../src/cli/new.js"
 import {
-  CHECK_CONTAINER_ALLOWANCE_MS,
+  CHECK_PUBLISH_ALLOWANCE_MS,
   CHECK_QUEUE_ALLOWANCE_MS,
+  CHECK_WAIT_HEADROOM_MS,
   CHECK_WAIT_MS,
 } from "../../src/cli/publish.js"
 import { NEEDS, PACKAGE_KEY } from "../../src/cli/source.js"
@@ -466,10 +469,19 @@ describe("one replay's budget", () => {
       `${minutes(CHECK_QUEUE_ALLOWANCE_MS)} minutes for the ingest job`,
     )
     expect(text).toContain(
-      `${minutes(CHECK_CONTAINER_ALLOWANCE_MS)} minutes for the checks container`,
+      `${minutes(CHECKS_CONTAINER_WAIT_MS)} minutes for the checks container`,
     )
     expect(text).toContain(
       `the ${minutes(REPLAY_WALL_BUDGET_MS)} minutes of wall time the replay-service check's one replay may take`,
+    )
+    expect(text).toContain(
+      `${REPLAY_ANSWER_MARGIN_MS / 1000} seconds the platform waits past it for the answer`,
+    )
+    expect(text).toContain(
+      `${minutes(CHECK_PUBLISH_ALLOWANCE_MS)} minutes for copying a published version's files`,
+    )
+    expect(text).toContain(
+      `${minutes(CHECK_WAIT_HEADROOM_MS)} minute of headroom`,
     )
   })
 })

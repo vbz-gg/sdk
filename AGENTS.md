@@ -337,10 +337,13 @@ once the checks pass, which runs the version serves and how many of its
 line's recent ranked runs end differently under it.
 
 **The wait for a verdict is derived, never written as a number.**
-`CHECK_WAIT_MS` is the queue's and the checks container's named allowances
-and `/build`'s `REPLAY_WALL_BUDGET_MS`, the replay budget the platform takes
-from this package, so a budget that moves moves the wait. It covers one
-attempt, not a retry after a replay service that gave no answer.
+`CHECK_WAIT_MS` is `checkWaitOf` over the queue's and the public-store
+copy's named allowances and `/build`'s `CHECKS_CONTAINER_WAIT_MS`,
+`REPLAY_WALL_BUDGET_MS` and `REPLAY_ANSWER_MARGIN_MS`, which the platform
+takes from this package, with a minute of headroom, rounded up to whole
+minutes, so it is never shorter than the platform's worst case for one
+attempt and a wait or budget that moves moves it. It does not cover a
+retry after a replay service that gave no answer.
 
 **Its exit code is the verdict.** 0 means the version passed its checks and
 is published, and the command has printed which runs it serves. Anything
@@ -408,7 +411,8 @@ in both; a manifest with no ranking goes by one name everywhere, the
 engine's `E_RANK_UNDECLARED`; every figure the guide and `docs/sdk.md`
 quote for one replay, and what follows from it, is `/build`'s `REPLAY_`
 budget, and the publish wait `docs/sdk.md` states is `CHECK_WAIT_MS` and its
-parts; `references/page.md` explains every client code and no other; every prose copy of what a release line fixes (in `SKILL.md`,
+parts; `references/page.md` explains every client code and no other; every
+prose copy of what a release line fixes (in `SKILL.md`,
 `references/ingest.md` and `docs/sdk.md`) names exactly the fields
 `LINE_RULES` fixes; every need the prose shows a `package.json` naming is
 one `vbz` takes; the policy the null3d recipe and `docs/sdk.md` print for a

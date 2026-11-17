@@ -32,7 +32,9 @@ import { TEMPLATE_DIR } from "../../src/cli/new.js"
 import {
   API_ORIGIN_VARIABLE,
   CHECK_POLL_MS,
+  CHECK_WAIT_HEADROOM_MS,
   CHECK_WAIT_MS,
+  checkWaitOf,
   DEFAULT_API_ORIGIN,
   FILE_ATTEMPTS,
   FILE_RETRY_MS,
@@ -634,13 +636,16 @@ describe("waiting for the checks", () => {
   test("still pending when the wait runs out says so in the platform's terms, and where to read it", async () => {
     await writeDist(dir)
     const answers = [() => json(uploaded(), 201)]
-    const reads = CHECK_WAIT_MS / CHECK_POLL_MS + 1
-    for (let i = 0; i < reads; i += 1)
+    // A read, then a sleep, until the time slept reaches the wait: the
+    // reads it takes, and one more that finds the wait run out.
+    const sleeps = Math.ceil(CHECK_WAIT_MS / CHECK_POLL_MS)
+    for (let i = 0; i < sleeps + 1; i += 1)
       answers.push(() => json(status("pending")))
     const net = world(answers)
     const refused = await refusalOf(publish(settings(), net.deps))
     expect(refused.code).toBe(PUBLISH_ERROR.STILL_CHECKING)
-    expect(net.slept.reduce((a, b) => a + b, 0)).toBe(CHECK_WAIT_MS)
+    expect(net.slept.reduce((a, b) => a + b, 0)).toBe(sleeps * CHECK_POLL_MS)
+    expect(net.sent).toHaveLength(1 + sleeps + 1)
     // Every read went to the version's own route, the one the log names.
     const read = `https://studio.example/v1/studios/${STUDIO}/versions/${VERSION_ID}`
     expect(net.sent.slice(1).every((request) => request.url === read)).toBe(
@@ -651,6 +656,23 @@ describe("waiting for the checks", () => {
       `read its state later with the studio's secret key, GET ${read}: pending until the checks decide, then published or rejected`,
       "do not publish 1.2.0 again: the platform has it, and a second upload is refused as E_VERSION_EXISTS",
     ])
+    expect(failureLines(refused)[0]).toMatch(/ after \d+ minutes: /)
+  })
+
+  /**
+   * The wait is made of budgets that are not whole minutes, such as a
+   * replay's 7.5 minutes and the 10 seconds past it. Summed as they are, it
+   * would print a fraction of a minute, and a part rounded down would make
+   * the wait shorter than the platform's worst case.
+   */
+  test("a wait made of parts that are not whole minutes is whole minutes, and never shorter than its parts", () => {
+    const parts = [7.5 * 60_000, 10_000]
+    const wait = checkWaitOf(parts)
+    const least = parts.reduce((a, b) => a + b, CHECK_WAIT_HEADROOM_MS)
+    expect(`${wait / 60_000}`).toMatch(/^\d+$/)
+    expect(wait).toBeGreaterThanOrEqual(least)
+    expect(wait - least).toBeLessThan(60_000)
+    expect(`${CHECK_WAIT_MS / 60_000}`).toMatch(/^\d+$/)
   })
 })
 
