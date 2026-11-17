@@ -813,6 +813,21 @@ describe("what a mount refuses before a tick runs", () => {
     }
   })
 
+  /** A `draw` that is not true or false would read as one or the other. */
+  test("a watched run whose draw is not true or false", () => {
+    for (const draw of ["no", 0, null]) {
+      expect(
+        refused({
+          mode: "watch",
+          inputs: [],
+          maxTicks: 60,
+          scripted: undefined,
+          draw,
+        }),
+      ).toEqual(["E_ARG_INVALID"])
+    }
+  })
+
   /** No run has a step limit; a page asking for one is asking for contract 1. */
   test("a step limit, or no drawing, on a played run", () => {
     expect(refused({ maxTicks: 600 })).toEqual(["E_ARG_INVALID"])

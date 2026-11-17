@@ -367,11 +367,12 @@ function refusalOf(
       `draw must be true or false, not ${JSON.stringify(given.draw)}`,
     )
   }
+  // `prepare` always draws, and `mount` with `draw: false` gets a game
+  // ready without drawing for that run alone, so the one mismatch a page can
+  // make is a prepared game watched without drawing.
   if ((options.draw ?? true) !== drawn) {
     return argInvalid(
-      drawn
-        ? "this game was prepared to draw, so it cannot be watched with draw: false"
-        : "this game was got ready without drawing, so it cannot be watched drawn",
+      "this game was prepared to draw, so it cannot be watched with draw: false",
     )
   }
   return null
