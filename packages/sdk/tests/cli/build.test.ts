@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { hashCanonical, type PlainValue } from "@clockwork2/engine"
 import { BuildRefusal } from "../../src/build/errors"
 import { canonicalListing, listingSha256 } from "../../src/build/files"
 import {
@@ -17,6 +18,7 @@ import {
   writeBuild,
 } from "../../src/cli/build"
 import { failureLine } from "../../src/cli/failure"
+import { localAddress } from "../../src/host/local"
 
 const SOURCE = {
   simEntry: "src/sim/index.ts",
@@ -175,6 +177,41 @@ describe("building", () => {
       `{"files":[]}`,
     )
     await expect(readFile(join(root, "dist", "frame.js"))).rejects.toThrow()
+  })
+
+  /**
+   * What a page playing the game locally needs to load it from a static host
+   * serving `dist/` as it is: where each part is, the manifest's hash, which
+   * the page module has to report, and the folder's name.
+   */
+  test("game.json says where each part is, beside it, and what they hash to", async () => {
+    await writeGame({ id: "probe", version: "1.0.0", name: "Probe" })
+    const built = await buildGame({ root, ...SOURCE })
+    await writeBuild(root, built)
+    const game = JSON.parse(
+      await readFile(join(root, "dist", "game.json"), "utf8"),
+    ) as Record<string, string>
+    expect(game).toEqual({
+      name: "Probe",
+      present: "present.js",
+      sim: "sim.js",
+      manifest: "manifest.json",
+      manifestHash: hashCanonical(built.manifest as PlainValue),
+      files: "files/",
+      listing: "files.json",
+      filesSha256: listingSha256({ files: [] }),
+    })
+    // Every part it names is there.
+    for (const part of ["present", "sim", "manifest", "listing"] as const) {
+      await readFile(join(root, "dist", game[part] as string))
+    }
+    expect(localAddress(game, "https://a-game.example/game/game.json")).toEqual(
+      {
+        presentUrl: "https://a-game.example/game/present.js",
+        manifestHash: hashCanonical(built.manifest as PlainValue),
+        filesUrl: "https://a-game.example/game/files/",
+      },
+    )
   })
 })
 

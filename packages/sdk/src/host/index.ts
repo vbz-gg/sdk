@@ -20,11 +20,13 @@ export {
 } from "./load.js"
 export {
   LOCAL_SEED_PREFIX,
+  type LocalBuild,
   type LocalEnd,
   type LocalError,
   type LocalPlayOptions,
   type LocalRecording,
   type LocalRun,
+  localAddress,
   localSeed,
   playLocal,
 } from "./local.js"

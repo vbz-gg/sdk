@@ -35,7 +35,7 @@ import {
   STUDIO_KEY_VARIABLE,
   verdictOf,
 } from "./publish.js"
-import { sourceOf } from "./source.js"
+import { needsOf, sourceOf } from "./source.js"
 
 /** Everything the usage says after the commands: the flags, and publish's key. */
 const FLAGS = `  --sim <path>       the simulation's entry   (default src/sim/index.ts)
@@ -46,8 +46,10 @@ const FLAGS = `  --sim <path>       the simulation's entry   (default src/sim/in
   --address <host>   dev: where both listen, and the host their origins name
                      (default ${DEFAULT_ADDRESS}); another machine's needs --https
   --https            dev: serve https, with --cert <file> and --key <file> (PEM)
-  --site             dev: serve the game's site/ against a stand-in for the
-                     platform, which plays one local player and ranks nothing
+  --site             dev: serve the game's site/ in the mode its config.json
+                     names: local, with the build beside it as /game/, or
+                     ranked, against a stand-in for the platform, which
+                     plays one local player and ranks nothing
   --ranked           check: also what a ranked or practice run needs: the seed
                      changes the state, and the manifest says how a run ranks
                      dev: hold each run to a ranked run's input budget
@@ -75,6 +77,7 @@ async function dev(options: Options): Promise<void> {
   if (settings.site) {
     const site = await startSite({
       source: await sourceOf(options),
+      needs: await needsOf(options.dir),
       gameId: HARNESS_GAME_ID,
       seed: HARNESS_SEED,
       hostPort: settings.hostPort,
@@ -83,11 +86,14 @@ async function dev(options: Options): Promise<void> {
       log: (line) => process.stdout.write(`${line}\n`),
     })
     process.stdout.write(
-      `\n  site     ${site.siteOrigin}\n` +
-        `  bundles  ${site.bundlesOrigin}\n` +
-        `  api      ${site.apiOrigin}  (a stand-in: one local player, no replay, no ranking)\n` +
-        `  sign-in  ${site.signInOrigin}\n\n` +
-        "  Ctrl-C to stop.\n",
+      site.mode === "local"
+        ? `\n  site     ${site.siteOrigin}  (played locally: the build as ${site.siteOrigin}/game/)\n\n` +
+            "  Ctrl-C to stop.\n"
+        : `\n  site     ${site.siteOrigin}\n` +
+            `  bundles  ${site.bundlesOrigin}\n` +
+            `  api      ${site.apiOrigin}  (a stand-in: one local player, no replay, no ranking)\n` +
+            `  sign-in  ${site.signInOrigin}\n\n` +
+            "  Ctrl-C to stop.\n",
     )
     return
   }
@@ -97,6 +103,7 @@ async function dev(options: Options): Promise<void> {
     bundlesPort: settings.bundlesPort,
     listen: settings.listen,
     ranked: settings.ranked,
+    needs: await needsOf(options.dir),
   })
   process.stdout.write(
     `\n  play     ${harness.hostOrigin}\n` +

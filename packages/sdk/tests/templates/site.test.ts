@@ -28,12 +28,14 @@ import type {
   RunResult,
 } from "../../src/api/index"
 import { TEMPLATE_DIR } from "../../src/cli/new"
-import type { LoadedGame } from "../../src/host/load"
+import type { GameAddress, LoadedGame } from "../../src/host/load"
+import type { LocalPlayOptions, LocalRun } from "../../src/host/local"
 import { type PlayOptions, playRun, type RunLocks } from "../../src/host/play"
 import { CLIENT_ERROR } from "../../src/platform/errors"
 import { RUN_PHASE, type RunState } from "../../src/platform/run"
 import {
   barredMessage,
+  endedMessage,
   NO_ROUND_TODAY,
   RANKED_PAUSED,
   RANKED_PAUSED_ALONE,
@@ -42,8 +44,10 @@ import {
   stateMessage,
 } from "../../templates/game/site/messages"
 import {
+  LOCAL_BUILD,
   readConfig,
   type SiteOptions,
+  startLocalSite,
   startSite,
 } from "../../templates/game/site/page"
 
@@ -193,30 +197,63 @@ describe("what the page says", () => {
 })
 
 describe("the page's config", () => {
-  test("a filled-in config is a client's", () => {
+  test("a filled-in ranked config is a client's", () => {
     expect(
       readConfig({
+        mode: "ranked",
         apiOrigin: "https://api.example",
         signInOrigin: "https://signin.example",
         pageKey: "vbz_pk_1",
       }),
     ).toEqual({
+      mode: "ranked",
       apiOrigin: "https://api.example",
       signInOrigin: "https://signin.example",
       pageKey: "vbz_pk_1",
     })
   })
 
-  test("the template's own names the platform and, with no page key, says which file to fill in", async () => {
+  /** A new game plays with no platform until its author opts in. */
+  test("the template's own plays locally", async () => {
     const shipped = JSON.parse(
       await readFile(join(TEMPLATE_DIR, "site", "config.json"), "utf8"),
-    ) as { apiOrigin?: string; signInOrigin?: string }
-    expect(shipped.apiOrigin).toBe("https://api.vbz.gg")
-    expect(shipped.signInOrigin).toBe("https://signin.vbz.gg")
-    expect(() => readConfig(shipped)).toThrow(/site\/config\.json needs/)
-    expect(() => readConfig(null)).toThrow(/site\/config\.json needs/)
+    ) as unknown
+    expect(shipped).toEqual({ mode: "local" })
+    expect(readConfig(shipped)).toEqual({ mode: "local" })
+  })
+
+  /** Never a mode chosen because a key is missing: the file says which. */
+  test("a config naming no mode is refused, however much else it holds", () => {
+    for (const config of [
+      null,
+      {},
+      {
+        apiOrigin: "https://api.vbz.gg",
+        signInOrigin: "https://signin.vbz.gg",
+        pageKey: "vbz_pk_1",
+      },
+      { mode: "practice" },
+    ]) {
+      expect(() => readConfig(config)).toThrow(/names its mode/)
+    }
+  })
+
+  test("ranked with no page key says which file to fill in", () => {
     expect(() =>
-      readConfig({ apiOrigin: "a", signInOrigin: "b", pageKey: "vbz_sk_1" }),
+      readConfig({
+        mode: "ranked",
+        apiOrigin: "https://api.vbz.gg",
+        signInOrigin: "https://signin.vbz.gg",
+        pageKey: "",
+      }),
+    ).toThrow(/site\/config\.json needs/)
+    expect(() =>
+      readConfig({
+        mode: "ranked",
+        apiOrigin: "a",
+        signInOrigin: "b",
+        pageKey: "vbz_sk_1",
+      }),
     ).toThrow(/pageKey/)
   })
 })
@@ -725,5 +762,109 @@ describe("the page", () => {
         load: async () => ({}) as never,
       }),
     ).toThrow(/the page has no #title/)
+  })
+})
+
+describe("the page played locally", () => {
+  const BUILD = {
+    name: "Lane Runner",
+    present: "present.js",
+    sim: "sim.js",
+    manifest: "manifest.json",
+    manifestHash: "h-local",
+    files: "files/",
+    listing: "files.json",
+    filesSha256: "f".repeat(64),
+  }
+
+  function localRig(build: unknown = BUILD) {
+    document.body.innerHTML = `
+      <header><h1 id="title">Game</h1><div id="signin"></div></header>
+      <div id="game"></div><p id="message"></p>
+      <button id="play">Play</button><button id="practice">Practice</button>
+      <section><h2>Today's board</h2><div id="board"></div></section>`
+    const fetched: string[] = []
+    const loaded: GameAddress[] = []
+    const plays: LocalPlayOptions[] = []
+    const site = startLocalSite({
+      document,
+      fetch: async (url) => {
+        fetched.push(url)
+        return Response.json(build)
+      },
+      load: async (address) => {
+        loaded.push(address)
+        return moduleAt({
+          ...RANKED,
+          presentUrl: address.presentUrl,
+          manifestHash: address.manifestHash,
+          filesUrl: address.filesUrl,
+        })
+      },
+      play: (_element, options) => {
+        plays.push(options)
+        return {} as LocalRun
+      },
+    })
+    const byId = (id: string) => document.getElementById(id) as HTMLElement
+    return { site, fetched, loaded, plays, byId }
+  }
+
+  test("loads the build beside it, as vbz build wrote it, before any click", async () => {
+    const { site, fetched, loaded, byId } = localRig()
+    expect((byId("play") as HTMLButtonElement).disabled).toBe(true)
+    await site.ready
+    const url = new URL(LOCAL_BUILD, document.baseURI).href
+    expect(fetched).toEqual([url])
+    expect(loaded).toEqual([
+      {
+        presentUrl: new URL("present.js", url).href,
+        manifestHash: "h-local",
+        filesUrl: new URL("files/", url).href,
+      },
+    ])
+    expect(byId("title").textContent).toBe("Lane Runner")
+    expect((byId("play") as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  /** Nothing of ranked play is on a page that talks to nobody. */
+  test("shows no sign-in, no practice and no board", async () => {
+    const { byId } = localRig()
+    expect(byId("signin").hidden).toBe(true)
+    expect(byId("practice").hidden).toBe(true)
+    expect(byId("board").closest("section")?.hidden).toBe(true)
+    expect(byId("play").hidden).toBe(false)
+  })
+
+  test("Play starts a local run, from the devices alone, and its end says the score", async () => {
+    const { site, plays, byId } = localRig()
+    await site.ready
+    byId("play").click()
+    expect(plays).toHaveLength(1)
+    const options = plays[0] as LocalPlayOptions
+    expect(options.scripted).toBe("ignore")
+    expect(options.title).toBe("Lane Runner")
+    options.onEnded({
+      tick: 90,
+      reason: "completed",
+      counters: { motes: 4 },
+      recording: {} as never,
+    })
+    expect(byId("message").textContent).toBe("You scored motes 4")
+    options.onError?.({ code: "E_MOTION_DENIED", message: "tilt was refused" })
+    expect(byId("message").textContent).toBe("tilt was refused")
+  })
+
+  test("a build that is not what vbz build writes says so, and Play stays off", async () => {
+    const { site, byId, plays } = localRig({ present: 3 })
+    await site.ready
+    expect(byId("message").textContent).toContain("game's code did not load")
+    expect((byId("play") as HTMLButtonElement).disabled).toBe(true)
+    byId("play").click()
+    expect(plays).toEqual([])
+  })
+
+  test("the end of a run with nothing to count says so", () => {
+    expect(endedMessage({ counters: {} })).toBe("Nothing to score in that run")
   })
 })

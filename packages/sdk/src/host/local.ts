@@ -32,7 +32,7 @@ import {
   PlatformClientError,
 } from "../platform/errors.js"
 import { focusGame } from "./focus.js"
-import type { LoadedGame, PagePrepareOptions } from "./load.js"
+import type { GameAddress, LoadedGame, PagePrepareOptions } from "./load.js"
 import { motionRefusal } from "./motion.js"
 
 /** What every local run's seed starts with. */
@@ -117,6 +117,76 @@ export interface LocalRun {
   end(): void
   /** Takes everything down, and reports nothing more. */
   destroy(): void
+}
+
+/**
+ * `dist/game.json`, which `vbz build` writes beside the build so a page can
+ * load it from a plain static host, `dist/` served as it is. Every path is
+ * relative to the file itself.
+ *
+ * The page module imports `cw2:sim` and its files as `cw2:files/<path>`, as
+ * built, and the page maps both with an import map naming `sim` and `files`
+ * where it serves them, so the page module's bytes are the ones the platform
+ * would store before its rewrite.
+ */
+export interface LocalBuild {
+  /** The game's name, from its manifest. */
+  readonly name: string
+  /** The page module. */
+  readonly present: string
+  /** The rules code: where the page's import map points `cw2:sim`. */
+  readonly sim: string
+  /** The manifest as built. */
+  readonly manifest: string
+  /** The engine's canonical hash of the manifest, which the page module must report. */
+  readonly manifestHash: string
+  /** The files folder, ending in `/`: where the import map points `cw2:files/`. */
+  readonly files: string
+  /** The folder's listing. */
+  readonly listing: string
+  /** The folder's name: the SHA-256 of its listing. */
+  readonly filesSha256: string
+}
+
+/** The fields of a `LocalBuild`, each a string. */
+const LOCAL_BUILD_FIELDS = [
+  "name",
+  "present",
+  "sim",
+  "manifest",
+  "manifestHash",
+  "files",
+  "listing",
+  "filesSha256",
+] as const satisfies ReadonlyArray<keyof LocalBuild>
+
+/**
+ * Where the build a `game.json` at `url` describes is, as `loadGame` takes
+ * it: its page module, its manifest hash and its files folder, each resolved
+ * against the file. Anything that is not what `vbz build` writes is
+ * `E_GAME_UNLOADABLE`, naming the field.
+ */
+export function localAddress(build: unknown, url: string): GameAddress {
+  const given =
+    typeof build === "object" && build !== null
+      ? (build as Readonly<Record<string, unknown>>)
+      : {}
+  for (const field of LOCAL_BUILD_FIELDS) {
+    if (typeof given[field] !== "string") {
+      throw new PlatformClientError("E_GAME_UNLOADABLE", {
+        cause: {
+          url,
+          problem: `${field} is not what vbz build writes in game.json`,
+        },
+      })
+    }
+  }
+  const read = given as unknown as LocalBuild
+  return {
+    presentUrl: new URL(read.present, url).href,
+    manifestHash: read.manifestHash,
+    filesUrl: new URL(read.files, url).href,
+  }
 }
 
 /**

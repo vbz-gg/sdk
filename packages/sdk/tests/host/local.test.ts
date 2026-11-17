@@ -38,6 +38,7 @@ import {
   type LocalEnd,
   type LocalError,
   type LocalRecording,
+  localAddress,
   localSeed,
   playLocal,
 } from "../../src/host/local"
@@ -383,4 +384,46 @@ test("the served config and the manifest hash come from the module, not the page
   )
   expect(game.tickHz).toBe(60)
   expect(game.servedConfig).toEqual({})
+})
+
+describe("the build a page plays locally", () => {
+  const BUILD = {
+    name: "Probe",
+    present: "present.js",
+    sim: "sim.js",
+    manifest: "manifest.json",
+    manifestHash: "h",
+    files: "files/",
+    listing: "files.json",
+    filesSha256: "f".repeat(64),
+  }
+
+  test("is found beside its game.json, wherever that is served", () => {
+    expect(
+      localAddress(BUILD, "https://host.example/play/game/game.json"),
+    ).toEqual({
+      presentUrl: "https://host.example/play/game/present.js",
+      manifestHash: "h",
+      filesUrl: "https://host.example/play/game/files/",
+    })
+  })
+
+  test("a game.json that is not what vbz build writes is refused, naming the field", () => {
+    for (const [build, field] of [
+      [null, "name"],
+      [{ ...BUILD, present: 1 }, "present"],
+      [{ ...BUILD, filesSha256: undefined }, "filesSha256"],
+    ] as const) {
+      let thrown: unknown
+      try {
+        localAddress(build, "https://host.example/game.json")
+      } catch (error) {
+        thrown = error
+      }
+      expect((thrown as PlatformClientError).code).toBe("E_GAME_UNLOADABLE")
+      expect((thrown as PlatformClientError).cause).toMatchObject({
+        problem: expect.stringContaining(field),
+      })
+    }
+  })
 })

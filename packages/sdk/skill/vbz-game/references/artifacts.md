@@ -118,7 +118,12 @@ dist/present.js    the page module, with cw2:sim and cw2:files/ still intact
 dist/manifest.json the manifest, read out of the built simulation
 dist/files.json    the folder's listing, the text its name is the SHA-256 of
 dist/files/        a copy of the folder, by its listed paths
+dist/game.json     where each of those is and what they hash to, for a page
+                   that plays the game locally from dist/ as it is
 ```
+
+`vbz publish` sends the first five and never `game.json`, which only a page
+playing locally reads.
 
 The page module is written **unrewritten** on purpose. The rewrite belongs to
 the platform: a page module that arrived already pointing at an address would

@@ -28,7 +28,7 @@ import {
 import { DIST_DIR, DIST_FILES } from "../build/dist.js"
 import type { GameSource } from "../build/index.js"
 import { type BuiltGame, blobKeys, buildAndAddress } from "./artifacts.js"
-import { pageCsp } from "./csp.js"
+import { type GameNeeds, pageCsp } from "./csp.js"
 import { readBuiltManifest } from "./dist-manifest.js"
 import { HARNESS_STYLE, harnessPage } from "./page/document.js"
 import { replayInChild } from "./replay.js"
@@ -54,6 +54,8 @@ export interface HarnessOptions {
    * practice run is held to, `vbz dev --ranked`, or says it as a figure.
    */
   readonly ranked: boolean
+  /** What the game needs of the page's policy, beyond its two modules. */
+  readonly needs?: GameNeeds
 }
 
 export interface Harness {
@@ -134,6 +136,7 @@ export async function startHarness(options: HarnessOptions): Promise<Harness> {
   const csp = pageCsp({
     bundlesOrigin: bundles.origin,
     gameId: HARNESS_GAME_ID,
+    ...(options.needs === undefined ? {} : { needs: options.needs }),
   })
 
   host.setPage(
@@ -276,12 +279,17 @@ export {
   type Tls,
 } from "./servers.js"
 export {
+  inlineScriptsOf,
+  LOCAL_GAME_PATH,
   type RunningSite,
   SITE_DIR,
   SITE_ENTRY,
+  SITE_MODES,
   type SiteConfig,
+  type SiteMode,
   type SiteOptions,
   siteFile,
+  siteModeOf,
   startSite,
 } from "./site.js"
 export {

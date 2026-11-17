@@ -557,7 +557,8 @@ module **unrewritten**, with its specifiers intact, beside `dist/sim.js`,
 `dist/manifest.json`, the listing as `dist/files.json`, exactly the text its
 name is the hash of, and a copy of the folder as `dist/files/`: a page module
 that arrived already pointing somewhere would be one naming code nobody
-checked.
+checked. It also writes `dist/game.json`, which a page playing the game
+locally reads and an upload never carries.
 
 ## Serving
 
@@ -598,8 +599,21 @@ failure is one they caused.
 The template ships inside the package rather than beside it in this
 repository, at the same path relative to the CLI in the source tree and in
 `dist`, which is what lets an installed copy find it. It is a game, Lane
-Runner, with its own two buttons, keys and a controller, and `site/`, a
-studio page with sign-in, Play, Practice and the board.
+Runner, with its own two buttons, keys and a controller, and `site/`, a page
+in the mode its `site/config.json` names. `{ "mode": "local" }`, which a new
+game ships with, plays the build beside the page with `playLocal` and talks
+to nobody. `{ "mode": "ranked", apiOrigin, signInOrigin, pageKey }` is a
+studio page with sign-in, Play, Practice and the board. The mode is named,
+never worked out from whether a page key is there, and opting in to ranked
+play changes that file and nothing about the build.
+
+`vbz build` writes `dist/game.json` beside the build: where each part is,
+relative to it, and what the manifest and the files folder hash to, so a
+plain static host serves `dist/` as it is to a page playing the game
+locally. Such a page maps the page module's `cw2:sim` and `cw2:files/` with
+an import map, so the module's bytes are the ones an upload carries, and
+`localAddress` in `/host` turns `game.json` and its URL into what `loadGame`
+takes.
 
 ## The agent guides
 
@@ -739,12 +753,20 @@ another machine only over https and grants tilt only to a secure page. So
 An address off this machine without `--https` is refused before anything
 builds, and so is `0.0.0.0`, which no page can name.
 
-**`--site`** serves the game's own `site/` in place of the harness page,
-under the same policy with the API added, against a stand-in for the
+**`--site`** serves the game's own `site/` in place of the harness page, in
+the mode its `site/config.json` names, and refuses a file naming none.
+Played locally, the build is served beside the page as `/game/`, under
+`localPageCsp`, and nothing else runs. Ranked, the page is served under the
+harness page's policy with the API added, against a stand-in for the
 platform shipped in the package: the page routes and the sign-in window on
-origins of their own, as one local player, on the harness seed and the served
-config, at the platform's limits from `/build`. The harness
-answers the page's `config.json` with the stand-in's origins and page key.
+origins of their own, as one local player, on the harness seed and the
+served config, at the platform's limits from `/build`, and the harness
+answers the page's `config.json` with the mode, the stand-in's origins and
+its page key. In either mode an inline script the page carries, such as its
+import map, is admitted by the SHA-256 of its text, and what the game's
+`package.json` says it needs of a page's policy,
+`"vbz": { "needs": { "wasm": true, "workers": true, "files": true } }`, is
+added to the harness page's policy and the site's.
 The stand-in holds chunks and the submit to the manifest the way the
 platform does, and settles a run with the counters its page sent, without a
 replay, which the terminal says each time. It reads a run from a day still

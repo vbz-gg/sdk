@@ -18,6 +18,11 @@ export const DIST_FILES = {
   present: "present.js",
   /** The files folder's listing, as the text its name is the SHA-256 of. */
   listing: "files.json",
+  /**
+   * What a page needs to load the build from a plain static host, `dist/`
+   * served as it is: `LocalBuild` in `/host`.
+   */
+  game: "game.json",
 } as const
 
 /** The copy of the game's files folder inside `dist/`, by its listed paths. */

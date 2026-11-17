@@ -58,8 +58,9 @@ page shows whether the run replays to what it showed, how many inputs it
 recorded against the budget a ranked or practice run is held to, and its size
 in bytes; `--ranked` turns the report red over that budget.
 `--address` and `--https` with `--cert` and `--key` serve it to a phone on
-your network, and `--site` serves your game's own page from `site/` against
-a stand-in for the platform.
+your network, and `--site` serves your game's own page from `site/`, in the
+mode `site/config.json` names: played locally from the build beside it, or
+ranked, against a stand-in for the platform.
 
 `publish` is for your build system. It uploads `dist/` to the game you name,
 with one of your studio's secret keys from `VBZ_STUDIO_KEY`, then waits for
@@ -225,7 +226,9 @@ A failure is a `PlatformRefusal`, carrying the platform's code, or a
 `E_GAME_UNLOADABLE`. Switch on `code`. The platform's page guide has every
 route, and the `page.md` reference in the skill has every client code. The
 template's `site/` is a whole page built this way, which `vbz dev --site`
-runs on your laptop.
+runs on your laptop. A new game's page plays locally until its
+`site/config.json` names the ranked mode: it loads `dist/game.json` with
+`localAddress` and plays with `playLocal`, and needs no platform at all.
 
 ## License
 

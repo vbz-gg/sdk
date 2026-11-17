@@ -194,7 +194,9 @@ many inputs the recording holds against the budget the platform allows, and
 its size in bytes. A run that does not match, or inputs the platform would
 refuse, is what to fix before publishing. `references/harness.md` has the
 flags for a phone (`--address`, `--https`) and `--site`, which serves the
-game's own page against a stand-in for the platform.
+game's own page in the mode `site/config.json` names: played locally from
+the build, which a new game ships with, or ranked, against a stand-in for
+the platform.
 
 ## When ingest refuses
 

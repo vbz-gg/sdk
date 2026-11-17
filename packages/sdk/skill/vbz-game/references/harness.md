@@ -75,13 +75,27 @@ this machine's own (`127.0.0.1`, `localhost`, `::1`) is refused without
 
 `vbz dev . --site` serves the game's own `site/` instead of the harness page:
 `site/index.html`, `site/main.ts` bundled for the browser as `main.js`, and
-every other file in `site/` as it is, under the same policy with the API's
-origin added. The game is built and served from a bundles origin as above.
+every other file in `site/` as it is. `site/config.json` names the page's
+mode, and a file naming none is refused.
 
-The page talks to a stand-in for the platform, on origins of its own: the
-page routes and the sign-in window, as one local player. The harness answers
-the page's `config.json` with the stand-in's API, sign-in window and page
-key, so the file in `site/` is not read. The stand-in:
+- **`{ "mode": "local" }`**, which a new game ships with: the build is served
+  beside the page as `/game/`, and the page loads `game/game.json` with
+  `localAddress` and plays with `playLocal`. Nothing else runs, and the page
+  talks to nobody. The page's import map, which points the page module's
+  `cw2:sim` and `cw2:files/` at `./game/`, is admitted by its hash, under
+  `localPageCsp`.
+- **`{ "mode": "ranked", ... }`**: the game is built and served from a bundles
+  origin as above, under the harness page's policy with the API's origin
+  added, and the page talks to a stand-in for the platform.
+
+What the game's `package.json` names under `"vbz": { "needs": { ... } }`
+(`wasm`, `workers`, `files`) is added to the policy in both modes, and to the
+harness page's.
+
+The stand-in runs on origins of its own: the page routes and the sign-in
+window, as one local player. The harness answers the page's `config.json`
+with the mode, the stand-in's API, sign-in window and page key, so the
+origins and key in `site/config.json` are not read. The stand-in:
 
 - signs the player in through a window of its own, with the same code trade;
 - starts a run on the harness seed and the served config, and resumes it on

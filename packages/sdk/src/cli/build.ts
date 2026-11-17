@@ -1,6 +1,8 @@
 /**
  * `vbz build`: a game's source to what an upload carries: the rules code,
- * the page module, the manifest, and the files folder with its listing.
+ * the page module, the manifest, and the files folder with its listing; and
+ * `game.json`, which lets a plain static host serve `dist/` as it is to a
+ * page playing the game locally.
  *
  * The version is read as a release before anything is written, through the
  * same `parseReleaseVersion` the platform runs on an upload, so a version no
@@ -15,6 +17,7 @@
 
 import { copyFile, mkdir, rm, writeFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
+import { hashCanonical, type PlainValue } from "@clockwork2/engine"
 import { DIST_DIR, DIST_FILES, DIST_FILES_DIR } from "../build/dist.js"
 import { refuse } from "../build/errors.js"
 import {
@@ -26,6 +29,7 @@ import {
   listingSha256,
 } from "../build/index.js"
 import { parseReleaseVersion, releaseLine } from "../build/version.js"
+import type { LocalBuild } from "../host/local.js"
 import { readManifestFromSim } from "./manifest.js"
 
 /** A game built in memory, before anything is written. */
@@ -115,6 +119,28 @@ export async function writeBuild(
     const to = join(dist, DIST_FILES_DIR, ...file.path.split("/"))
     await mkdir(dirname(to), { recursive: true })
     await copyFile(from, to)
+  }
+  await writeFile(
+    join(dist, DIST_FILES.game),
+    `${JSON.stringify(localBuildOf(built), null, 2)}\n`,
+  )
+}
+
+/** `dist/game.json`: where each part of the build is, beside the file. */
+export function localBuildOf(built: BuiltGame): LocalBuild {
+  const name =
+    typeof built.manifest === "object" && built.manifest !== null
+      ? (built.manifest as { readonly name?: unknown }).name
+      : undefined
+  return {
+    name: typeof name === "string" ? name : "",
+    present: DIST_FILES.present,
+    sim: DIST_FILES.sim,
+    manifest: DIST_FILES.manifest,
+    manifestHash: hashCanonical(built.manifest as PlainValue),
+    files: `${DIST_FILES_DIR}/`,
+    listing: DIST_FILES.listing,
+    filesSha256: listingSha256(built.files.listing),
   }
 }
 

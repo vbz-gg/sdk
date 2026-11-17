@@ -1,7 +1,12 @@
 /**
- * The game's page: sign-in, Play, Practice and today's board.
+ * The game's page, in either of the two modes `config.json` names.
  *
- * This is a studio's page in miniature, and every part of it is the SDK's:
+ * Played locally, the default, it is the game and a Play button: `playLocal`
+ * plays the build `vbz build` wrote, served beside the page as `game/`, and
+ * nothing talks to vbz.gg. Ranked, it is sign-in, Play, Practice and today's
+ * board against the platform, and the build is the same one.
+ *
+ * Ranked, this is a studio's page in miniature, and every part of it is the SDK's:
  * `loadGame` imports the game's page module before a click, `playRun` starts
  * a run inside the click and plays it, and the two widgets sign a player in
  * and show the board. The platform says which version each run plays; the
@@ -26,10 +31,13 @@
 import type { PageGame, PageGameVersion, RunMode } from "@vbz-gg/sdk/api"
 import {
   type LoadedGame,
+  type LocalRun,
   loadGame,
+  localAddress,
   mountBoard,
   mountSignIn,
   type PlayedRun,
+  playLocal,
   playRun,
 } from "@vbz-gg/sdk/host"
 import {
@@ -39,26 +47,42 @@ import {
   type RunState,
 } from "@vbz-gg/sdk/platform"
 import {
+  endedMessage,
   NO_ROUND_TODAY,
   pausedMessage,
   SIGN_IN_FIRST,
   stateMessage,
 } from "./messages"
 
-/** What `config.json` beside the page says: where the platform is, and the game's key. */
-export type SiteConfig = Pick<
+/** Ranked play: where the platform is, and the game's key. */
+export type RankedConfig = { readonly mode: "ranked" } & Pick<
   PlatformClientOptions,
   "apiOrigin" | "signInOrigin" | "pageKey"
 >
 
 /**
- * `config.json`, held to what a client needs. The template ships it with the
- * platform's API and sign-in window and no page key, so a page deployed
- * without the game's key says which file to fill in rather than calling the
- * API with nothing.
+ * What `config.json` beside the page says. Its mode is named, never worked
+ * out from what else the file holds: `local`, which the template ships, or
+ * `ranked`, which needs the platform's addresses and the game's page key.
+ */
+export type SiteConfig = { readonly mode: "local" } | RankedConfig
+
+/** Where a page playing locally finds the build: `dist/` served as `game/`. */
+export const LOCAL_BUILD = "game/game.json"
+
+/**
+ * `config.json`, held to what its mode needs. A file naming no mode, or
+ * naming ranked play with no page key, says which file to fill in rather
+ * than calling the API with nothing.
  */
 export function readConfig(value: unknown): SiteConfig {
   const config = (value ?? {}) as Record<string, unknown>
+  if (config.mode === "local") return { mode: "local" }
+  if (config.mode !== "ranked") {
+    throw new Error(
+      'site/config.json names its mode: "local", to play with no platform, or "ranked", with apiOrigin, signInOrigin and the game\'s pageKey',
+    )
+  }
   const { apiOrigin, signInOrigin, pageKey } = config
   if (
     typeof apiOrigin !== "string" ||
@@ -72,9 +96,97 @@ export function readConfig(value: unknown): SiteConfig {
       "site/config.json needs the game's pageKey from the dashboard, beside apiOrigin and signInOrigin",
     )
   }
-  return { apiOrigin, signInOrigin, pageKey: pageKey as SiteConfig["pageKey"] }
+  return {
+    mode: "ranked",
+    apiOrigin,
+    signInOrigin,
+    pageKey: pageKey as RankedConfig["pageKey"],
+  }
 }
 
+export interface LocalSiteOptions {
+  readonly document: Document
+  /** For a test: the browser's by default. */
+  readonly fetch?: (url: string) => Promise<Response>
+  readonly load?: typeof loadGame
+  readonly play?: typeof playLocal
+}
+
+export interface LocalSite {
+  /** Settles once the game is loaded, or has said why it is not. */
+  readonly ready: Promise<void>
+}
+
+/**
+ * The page played locally: the build beside it, loaded before the click,
+ * and Play starting a local run in the click. There is no sign-in, no
+ * practice and no board, and nothing is sent anywhere.
+ */
+export function startLocalSite(options: LocalSiteOptions): LocalSite {
+  const { document } = options
+  const load = options.load ?? loadGame
+  const play = options.play ?? playLocal
+  const read = options.fetch ?? ((url: string) => fetch(url))
+  const title = element(document, "title")
+  const stage = element(document, "game")
+  const message = element(document, "message")
+  const playButton = element(document, "play") as HTMLButtonElement
+  // What only ranked play has.
+  for (const id of ["signin", "practice", "board"]) {
+    const part = element(document, id)
+    const holder = part.closest("section") ?? part
+    holder.hidden = true
+  }
+  const say = (text: string) => {
+    message.textContent = text
+  }
+
+  let game: LoadedGame | null = null
+  let name = "Game"
+  let played: LocalRun | null = null
+  playButton.disabled = true
+
+  const ready = (async () => {
+    try {
+      const url = new URL(LOCAL_BUILD, document.baseURI).href
+      const build = (await (await read(url)).json()) as { name?: unknown }
+      if (typeof build.name === "string" && build.name !== "") {
+        name = build.name
+      }
+      game = await load(localAddress(build, url))
+      title.textContent = name
+      playButton.disabled = false
+    } catch (error) {
+      say(error instanceof Error ? error.message : String(error))
+    }
+  })()
+
+  // Inside the click, which is what lets `playLocal` ask for tilt.
+  playButton.addEventListener("click", () => {
+    if (game === null) return
+    played?.destroy()
+    stage.replaceChildren()
+    say("")
+    try {
+      played = play(stage, {
+        game,
+        // A local run takes its inputs from the player's devices, as a
+        // ranked one does.
+        scripted: "ignore",
+        title: name,
+        onEnded: (ended) => say(endedMessage(ended)),
+        onError: (error) => say(error.message),
+        onNotice: (notice) => say(notice.detail),
+      })
+    } catch (error) {
+      say(error instanceof Error ? error.message : String(error))
+    }
+  })
+
+  return { ready }
+}
+
+/** The page against the platform, for ranked and practice runs. */
 export interface SiteOptions {
   readonly document: Document
   readonly client: Pick<

@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { filesDirOf, sourceOf } from "../../src/cli/source"
+import { filesDirOf, needsOf, sourceOf } from "../../src/cli/source"
 
 let root: string
 
@@ -68,6 +68,32 @@ describe("the files folder a game names", () => {
     for (const vbz of ["files", [], { files: "" }, { files: 3 }]) {
       await packageJson({ vbz })
       await expect(filesDirOf(root)).rejects.toThrow(/package\.json/)
+    }
+  })
+})
+
+describe("what a game needs of a page's policy", () => {
+  test("is nothing unless its package.json names a need", async () => {
+    expect(await needsOf(root)).toEqual({})
+    await packageJson({ vbz: { files: "files" } })
+    expect(await needsOf(root)).toEqual({})
+  })
+
+  test("is what it names, each true or false", async () => {
+    await packageJson({ vbz: { needs: { wasm: true, workers: false } } })
+    expect(await needsOf(root)).toEqual({ wasm: true, workers: false })
+  })
+
+  /** A misspelt need would otherwise read as one never asked for. */
+  test("a need that is not one, or not true or false, is refused", async () => {
+    for (const needs of [
+      ["wasm"],
+      "wasm",
+      { webassembly: true },
+      { wasm: "yes" },
+    ]) {
+      await packageJson({ vbz: { needs } })
+      await expect(needsOf(root)).rejects.toThrow(/vbz\.needs/)
     }
   })
 })
