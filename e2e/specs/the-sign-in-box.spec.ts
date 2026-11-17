@@ -38,8 +38,24 @@ async function countStorageAccess(page: Page): Promise<void> {
   })
 }
 
+/**
+ * Whether the sign-in's own `focus()` on its first control takes once it
+ * loads in the box, by engine, as measured. The box moves focus to the
+ * frame from the click in all three. Chromium and Firefox then let the
+ * sign-in focus its control. WebKit, as Playwright 1.56.1 builds it for
+ * Linux, does not: measured in CI runs 44069568529 and 44074119291, where
+ * the frame held focus and its button never did, so a player there taps
+ * the field before typing. Safari and iOS Safari are not measured here.
+ */
+const SIGN_IN_TAKES_FOCUS: Readonly<Record<string, boolean>> = {
+  chromium: true,
+  firefox: true,
+  webkit: false,
+}
+
 test("a player signs in through the box, and nothing opens a window", async ({
   page,
+  browserName,
 }) => {
   await countStorageAccess(page)
   const windows: string[] = []
@@ -57,7 +73,11 @@ test("a player signs in through the box, and nothing opens a window", async ({
   const frame = signInFrame(page)
   const continuing = frame.getByRole("button", { name: /Sign in as/ })
   await expect(continuing).toBeVisible()
-  await expect(continuing).toBeFocused()
+  if (SIGN_IN_TAKES_FOCUS[browserName] === true) {
+    await expect(continuing).toBeFocused()
+  } else {
+    await expect(continuing).not.toBeFocused()
+  }
   await continuing.click()
 
   await expect(page.locator("body")).toHaveAttribute(
@@ -77,6 +97,7 @@ test("a player signs in through the box, and nothing opens a window", async ({
 
 test("the player closes the box with Cancel, or with Escape inside the sign-in, and is told nothing", async ({
   page,
+  browserName,
 }) => {
   await openRuns(page, "template")
   const dialog = page.getByRole("dialog", { name: "Sign in" })
@@ -92,7 +113,14 @@ test("the player closes the box with Cancel, or with Escape inside the sign-in, 
 
   await page.getByRole("button", { name: "Sign in", exact: true }).click()
   const inside = signInFrame(page).getByRole("button", { name: /Sign in as/ })
-  await expect(inside).toBeFocused()
+  if (SIGN_IN_TAKES_FOCUS[browserName] === true) {
+    await expect(inside).toBeFocused()
+  } else {
+    // Where the sign-in could not focus itself, the player's own click on
+    // it, on its text and not its button, puts focus inside the frame.
+    await expect(inside).toBeVisible()
+    await signInFrame(page).getByText("stood in for on this machine").click()
+  }
   // Pressed with focus inside the frame, where the page cannot hear it: the
   // sign-in says so.
   await page.keyboard.press("Escape")
