@@ -440,8 +440,19 @@ That is the policy the harness serves its own page under (`pageCsp` in
 WebKit: it admits the page module's dynamic import and the module's own
 static import of its rules code, and refuses another game's path on the same
 origin before a request leaves. It needs no `unsafe-eval` and no inline
-script. A page with more of its own adds to it; nothing about the game needs
-more.
+script. A page with more of its own adds to it.
+
+A game may need more than its two modules, and `pageCsp` adds each need
+only when it is named, in `needs`. A renderer that compiles WebAssembly, such
+as null3d, needs `'wasm-unsafe-eval'` in `script-src`, which compiles
+WebAssembly and evaluates no JavaScript; one that starts workers needs
+`worker-src blob:` and the game's path; and a game that fetches files of its
+folder, its data packs or its art, needs the game's path in `connect-src`.
+Nothing a game needs adds `unsafe-eval`. A page carrying an inline script,
+such as an import map, names it in `inlineScripts` and the policy admits it by
+the SHA-256 of its exact text. `localPageCsp` is the same policy for a page
+that serves its game from its own origin, as a game played only on its own
+page does.
 
 **A bundler that leaves `loadGame`'s import alone.** `loadGame` imports a URL
 it is handed at run time, so the import is the browser's to make, and

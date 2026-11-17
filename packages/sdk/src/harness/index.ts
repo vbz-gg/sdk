@@ -246,7 +246,14 @@ export {
   blobKeys,
   buildAndAddress,
 } from "./artifacts.js"
-export { gamePath, type PageCspOptions, pageCsp } from "./csp.js"
+export {
+  type GameNeeds,
+  gamePath,
+  inlineScriptSource,
+  localPageCsp,
+  type PageCspOptions,
+  pageCsp,
+} from "./csp.js"
 export { escapeHtml, HARNESS_STYLE, harnessPage } from "./page/document.js"
 export {
   type DevReport,

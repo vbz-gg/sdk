@@ -20,7 +20,12 @@ import {
   harnessPageEntry,
   startHarness,
 } from "../../src/harness"
-import { gamePath, pageCsp } from "../../src/harness/csp"
+import {
+  gamePath,
+  inlineScriptSource,
+  localPageCsp,
+  pageCsp,
+} from "../../src/harness/csp"
 import {
   LOOPBACK,
   originOf,
@@ -317,6 +322,67 @@ describe("the policy and the origins", () => {
     expect(pageCsp({ bundlesOrigin: "x", gameId: "y" })).toContain(
       "connect-src 'self';",
     )
+  })
+
+  /**
+   * A renderer such as null3d compiles WebAssembly, starts workers from
+   * blobs and fetches its own files, and each is allowed only when the game
+   * says it needs it. Nothing a game needs adds `unsafe-eval`.
+   */
+  test("what a version needs is added, each when named, and unsafe-eval never", () => {
+    const base = { bundlesOrigin: "https://files.vbz.gg", gameId: "g-1" }
+    const path = "https://files.vbz.gg/g/g-1/"
+    const all = pageCsp({
+      ...base,
+      connect: ["https://api.vbz.gg"],
+      needs: { wasm: true, workers: true, files: true },
+    }).split("; ")
+    expect(all).toContain(`script-src 'self' ${path} 'wasm-unsafe-eval'`)
+    expect(all).toContain(`worker-src blob: ${path}`)
+    expect(all).toContain(`connect-src 'self' ${path} https://api.vbz.gg`)
+    for (const needs of [
+      {},
+      { wasm: true },
+      { workers: true },
+      { files: true },
+      { wasm: true, workers: true, files: true },
+    ]) {
+      const csp = pageCsp({ ...base, needs })
+      expect(csp).not.toContain("'unsafe-eval'")
+      expect(csp.includes("wasm-unsafe-eval")).toBe(needs.wasm === true)
+      expect(csp.includes("worker-src")).toBe(needs.workers === true)
+    }
+    expect(pageCsp(base)).toBe(pageCsp({ ...base, needs: {} }))
+  })
+
+  /** An import map is an inline script, and a policy admits one by its hash alone. */
+  test("an inline script is allowed by the hash of its exact text", () => {
+    const map = `{"imports":{"cw2:sim":"./game/sim.js"}}`
+    const source = inlineScriptSource(map)
+    expect(source).toBe(
+      `'sha256-${new Bun.CryptoHasher("sha256").update(map).digest("base64")}'`,
+    )
+    expect(source).not.toBe(inlineScriptSource(`${map} `))
+    expect(
+      pageCsp({ bundlesOrigin: "x", gameId: "y", inlineScripts: [map] }),
+    ).toContain(`script-src 'self' x/g/y/ ${source}`)
+  })
+
+  /** A game served from the page's own origin, as a game played only there is. */
+  test("a page serving its own game names its own origin, once", () => {
+    expect(localPageCsp().split("; ")).toEqual([
+      "default-src 'none'",
+      "script-src 'self'",
+      "style-src 'self'",
+      "img-src 'self' data: blob:",
+      "connect-src 'self'",
+      "base-uri 'none'",
+      "form-action 'none'",
+      "frame-ancestors 'none'",
+    ])
+    expect(
+      localPageCsp({ needs: { wasm: true, workers: true, files: true } }),
+    ).toContain("worker-src blob: 'self'")
   })
 
   /**

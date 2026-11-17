@@ -3,38 +3,96 @@
  *
  * It is the policy a studio's page is meant to run a game under: scripts
  * from the page's own origin and from one game's own path on the bundles
- * origin and nowhere else, no `unsafe-eval` and no inline script. A page
- * module that needs either, or a rules code it cannot import under it, is
- * refused here, on a laptop, rather than on a studio's page. Naming the
- * game's path rather than the whole bundles origin is what keeps another
- * game's code out of the page. In production the bundles origin is
- * `https://files.vbz.gg`, so a studio's page names
+ * origin and nowhere else, no `unsafe-eval` and no inline script but the
+ * ones named by hash. A page module that needs more, or a rules code it
+ * cannot import under it, is refused here, on a laptop, rather than on a
+ * studio's page. Naming the game's path rather than the whole bundles
+ * origin is what keeps another game's code out of the page. In production
+ * the bundles origin is `https://files.vbz.gg`, so a studio's page names
  * `https://files.vbz.gg/g/<game id>/`.
+ *
+ * A version may need more than its two modules, and each need is named, so
+ * a page allows what its game uses and nothing else. A renderer that
+ * compiles WebAssembly needs `'wasm-unsafe-eval'`, which compiles WebAssembly
+ * and evaluates no JavaScript, so `unsafe-eval` stays out whatever a game
+ * needs. One that starts workers needs `worker-src blob:` and the game's
+ * path. One that fetches its own files, data packs or art needs the game's
+ * path in `connect-src`.
  */
 
-export interface PageCspOptions {
+/** What a version needs of a page's policy, beyond its two modules. */
+export interface GameNeeds {
+  /** It compiles WebAssembly: `'wasm-unsafe-eval'` in `script-src`. */
+  readonly wasm?: boolean
+  /** It starts workers: `worker-src blob:` and the game's path. */
+  readonly workers?: boolean
+  /** It fetches files of its folder: the game's path in `connect-src`. */
+  readonly files?: boolean
+}
+
+interface PolicyOptions {
+  /** Origins the page's own code talks to, beside its own. */
+  readonly connect?: readonly string[]
+  /** What the version needs beyond its two modules. Nothing by default. */
+  readonly needs?: GameNeeds
+  /**
+   * Inline scripts the page carries, by their exact text, such as an import
+   * map: each is allowed by its hash, and no other inline script is.
+   */
+  readonly inlineScripts?: readonly string[]
+}
+
+export interface PageCspOptions extends PolicyOptions {
   /** Where the game's two modules are served from. */
   readonly bundlesOrigin: string
   /** The game whose path the page may load scripts from. */
   readonly gameId: string
-  /** Origins the page's own code talks to, beside its own. */
-  readonly connect?: readonly string[]
 }
 
-/** The path every module of one game is served under. */
+/** The path every module and file of one game is served under. */
 export function gamePath(bundlesOrigin: string, gameId: string): string {
   return `${bundlesOrigin}/g/${gameId}/`
 }
 
-export function pageCsp(options: PageCspOptions): string {
+/** The source that allows one inline script, by the SHA-256 of its exact text. */
+export function inlineScriptSource(text: string): string {
+  return `'sha256-${new Bun.CryptoHasher("sha256").update(text).digest("base64")}'`
+}
+
+/** The policy for a page whose game is served from `game`: a path, or `'self'`. */
+function policy(game: string, options: PolicyOptions): string {
+  const needs = options.needs ?? {}
+  const own = (sources: readonly string[]) =>
+    [...new Set(["'self'", ...sources])].join(" ")
   return [
     "default-src 'none'",
-    `script-src 'self' ${gamePath(options.bundlesOrigin, options.gameId)}`,
+    `script-src ${own([
+      game,
+      ...(needs.wasm === true ? ["'wasm-unsafe-eval'"] : []),
+      ...(options.inlineScripts ?? []).map(inlineScriptSource),
+    ])}`,
+    ...(needs.workers === true ? [`worker-src blob: ${game}`] : []),
     "style-src 'self'",
     "img-src 'self' data: blob:",
-    ["connect-src 'self'", ...(options.connect ?? [])].join(" "),
+    `connect-src ${own([
+      ...(needs.files === true ? [game] : []),
+      ...(options.connect ?? []),
+    ])}`,
     "base-uri 'none'",
     "form-action 'none'",
     "frame-ancestors 'none'",
   ].join("; ")
+}
+
+/** The policy for a studio's page playing a game served from the bundles origin. */
+export function pageCsp(options: PageCspOptions): string {
+  return policy(gamePath(options.bundlesOrigin, options.gameId), options)
+}
+
+/**
+ * The policy for a page that serves its game from its own origin, as a game
+ * played only on its own page does: everything the game loads is `'self'`.
+ */
+export function localPageCsp(options: PolicyOptions = {}): string {
+  return policy("'self'", options)
 }
