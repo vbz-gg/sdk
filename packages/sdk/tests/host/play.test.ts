@@ -363,6 +363,52 @@ describe("the click", () => {
     expect(calls.some((call) => call.startsWith("start"))).toBe(false)
   })
 
+  /**
+   * A second tap while the first's tilt prompt is still open: the page takes
+   * the first run down and plays the second in the same element. The first
+   * one's answer, when it comes, must not get its game ready there.
+   */
+  test("a run taken down while its tilt prompt is open gets nothing ready", async () => {
+    const game = new FakeGame(PRESENT, "mh-new", true)
+    const answers: Array<(access: MotionAccess) => void> = []
+    game.requestMotion = () => {
+      calls.push("motion")
+      return new Promise((resolve) => answers.push(resolve))
+    }
+    const held = locks()
+    const first = playRun(stage, {
+      client: client(),
+      game,
+      mode: "ranked",
+      locks: held,
+    })
+    await settle()
+    first.destroy()
+    await settle()
+    const second = playRun(stage, {
+      client: client(),
+      game,
+      mode: "ranked",
+      locks: held,
+    })
+    await settle()
+    // The first tap's prompt is answered after the second tap took the stage.
+    answers[0]?.({ granted: true })
+    await settle()
+    expect(calls.filter((call) => call.startsWith("prepare"))).toEqual([])
+    expect(game.released).toBe(0)
+
+    answers[1]?.({ granted: true })
+    await settle()
+    expect(calls.filter((call) => call.startsWith("prepare"))).toEqual([
+      `prepare ${PRESENT}`,
+    ])
+    expect(calls.filter((call) => call.startsWith("start"))).toEqual([
+      "start {}",
+    ])
+    second.destroy()
+  })
+
   test("a game that reads no tilt asks for nothing", async () => {
     const played = playRun(stage, {
       client: client(),

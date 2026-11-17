@@ -166,34 +166,40 @@ export function playRun(element: HTMLElement, options: PlayOptions): PlayedRun {
     prepared = null
   }
 
+  /**
+   * Whether the player left while the last await was answered: then nothing
+   * more is done, and what was got ready and held is let go. Asked after
+   * every await, because the element may by then belong to the next run.
+   */
+  const left = (): boolean => {
+    if (!stopped) return false
+    unprepare()
+    unlock()
+    return true
+  }
+
   async function begin(): Promise<void> {
     const held = await holding
     if (held === null) throw new PlatformClientError("E_RUN_OPEN_ELSEWHERE")
     release = held
-    // The player left while the lock was asked for: nothing is started.
-    if (stopped) {
-      unlock()
-      return
-    }
+    if (left()) return
     // The player's answer comes first, so a request that failed spends no
     // run, and neither does a refusal: a game steered by tilt is not played
     // without it.
     const access = await motion
+    if (left()) return
     const refused = access === null ? null : motionRefusal(access)
     if (refused !== null) throw refused
     // Then the game gets ready here, so a device it cannot draw on, or a
     // pack that does not arrive, spends no run either.
     prepared = game.prepare(element)
     const cannot = await prepared.ready
+    if (left()) return
     if (cannot !== null) throw unreadyError(cannot)
-    if (stopped) {
-      unprepare()
-      unlock()
-      return
-    }
     const started = await options.client.startRun(
       options.mode === "practice" ? { practice: true } : {},
     )
+    if (left()) return
     // The manifest hash names the module; the address of one version can be
     // written more than one way, and the same module is never loaded twice.
     if (started.game.manifestHash !== game.manifestHash) {
@@ -204,14 +210,10 @@ export function playRun(element: HTMLElement, options: PlayOptions): PlayedRun {
         manifestHash: started.game.manifestHash,
         filesUrl: started.game.filesUrl,
       })
+      if (left()) return
       if (game.needsMotion && motion === null) {
         throw new PlatformClientError("E_MOTION_NEEDS_TAP")
       }
-    }
-    if (stopped) {
-      unprepare()
-      unlock()
-      return
     }
     focusGame(element, options.title)
     const own = game
