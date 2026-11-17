@@ -995,10 +995,12 @@ runs the engine's `ranked` set instead, which adds what only a ranked or
 practice run needs and the platform runs on an upload: two seeds pass through
 different states on one input log (`E_SEED_IGNORED`), and the manifest says
 how a run ranks (`E_RANK_UNDECLARED`), which a game played only on its own
-page may leave out. It prints the version,
-its release line and the line's contract hash, `contractSha256`, so a patch
-can be compared with the line it joins before it is uploaded. It exits 0
-only when everything passes.
+page may leave out. `vbz check` prints the version, its release line and the
+line's contract hash, `contractSha256`, so a patch can be compared with the
+line it joins before it is uploaded. It exits 0 only when everything passes.
+
+The platform refuses an upload whose manifest declares no ranking under the
+same `E_RANK_UNDECLARED`, before it stores a byte.
 
 The engine's checks read the rules code with TypeScript's own parser, so
 `vbz check` needs `typescript` installed in the game, and the template's

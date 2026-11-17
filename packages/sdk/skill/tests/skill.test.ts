@@ -17,6 +17,7 @@ import { basename, dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { ERROR_CODES, INPUT_BUDGET_PER_TICK, Prng } from "@clockwork2/engine"
 import { TICK_RATES } from "@clockwork2/engine/manifest"
+import ts from "typescript"
 import * as build from "../../src/build/index.js"
 import {
   BUILD_REFUSAL,
@@ -265,6 +266,92 @@ describe("what the prose restates from the code", () => {
       if (code === BUILD_REFUSAL.REWRITE_FAILED) continue // the platform's, never an author's
       expect(text).toContain(code)
     }
+  })
+})
+
+/**
+ * Every code `PublicRefusalCode` names, read from its declaration with
+ * TypeScript's parser. `/api` is types only, so the union has no value to
+ * import, and a copy of it here would drift from it with nothing failing.
+ */
+async function publicRefusalCodes(): Promise<ReadonlySet<string>> {
+  const path = join(PACKAGE, "src", "api", "index.ts")
+  const source = ts.createSourceFile(
+    path,
+    await readFile(path, "utf8"),
+    ts.ScriptTarget.Latest,
+  )
+  const codes = new Set<string>()
+  for (const statement of source.statements) {
+    if (
+      ts.isTypeAliasDeclaration(statement) &&
+      statement.name.text === "PublicRefusalCode" &&
+      ts.isUnionTypeNode(statement.type)
+    ) {
+      for (const member of statement.type.types) {
+        if (
+          ts.isLiteralTypeNode(member) &&
+          ts.isStringLiteral(member.literal)
+        ) {
+          codes.add(member.literal.text)
+        }
+      }
+    }
+  }
+  return codes
+}
+
+describe("the platform's refusals of a version", () => {
+  test("the union is read whole", async () => {
+    // Every refusal the build makes is a public code, which `api.test.ts`
+    // holds at compile time, so a reading that misses one missed the union.
+    const codes = await publicRefusalCodes()
+    for (const code of Object.values(BUILD_REFUSAL))
+      expect(codes).toContain(code)
+    expect(codes).toContain("E_BAD_REQUEST")
+  })
+
+  /**
+   * A code in the refusal list that the platform never answers sends an
+   * author looking for a failure that cannot happen, and leaves the one
+   * that does unexplained. `references/ingest.md` also names what the
+   * engine's checks end in, which reaches a build system as the version's
+   * `rejectedCode`.
+   */
+  test("every code the guide's refusal list and ingest.md name is one that exists", async () => {
+    const codes = await publicRefusalCodes()
+    const list = section(await read("SKILL.md"), "When ingest refuses")
+    const listed = list.match(/E_[A-Z0-9_]+/g) ?? []
+    expect(listed.length).toBeGreaterThan(4)
+    for (const code of listed) expect(codes).toContain(code)
+    const engine = new Set(Object.keys(ERROR_CODES))
+    const ingest = (await read("references", "ingest.md")).match(
+      /E_[A-Z0-9_]+/g,
+    )
+    for (const code of ingest ?? []) {
+      expect(`${code}: ${codes.has(code) || engine.has(code)}`).toBe(
+        `${code}: true`,
+      )
+    }
+  })
+
+  /**
+   * An upload with no ranking was once explained under two spellings, one
+   * the platform answers and one nothing raised. The platform answers the
+   * engine's own code, the one `vbz check --ranked` reports.
+   */
+  test("a manifest with no ranking is refused under one name, the engine's", async () => {
+    const text = [
+      await everything(),
+      await readRepository("docs", "sdk.md"),
+      await readFile(join(PACKAGE, "README.md"), "utf8"),
+    ].join("\n")
+    const spellings = new Set(text.match(/E_RANK[A-Z_]*UNDECLARED/g) ?? [])
+    expect([...spellings]).toEqual(["E_RANK_UNDECLARED"])
+    expect(Object.keys(ERROR_CODES)).toContain("E_RANK_UNDECLARED")
+    expect(await publicRefusalCodes()).toContain("E_RANK_UNDECLARED")
+    const list = section(await read("SKILL.md"), "When ingest refuses")
+    expect(list).toContain("`E_RANK_UNDECLARED`")
   })
 })
 

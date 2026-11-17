@@ -45,11 +45,16 @@ release lines" explains what a line means for the day's runs.
 
 ## 1. The manifest
 
-`assertManifest` on the shape, and then one thing it does not cover:
+`assertManifest` on the shape. A ranking, when the manifest declares one,
+has `rankBy` and `tiePolicy` together, `rankBy` not empty, and every name in
+it a declared counter (`E_MANIFEST_INVALID`). Then one thing
+`assertManifest` does not cover:
 
-- every name in `rankBy` is a declared counter, and `rankBy` is not empty
-  (`E_RANKBY_UNDECLARED`). Without this a game lists, plays fine all day and
-  can never rank anybody.
+- the manifest declares `rankBy` and `tiePolicy` at all
+  (`E_RANK_UNDECLARED`, the engine's own code, which `vbz check --ranked`
+  reports for the same manifest). A game played only on its own page may
+  leave both out, and one uploaded without them would give a ranked run
+  nothing to be ordered by.
 
 The manifest is also compared against the one the built simulation exports.
 The code's copy wins: a submission whose JSON says something the simulation
@@ -88,8 +93,7 @@ fixed window; no run has a step limit.
   other, so a seed-blind generator is perfectly deterministic - and turns a
   daily board into an all-time board.
 - **Ranking**: the manifest declares `rankBy` and `tiePolicy`
-  (`E_RANK_UNDECLARED`), which a game played only on its own page may leave
-  out.
+  (`E_RANK_UNDECLARED`), which the upload already held it to in section 1.
 
 ## 4. The cross-engine sweep
 

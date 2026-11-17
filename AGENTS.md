@@ -391,7 +391,11 @@ see: the limit tables in `references/files.md` and `docs/sdk.md` name every
 `MAX_` constant `/build` exports and no other, each at its value, and the
 package README's table matches too; every artifact refusal named anywhere in
 the guide, `docs/sdk.md` or the package README exists, and every one that
-exists is explained; `references/page.md` explains every client code and no
+exists is explained; every code the guide's refusal list and
+`references/ingest.md` name is one `PublicRefusalCode` or the engine names,
+read from the union's declaration with TypeScript's parser; a manifest
+with no ranking goes by one name everywhere, the engine's
+`E_RANK_UNDECLARED`; `references/page.md` explains every client code and no
 other; every prose copy of what a release line fixes (in `SKILL.md`,
 `references/ingest.md` and `docs/sdk.md`) names exactly the fields
 `LINE_RULES` fixes; every need the prose shows a `package.json` naming is

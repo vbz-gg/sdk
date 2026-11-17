@@ -305,9 +305,12 @@ than about determinism:
 - `E_PACK_UNLISTED`, `E_PACK_MISMATCH` - a data pack the manifest declares
   is not in the folder, or is not the size and SHA-256 it declares.
 - `E_VERSION_INVALID` - the version is not plain `MAJOR.MINOR.PATCH`.
-- `E_MANIFEST_INVALID` - the manifest's shape is wrong.
-- `E_RANKBY_UNDECLARED` - `rankBy` names a counter you did not declare. The
-  game would list and never rank anybody.
+- `E_MANIFEST_INVALID` - the manifest's shape is wrong, or `rankBy` is
+  empty, names a counter you did not declare, or comes without `tiePolicy`.
+- `E_RANK_UNDECLARED` - the manifest declares neither `rankBy` nor
+  `tiePolicy`, so a ranked run has nothing to be ordered by. A game played
+  only on its own page may leave both out; `vbz check --ranked` reports the
+  same code before an upload does.
 
 `references/ingest.md` has the whole path from an upload to a listing.
 

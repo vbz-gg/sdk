@@ -9,6 +9,7 @@
 import { describe, expect, test } from "bun:test"
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
+import { ERROR_CODES } from "@clockwork2/engine"
 import type {
   PageGame,
   PublicRefusalCode,
@@ -56,6 +57,19 @@ describe("the shapes a page reads", () => {
     type Unnamed = Exclude<BuildRefusalCode, PublicRefusalCode>
     const none: [Unnamed] extends [never] ? true : Unnamed = true
     expect(none).toBe(true)
+  })
+
+  /**
+   * An upload refuses a manifest with no ranking under the code the engine's
+   * ranked set reports for it, so `vbz check --ranked` and the platform name
+   * one failure alike.
+   */
+  test("a manifest with no ranking is refused under the engine's own code", () => {
+    const code = "E_RANK_UNDECLARED" satisfies Extract<
+      PublicRefusalCode,
+      keyof typeof ERROR_CODES
+    >
+    expect(ERROR_CODES[code]).toContain("rankBy and tiePolicy")
   })
 
   /**

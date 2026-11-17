@@ -99,7 +99,19 @@ export type PublicRefusalCode =
   | "E_PLAYER_BARRED"
   /** The studio's uploads over the last 24 hours, all its games together. */
   | "E_QUOTA_EXCEEDED"
+  /**
+   * The manifest is not one: its shape, a `rankBy` that is empty or names a
+   * counter the manifest does not declare, or one of `rankBy` and
+   * `tiePolicy` declared without the other.
+   */
   | "E_MANIFEST_INVALID"
+  /**
+   * The manifest declares neither `rankBy` nor `tiePolicy`, which order a
+   * ranked run. The engine's own code, which `vbz check --ranked` reports
+   * for the same manifest; a game played only on its own page may leave both
+   * out.
+   */
+  | "E_RANK_UNDECLARED"
   | "E_ARTIFACT_NOT_UTF8"
   | "E_ARTIFACT_TOO_LARGE"
   | "E_SIM_NOT_SELF_CONTAINED"
@@ -356,14 +368,15 @@ export interface FilesListing {
  *
  * The platform answers first every refusal the version's upload would get
  * from these two alone, before a byte is stored: a manifest that is not one
- * (`E_MANIFEST_INVALID`), its version (`E_VERSION_INVALID`,
- * `E_VERSION_EXISTS`, `E_VERSION_NOT_NEWER`, `E_PATCH_CHANGES_RULES`), the
- * listing and the data packs the manifest declares in it (the `E_FILE*` and
- * `E_PACK*` codes), and the studio's uploads (`E_QUOTA_EXCEEDED`), which
- * asking does not count against. So a version the platform would refuse
- * uploads no file. The upload runs every check again, because another
- * version can arrive in between; files stored ahead of a version that never
- * arrives are removed a day later, as nothing names them.
+ * (`E_MANIFEST_INVALID`) or declares no ranking (`E_RANK_UNDECLARED`), its
+ * version (`E_VERSION_INVALID`, `E_VERSION_EXISTS`, `E_VERSION_NOT_NEWER`,
+ * `E_PATCH_CHANGES_RULES`), the listing and the data packs the manifest
+ * declares in it (the `E_FILE*` and `E_PACK*` codes), and the studio's
+ * uploads (`E_QUOTA_EXCEEDED`), which asking does not count against. So a
+ * version the platform would refuse uploads no file. The upload runs every
+ * check again, because another version can arrive in between; files stored
+ * ahead of a version that never arrives are removed a day later, as nothing
+ * names them.
  */
 export interface MissingFilesRequest extends FilesListing {
   /** The version's manifest, as `dist/manifest.json` holds it. */
