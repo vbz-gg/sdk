@@ -292,10 +292,10 @@ describe("what the command line and the environment say", () => {
 })
 
 describe("reading what vbz build wrote", () => {
-  test("the three files, the manifest as text", async () => {
+  test("the three files, as the bytes on disk", async () => {
     await writeDist(dir)
     const built = await readBuild(dir)
-    expect(built.manifest).toBe(MANIFEST)
+    expect(built.manifest).toEqual(new TextEncoder().encode(MANIFEST))
     expect(built.sim).toEqual(SIM)
     expect(built.present).toEqual(PRESENT)
   })
@@ -342,7 +342,16 @@ describe("the upload", () => {
       "origin",
     )
     const form = upload?.init.body as FormData
-    expect(form.get("manifest")).toBe(MANIFEST)
+    // A file part, as the other two are. A text part is not sent as it is:
+    // an encoder following the HTML standard, as Bun 1.4 and Node's do,
+    // rewrites each line feed in one as CRLF.
+    const manifest = form.get("manifest")
+    expect(manifest).toBeInstanceOf(Blob)
+    expect((manifest as File).name).toBe("manifest.json")
+    expect((manifest as File).type).toStartWith("application/json")
+    expect(new Uint8Array(await (manifest as File).arrayBuffer())).toEqual(
+      new TextEncoder().encode(MANIFEST),
+    )
     expect(
       new Uint8Array(await (form.get("sim") as File).arrayBuffer()),
     ).toEqual(SIM)
@@ -689,15 +698,15 @@ describe("the real command", () => {
   const CLI = resolve(import.meta.dir, "..", "..", "src", "cli", "index.ts")
 
   /**
-   * A local platform answering the two routes. It records what arrived, so
-   * the test reads the request a real fetch made rather than the one the
-   * command meant to make.
+   * A local platform answering the two routes. It records what arrived, as
+   * the bytes each part carried, so the test reads the request a real fetch
+   * made rather than the one the command meant to make.
    */
   function platform(decided: VersionStatus) {
     const seen: {
       origin: string | null
       authorization: string | null
-      parts: Record<string, string>
+      parts: Record<string, Uint8Array>
       reads: number
     } = { origin: null, authorization: null, parts: {}, reads: 0 }
     const server = Bun.serve({
@@ -715,7 +724,9 @@ describe("the real command", () => {
           for (const name of ["manifest", "sim", "present"]) {
             const part = form.get(name)
             seen.parts[name] =
-              typeof part === "string" ? part : await (part as Blob).text()
+              typeof part === "string"
+                ? new TextEncoder().encode(part)
+                : new Uint8Array(await (part as Blob).arrayBuffer())
           }
           return json(uploaded(), 201)
         }
@@ -761,10 +772,11 @@ describe("the real command", () => {
       expect(result.stdout).toContain("practice runs: from the next start")
       expect(seen.origin).toBeNull()
       expect(seen.authorization).toBe(`Bearer ${KEY}`)
+      // Byte for byte what `vbz build` wrote, whichever runtime sent it.
       expect(seen.parts).toEqual({
-        manifest: MANIFEST,
-        sim: new TextDecoder().decode(SIM),
-        present: new TextDecoder().decode(PRESENT),
+        manifest: new TextEncoder().encode(MANIFEST),
+        sim: SIM,
+        present: PRESENT,
       })
       expect(seen.reads).toBe(1)
     } finally {
@@ -793,8 +805,8 @@ describe("the real command", () => {
         [STUDIO_KEY_VARIABLE]: KEY,
       })
       expect(result.code).toBe(0)
-      expect(seen.parts.sim).toBe(new TextDecoder().decode(handsOn))
-      expect(seen.parts.present).toBe(new TextDecoder().decode(handsOn))
+      expect(seen.parts.sim).toEqual(handsOn)
+      expect(seen.parts.present).toEqual(handsOn)
       expect(await Bun.file(marker).exists()).toBe(false)
     } finally {
       server.stop(true)

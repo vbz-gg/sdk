@@ -640,6 +640,11 @@ command needs only the game's id. It waits up to 15 minutes, because the
 checks run the game in three engines, and a version still pending after that
 is reported as still being checked rather than as failed.
 
+Each of the three goes as a file part carrying the file's bytes as they are
+on disk. A text part would not arrive that way: an encoder that follows the
+HTML standard rewrites every line feed in one as CRLF, and Bun 1.4.3's and
+Node 22's both do, where Bun 1.3.11's did not.
+
 It is built for a studio's build system, so its exit code is the verdict: 0
 when the version passed its checks and is published, with the release line
 it joined and which runs it serves printed. A version that serves no run yet,

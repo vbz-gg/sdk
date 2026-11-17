@@ -231,9 +231,9 @@ function badOrigin(raw: string, why: string): PublishError {
   )
 }
 
-/** The three files an upload carries, as `vbz build` wrote them. */
+/** The three files an upload carries, as the bytes `vbz build` wrote. */
 export interface BuiltGame {
-  readonly manifest: string
+  readonly manifest: Uint8Array<ArrayBuffer>
   readonly sim: Uint8Array<ArrayBuffer>
   readonly present: Uint8Array<ArrayBuffer>
 }
@@ -259,7 +259,7 @@ export async function readBuild(dir: string): Promise<BuiltGame> {
     read(DIST_FILES.sim),
     read(DIST_FILES.present),
   ])
-  return { manifest: new TextDecoder().decode(manifest), sim, present }
+  return { manifest, sim, present }
 }
 
 /** What a publish needs from the world, so a test can stand in for each. */
@@ -289,8 +289,15 @@ export async function publish(
   const built = await readBuild(settings.dir)
   deps.log(`uploading ${join(settings.dir, DIST_DIR)} to ${settings.apiOrigin}`)
 
+  // Every part is a file, sent as its bytes. A text part is not: an encoder
+  // following the HTML standard, as Bun 1.4's and Node's do, rewrites each
+  // line feed in one as CRLF, and Bun 1.3's did not.
   const form = new FormData()
-  form.append("manifest", built.manifest)
+  form.append(
+    "manifest",
+    new Blob([built.manifest], { type: "application/json" }),
+    DIST_FILES.manifest,
+  )
   form.append(
     "sim",
     new Blob([built.sim], { type: "text/javascript" }),
