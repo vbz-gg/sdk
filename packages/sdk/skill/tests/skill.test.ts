@@ -18,6 +18,7 @@ import { fileURLToPath } from "node:url"
 import { ERROR_CODES, INPUT_BUDGET_PER_TICK, Prng } from "@clockwork2/engine"
 import { TICK_RATES } from "@clockwork2/engine/manifest"
 import ts from "typescript"
+import type { VersionCheckCode } from "../../src/api/index.js"
 import * as build from "../../src/build/index.js"
 import {
   BUILD_REFUSAL,
@@ -327,6 +328,26 @@ describe("what the prose restates from the code", () => {
   })
 })
 
+/**
+ * Every code `VersionCheckCode` names, written out here and held to the
+ * union by the compiler: a code the union gains or loses fails to compile
+ * until this has its row, and the test below compares it with what the
+ * parser read from the declaration.
+ */
+const EVERY_CHECK_CODE = {
+  E_SIM_NO_MANIFEST: true,
+  E_MANIFEST_MISMATCH: true,
+  E_ENGINE_DIVERGED: true,
+  E_PAGE_MODULE_UNLOADABLE: true,
+  E_PAGE_MODULE_INVALID: true,
+  E_PAGE_MODULE_THREW: true,
+  E_PAGE_MODULE_DIVERGED: true,
+  E_REPLAY_OVER_BUDGET: true,
+  E_REPLAY_THREW: true,
+  E_REPLAY_REACHED_OUT: true,
+  E_REPLAY_MALFORMED: true,
+} as const satisfies Record<VersionCheckCode, true>
+
 describe("the platform's refusals of a version", () => {
   test("the unions are read whole", () => {
     // Every refusal the build makes is a public code, which `api.test.ts`
@@ -335,8 +356,11 @@ describe("the platform's refusals of a version", () => {
       expect(PUBLIC_REFUSALS).toContain(code)
     }
     expect(PUBLIC_REFUSALS).toContain("E_BAD_REQUEST")
-    expect(CHECK_CODES.size).toBeGreaterThan(5)
-    for (const code of CHECK_CODES) expect(code).toMatch(/^E_[A-Z_]+$/)
+    // A member the parser skipped, such as one written in another form, is
+    // one the guide would never be held to explaining.
+    expect([...CHECK_CODES].sort()).toEqual(
+      Object.keys(EVERY_CHECK_CODE).sort(),
+    )
   })
 
   /**

@@ -406,8 +406,9 @@ the guide, `docs/sdk.md` or the package README exists, and every one that
 exists is explained; every code the guide's refusal list and
 `references/ingest.md` name is one `PublicRefusalCode`, `VersionCheckCode`
 or the engine names, the two unions read from their declarations with
-TypeScript's parser, and every code `VersionCheckCode` names is explained
-in both; a manifest with no ranking goes by one name everywhere, the
+TypeScript's parser and `VersionCheckCode`'s compared with a list the
+compiler holds exhaustive, and every code `VersionCheckCode` names is
+explained in both; a manifest with no ranking goes by one name everywhere, the
 engine's `E_RANK_UNDECLARED`; every figure the guide and `docs/sdk.md`
 quote for one replay, and what follows from it, is `/build`'s `REPLAY_`
 budget, and the publish wait `docs/sdk.md` states is `CHECK_WAIT_MS` and its

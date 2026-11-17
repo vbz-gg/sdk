@@ -66,11 +66,10 @@ describe("the shapes a page reads", () => {
    * one failure alike.
    */
   test("a manifest with no ranking is refused under the engine's own code", () => {
-    const code = "E_RANK_UNDECLARED" satisfies Extract<
+    "E_RANK_UNDECLARED" satisfies Extract<
       PublicRefusalCode,
       keyof typeof ERROR_CODES
     >
-    expect(code).toBe("E_RANK_UNDECLARED")
   })
 
   /**
@@ -80,6 +79,17 @@ describe("the shapes a page reads", () => {
    */
   test("no code a version's checks end in is a refusal a route answers", () => {
     type Both = Extract<VersionCheckCode, PublicRefusalCode>
+    const none: [Both] extends [never] ? true : Both = true
+    expect(none).toBe(true)
+  })
+
+  /**
+   * A check's code names what the platform's own checks found, and the
+   * engine's codes what the engine's did, so `rejectedCode` says whose
+   * check refused a version. A code in both would say neither.
+   */
+  test("no code a version's checks end in is one of the engine's", () => {
+    type Both = Extract<VersionCheckCode, keyof typeof ERROR_CODES>
     const none: [Both] extends [never] ? true : Both = true
     expect(none).toBe(true)
   })
