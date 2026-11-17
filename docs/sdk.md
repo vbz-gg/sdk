@@ -805,17 +805,19 @@ locally reads and an upload never carries.
 
 ## The limits
 
-Every size the platform holds a version and a run to is a constant in
-`/build`, which `vbz build`, the stand-in and the platform all import, so a
-build that passes here passes there:
+Every size the platform holds a version, a game's files and a run to is a
+constant in `/build`, which `vbz build`, the stand-in and the platform all
+import, so a build that passes here passes there:
 
 | Limit | Value | What it holds | Past it |
 |---|---|---|---|
 | `MAX_SIM_BYTES` | 4 MiB | the rules code | `E_ARTIFACT_TOO_LARGE` |
 | `MAX_PRESENT_BYTES` | 16 MiB | the page module | `E_ARTIFACT_TOO_LARGE` |
+| `MAX_MANIFEST_BYTES` | 512 KiB | the manifest, as JSON with no white space | `E_MANIFEST_INVALID` |
 | `MAX_FILE_BYTES` | 64 MiB | one file of the files folder | `E_FILE_TOO_LARGE` |
 | `MAX_FILES_BYTES` | 512 MiB | every file of the folder together | `E_FILES_TOO_LARGE` |
 | `MAX_FILES` | 10,000 | how many files the folder holds | `E_FILES_TOO_MANY` |
+| `MAX_UNNAMED_FILES_BYTES` | 1 GiB | the files a game holds on the platform that no version names | `E_QUOTA_EXCEEDED`, on a file's upload |
 | `MAX_FILE_PATH_LENGTH` | 512 | the characters of one file's path | `E_FILE_PATH_INVALID` |
 | `MAX_PACK_BYTES` | 16 MiB | one data pack | `E_PACKS_TOO_LARGE` |
 | `MAX_PACKS_BYTES` | 48 MiB | every data pack together | `E_PACKS_TOO_LARGE` |
@@ -843,6 +845,19 @@ a matter of how fast it records inputs: the engine guide's
 `MAX_LISTING_BYTES` is no limit of its own. It is the longest canonical
 listing the folder's limits allow, which the platform takes as the body of
 the route that asks which files it lacks.
+
+The manifest is measured as the platform stores it, the UTF-8 bytes of its
+JSON with no white space, whatever spacing `dist/manifest.json` has, and
+`vbz build` refuses one over `MAX_MANIFEST_BYTES` with the platform's code
+and words. Every replay of a run carries parts of the manifest beside the
+run's log, so the cap leaves the replay's request room for a log at
+`MAX_RUN_BYTES`. `MAX_UNNAMED_FILES_BYTES`, twice `MAX_FILES_BYTES`, is the
+one limit no build can check, because it counts what the platform already
+holds for the game: files sent ahead of their version that no version names
+yet, which the platform removes a day after each was last sent. A file
+whose upload would take them past it is refused before a byte is stored,
+and the cap leaves room for a version's whole folder to go up while the
+files of one that never arrived wait out their day.
 
 One replay has three more limits, which `/build` exports beside these and
 no build can check, because only a replay measures them: 5 minutes of CPU
@@ -1060,6 +1075,24 @@ and runs a few steps, which "The limits" describes. A game the checks'
 browser cannot draw is mounted with `draw: false` and gets ready without
 drawing, and a page module of contract 1, which has no `draw: false`, is
 then loaded and not mounted.
+
+Two of the upload's limits are time, and `/build` exports both. The
+engine's checks an upload runs are given 1,389 microseconds of one CPU for
+every step they play (`CHECK_STEP_BUDGET_US`), what one step of an hour's
+run may cost its replay: `REPLAY_CPU_BUDGET_MS` over an hour of play at 60
+steps a second, 216,000 steps. The page module has to load and be ready
+within 60 seconds of the checks' browser starting (`CHECK_READY_MS`), its
+presentation's `prepare` settled and its start packs fetched, with the
+version's files folder served beside it and nothing else: no other network,
+nobody to press anything and no permission granted. A check that runs out
+of either is tried again, and only once every attempt has run out is the
+version refused, with `E_CHECKS_OVER_BUDGET` or `E_PAGE_MODULE_NOT_READY`,
+so a moment's slowness on the platform's side refuses nothing, and the
+refusal can arrive after `vbz publish` has stopped waiting.
+`vbz check --ranked` prints what a step cost on the author's machine in its
+`performance` check. A `prepare` that waits on something outside the game's
+files folder, on a permission, or on a network the checks do not have never
+gets ready there.
 
 The engine's checks read the rules code with TypeScript's own parser, so
 `vbz check` needs `typescript` installed in the game, and the template's
@@ -1290,14 +1323,16 @@ prints the release line the version joined, and then reads the version back
 at
 `GET /v1/studios/:studioId/versions/:versionId` every two seconds until the
 platform's checks decide. The upload's answer names the studio, so the
-command needs only the game's id. It waits up to 36 minutes,
+command needs only the game's id. It waits up to 31 minutes,
 `CHECK_WAIT_MS`, the platform's worst case for one attempt with headroom,
 rounded up to whole minutes: 10 minutes for the ingest job to wait in the
-platform's queue (`CHECK_QUEUE_ALLOWANCE_MS`); 12 minutes for the checks
+platform's queue (`CHECK_QUEUE_ALLOWANCE_MS`); 7 minutes for the checks
 container, as long as the platform waits for one
-(`CHECKS_CONTAINER_WAIT_MS`); the 7.5 minutes of wall time one replay may
-take (`REPLAY_WALL_BUDGET_MS`), which the replay-service check and a patch's
-replays share, since they run beside each other, and the 10 seconds the
+(`CHECKS_CONTAINER_WAIT_MS`), over the platform's worst case for one check
+with the container's start, 6 minutes 29 seconds; the 7.5 minutes of wall
+time one replay may take (`REPLAY_WALL_BUDGET_MS`), which the
+replay-service check and a patch's replays share, since they run beside
+each other, and the 10 seconds the
 platform waits past it for the answer (`REPLAY_ANSWER_MARGIN_MS`); 5
 minutes for copying a published version's files to the public store before
 the verdict is written
@@ -1305,9 +1340,13 @@ the verdict is written
 headroom (`CHECK_WAIT_HEADROOM_MS`). The platform takes its own waits and
 the replay's budget from the same `/build` constants. The wait covers one
 attempt: when the replay service gives no answer, the platform runs the
-version's job again, which it does not cover. A version still pending after
-that is reported in the platform's terms, still pending, with the address
-to read its state at later and a reminder that uploading it again is
+version's job again, which it does not cover. Nor does it cover a check
+that runs out of time: the platform tries it again, and writes
+`E_CHECKS_OVER_BUDGET` or `E_PAGE_MODULE_NOT_READY` only once every attempt
+has run out, so that refusal can arrive after the command has stopped and
+reported the version still being checked. A version still pending after
+the wait is reported in the platform's terms, still pending, with the
+address to read its state at later and a reminder that uploading it again is
 refused as `E_VERSION_EXISTS`, and the command exits 1, because only a
 published version exits 0.
 
@@ -1338,8 +1377,8 @@ written with the verdict, so the command waits for it as it waits for the
 verdict and prints it as the platform measured it, such as
 `patch check: 2 of 3 recent ranked runs on line 1.2 end differently under
 this version`. A line's first version has no runs of its line to replay, and
-the command says so. When the platform has not measured a version,
-`patchScores` is null and nothing is printed.
+the command says so. A published version always carries `patchScores`; it
+is null only while a version is pending and for a rejected one.
 
 The two files routes and the version's upload each take the studio's secret
 key, or the access token of a member whose role may upload versions
@@ -1357,8 +1396,13 @@ as `E_VERSION_EXISTS`, so a slow answer would turn into a confusing one.
 Asking which files the platform lacks and uploading one are safe to repeat,
 since a file is stored under the hash of its bytes, and each is tried up to
 four times, two seconds apart, when the platform does not answer, fails or
-asks for time, except a 429 that is the studio's quota, which is a "no"
-for a day; a refusal stops the command before the version is sent. A
+asks for time, except a 429 that is `E_QUOTA_EXCEEDED`, which is a "no" for
+up to a day. The question answers it when the studio's uploads over the
+last 24 hours are used up. A file's upload answers it when the file would
+take what its game holds in files no version names past
+`MAX_UNNAMED_FILES_BYTES`, 1 GiB, and goes on answering it until a version
+names them or the platform removes them, a day after each was last sent. A
+refusal stops the command before the version is sent. A
 publish can still stop between the files and the version, or the upload be
 refused after them because another version arrived in between: the files it
 stored are named by no version, and the platform removes them a day later.

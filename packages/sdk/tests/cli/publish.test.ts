@@ -27,6 +27,7 @@ import {
   EMPTY_LISTING,
   listingSha256,
 } from "../../src/build/files.js"
+import { CHECKS_CONTAINER_WAIT_MS } from "../../src/build/limits.js"
 import { parseArgs } from "../../src/cli/args.js"
 import { TEMPLATE_DIR } from "../../src/cli/new.js"
 import {
@@ -700,6 +701,18 @@ describe("waiting for the checks", () => {
     expect(wait - least).toBeLessThan(60_000)
     expect(`${CHECK_WAIT_MS / 60_000}`).toMatch(/^\d+$/)
   })
+
+  /**
+   * A build system sets its own timeout from the wait the docs state. The
+   * checks container's wait sits over the platform's worst case for one
+   * check, 6 minutes 29 seconds with the container's start, so the whole
+   * wait is 31 minutes: 10 in the queue, 7 for the container, 7.5 and 10
+   * seconds for a replay, 5 for the copy and 1 of headroom, rounded up.
+   */
+  test("the wait for a verdict is 31 minutes, 7 of them for the checks container", () => {
+    expect(CHECKS_CONTAINER_WAIT_MS).toBe(7 * 60_000)
+    expect(CHECK_WAIT_MS).toBe(31 * 60_000)
+  })
 })
 
 describe("the verdict a build log shows", () => {
@@ -778,7 +791,11 @@ describe("the verdict a build log shows", () => {
     )
   })
 
-  test("a version the platform has not measured prints no patch check", () => {
+  /**
+   * A published version always carries its count; an answer that does not
+   * prints no count rather than one the platform never made.
+   */
+  test("a published version answered with no count prints no patch check", () => {
     const verdict = verdictOf(status("published"))
     expect(verdict.lines).toHaveLength(3)
     expect(verdict.lines.some((line) => line.startsWith("patch check"))).toBe(

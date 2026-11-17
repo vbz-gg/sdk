@@ -97,12 +97,19 @@ export type PublicRefusalCode =
    * is a `PlayerBarredDetail`.
    */
   | "E_PLAYER_BARRED"
-  /** The studio's uploads over the last 24 hours, all its games together. */
+  /**
+   * The studio's uploads over the last 24 hours, all its games together; or,
+   * answering a file's upload, a file that would take what its game holds
+   * in files no version names past `MAX_UNNAMED_FILES_BYTES` in `/build`.
+   */
   | "E_QUOTA_EXCEEDED"
   /**
    * The manifest is not one: its shape, a `rankBy` that is empty or names a
    * counter the manifest does not declare, or one of `rankBy` and
-   * `tiePolicy` declared without the other.
+   * `tiePolicy` declared without the other; settings the engine's
+   * `servedConfig` cannot serve, such as one required with no default,
+   * refused in the engine's words; or a manifest over `MAX_MANIFEST_BYTES`
+   * in `/build` as JSON.
    */
   | "E_MANIFEST_INVALID"
   /**
@@ -119,7 +126,10 @@ export type PublicRefusalCode =
   | "E_PRESENT_IMPORT_UNEXPECTED"
   /** The page module calls `import()`, with a literal or a computed name. */
   | "E_PRESENT_DYNAMIC_IMPORT"
-  /** The page module calls `new Worker`, `new SharedWorker` or `importScripts`. */
+  /**
+   * The page module calls `new SharedWorker` or `importScripts`. It may call
+   * `new Worker`, when the game says it needs workers.
+   */
   | "E_PRESENT_WORKER"
   | "E_PRESENT_SPECIFIER_AMBIGUOUS"
   // A version's files folder.
@@ -401,7 +411,10 @@ export interface MissingFiles {
  * `PUT /v1/games/:gameId/files/:sha256`: one file of a version's folder,
  * stored in the game's store under the SHA-256 of its bytes. Sending the same
  * bytes again answers the same, so an upload whose answer was lost is safe
- * to send again.
+ * to send again. A file that would take what the game holds in files no
+ * version names past `MAX_UNNAMED_FILES_BYTES` in `/build` is refused
+ * (`E_QUOTA_EXCEEDED`) before a byte is stored, until a version names them
+ * or the platform removes them, a day after each was last sent.
  */
 export interface StoredFile {
   readonly sha256: string
@@ -477,6 +490,16 @@ export type VersionCheckCode =
   | "E_SIM_NO_MANIFEST"
   /** The uploaded manifest is not the one the rules code carries. */
   | "E_MANIFEST_MISMATCH"
+  // The engine's checks an upload runs, on the checks' own machine.
+  /**
+   * The engine's checks an upload runs ran out of the time the platform
+   * gives them: `CHECK_STEP_BUDGET_US` in `/build` for every step they play,
+   * what one step of an hour's run may cost its replay. Written only once
+   * every attempt has run out, so a moment's slowness on the platform's side
+   * refuses nothing. `vbz check --ranked` prints what a step cost on the
+   * author's machine in its `performance` check.
+   */
+  | "E_CHECKS_OVER_BUDGET"
   // The cross-engine sweep, which the platform no longer runs.
   /**
    * Two JavaScript engines computed different states from the same bytes.
@@ -498,6 +521,16 @@ export type VersionCheckCode =
   | "E_PAGE_MODULE_INVALID"
   /** The page module failed while it was mounted, got ready or stepped. */
   | "E_PAGE_MODULE_THREW"
+  /**
+   * The page module was not loaded and ready `CHECK_READY_MS` after the
+   * checks' browser started, which `/build` exports: its presentation's
+   * `prepare` or its start packs never settled. Written only once every
+   * attempt has run out, so a moment's slowness on the platform's side
+   * refuses nothing.
+   * A `prepare` that waits on something outside the game's files folder, on
+   * a permission, or on a network the checks do not have never gets ready.
+   */
+  | "E_PAGE_MODULE_NOT_READY"
   /**
    * The page module played the bot's log to another state than the
    * platform's own replay of the same log reached. No longer reached: the
@@ -581,8 +614,8 @@ export interface VersionStatus {
    * count is written with the verdict, so the read that first finds the
    * version published carries it. `compared` is 0 for a line's first
    * version, which has no runs of its own line to replay. Null while the
-   * version is pending, for a rejected version, and for one the platform has
-   * not measured.
+   * version is pending and for a rejected one; a published version always
+   * carries it, taken down or not.
    */
   readonly patchScores: {
     /** The line's runs replayed under this version's rules code. */

@@ -53,17 +53,21 @@ export {
   missingFiles,
 } from "./files.js"
 export {
+  CHECK_READY_MS,
+  CHECK_STEP_BUDGET_US,
   CHECKS_CONTAINER_WAIT_MS,
   MAX_CHUNK_BYTES,
   MAX_FILE_BYTES,
   MAX_FILES,
   MAX_FILES_BYTES,
   MAX_LISTING_BYTES,
+  MAX_MANIFEST_BYTES,
   MAX_PACK_BYTES,
   MAX_PACKS_BYTES,
   MAX_PRESENT_BYTES,
   MAX_RUN_BYTES,
   MAX_SIM_BYTES,
+  MAX_UNNAMED_FILES_BYTES,
   PATCH_SCORE_RUNS,
   REPLAY_ANSWER_MARGIN_MS,
   REPLAY_CPU_BUDGET_MS,
@@ -81,6 +85,7 @@ export {
   lineContract,
 } from "./line.js"
 export { type RuntimeLoad, runtimeLoads } from "./loads.js"
+export { assertManifestBytes } from "./manifest.js"
 export {
   ARTIFACT_KINDS,
   ARTIFACT_PATH,

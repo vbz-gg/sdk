@@ -4,8 +4,11 @@
  * Bun's `scanImports` reports `import("./x.js")` and nothing for
  * `import(name)`, so a computed import passes a check built on it, and so do
  * `new Worker(url)` and `importScripts(url)`, which no import scan sees. A
- * page module may load nothing but its rules code and the files its static
- * imports name, so each of these is found here, in the module's text.
+ * page module may import nothing but its rules code and the files its static
+ * imports name, so each of these is found here, in the module's text:
+ * `assertPresentImports` refuses all but `new Worker`, which it counts, and
+ * `vbz build` holds a page module that starts a worker to the game's
+ * declared `workers` need.
  *
  * It reads the text as JavaScript tokens, closely enough to tell code from
  * data: strings, template literals, comments and regular expressions are

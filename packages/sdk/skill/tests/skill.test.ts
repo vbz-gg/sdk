@@ -22,11 +22,14 @@ import type { VersionCheckCode } from "../../src/api/index.js"
 import * as build from "../../src/build/index.js"
 import {
   BUILD_REFUSAL,
+  CHECK_READY_MS,
+  CHECK_STEP_BUDGET_US,
   CHECKS_CONTAINER_WAIT_MS,
   MAX_CHUNK_BYTES,
   MAX_FILE_BYTES,
   MAX_FILES,
   MAX_FILES_BYTES,
+  MAX_MANIFEST_BYTES,
   MAX_PACK_BYTES,
   MAX_PACKS_BYTES,
   MAX_PRESENT_BYTES,
@@ -248,12 +251,19 @@ describe("what the prose restates from the code", () => {
         entry[0].startsWith("MAX_") && typeof entry[1] === "number",
     ),
   )
-  const written = (name: string, value: number): string =>
-    name.endsWith("_BYTES") && value % (1024 * 1024) === 0
-      ? `${value / 1024 / 1024} MiB`
-      : name.endsWith("_BYTES")
-        ? `${value.toLocaleString("en")} bytes`
-        : value.toLocaleString("en")
+  /** A size as a table writes it: in the largest unit it is a whole number of. */
+  const UNITS: ReadonlyArray<readonly [string, number]> = [
+    ["GiB", 1024 ** 3],
+    ["MiB", 1024 ** 2],
+    ["KiB", 1024],
+  ]
+  const written = (name: string, value: number): string => {
+    if (!name.endsWith("_BYTES")) return value.toLocaleString("en")
+    const unit = UNITS.find(([, size]) => value % size === 0)
+    return unit === undefined
+      ? `${value.toLocaleString("en")} bytes`
+      : `${value / unit[1]} ${unit[0]}`
+  }
 
   test("every limit table names every limit the code has, at its value", async () => {
     expect(Object.keys(LIMITS).length).toBeGreaterThan(10)
@@ -291,6 +301,10 @@ describe("what the prose restates from the code", () => {
       ["one data pack", written("MAX_PACK_BYTES", MAX_PACK_BYTES)],
       ["every data pack together", written("MAX_PACKS_BYTES", MAX_PACKS_BYTES)],
       ["a run's recording", written("MAX_RUN_BYTES", MAX_RUN_BYTES)],
+      [
+        "the manifest, as JSON",
+        written("MAX_MANIFEST_BYTES", MAX_MANIFEST_BYTES),
+      ],
     ]
     for (const [what, value] of rows) {
       expect(text).toContain(`| ${what} | ${value} |`)
@@ -378,10 +392,12 @@ describe("what the prose restates from the code", () => {
 const EVERY_CHECK_CODE = {
   E_SIM_NO_MANIFEST: true,
   E_MANIFEST_MISMATCH: true,
+  E_CHECKS_OVER_BUDGET: true,
   E_ENGINE_DIVERGED: true,
   E_PAGE_MODULE_UNLOADABLE: true,
   E_PAGE_MODULE_INVALID: true,
   E_PAGE_MODULE_THREW: true,
+  E_PAGE_MODULE_NOT_READY: true,
   E_PAGE_MODULE_DIVERGED: true,
   E_REPLAY_MODULE: true,
   E_REPLAY_OVER_BUDGET: true,
@@ -608,6 +624,103 @@ describe("one replay's budget", () => {
     expect(text).toContain(
       `${minutes(CHECK_WAIT_HEADROOM_MS)} minute of headroom`,
     )
+  })
+})
+
+describe("the time the checks allow a version", () => {
+  /**
+   * The two codes the platform writes only once every attempt at a
+   * version's checks has run out of time, each with the limit it is written
+   * past, as the prose quotes it, and what an author can do about it.
+   */
+  const TIMED_OUT = {
+    E_CHECKS_OVER_BUDGET: {
+      limit: `${CHECK_STEP_BUDGET_US.toLocaleString("en")} microseconds of one CPU`,
+      constant: "`CHECK_STEP_BUDGET_US`",
+      remedy: ["`vbz check --ranked`", "`performance`"],
+    },
+    E_PAGE_MODULE_NOT_READY: {
+      limit: `within ${CHECK_READY_MS / 1000} seconds of the checks' browser starting`,
+      constant: "`CHECK_READY_MS`",
+      remedy: ["`prepare`", "permission", "network"],
+    },
+  } as const satisfies Partial<
+    Record<
+      VersionCheckCode,
+      {
+        readonly limit: string
+        readonly constant: string
+        readonly remedy: readonly string[]
+      }
+    >
+  >
+
+  /** Where check codes are explained, each split into what explains one. */
+  async function explanations(): Promise<Record<string, readonly string[]>> {
+    const flat = (text: string): string => text.replace(/\s+/g, " ")
+    return {
+      "SKILL.md": REFUSAL_LIST.split(/\n(?=- )/).map(flat),
+      "references/ingest.md": (await read("references", "ingest.md"))
+        .split(/\n\n/)
+        .map(flat),
+      "docs/sdk.md": (await readRepository("docs", "sdk.md"))
+        .split(/\n\n/)
+        .map(flat),
+    }
+  }
+
+  /**
+   * A refusal for running out of time that an author reads as a verdict on
+   * the first slow attempt is one they chase after a moment of the
+   * platform's own slowness. Each place that explains check codes says what
+   * the code means, the limit at its value, that it comes only once every
+   * attempt ran out, and what to change.
+   */
+  test("each code written only once every attempt ran out of time is explained with its limit and its remedy", async () => {
+    for (const [where, pieces] of Object.entries(await explanations())) {
+      for (const [code, { limit, constant, remedy }] of Object.entries(
+        TIMED_OUT,
+      )) {
+        const explained = pieces.some(
+          (piece) =>
+            piece.includes(`\`${code}\``) &&
+            /every attempt/.test(piece) &&
+            piece.includes(limit) &&
+            (where === "SKILL.md" || piece.includes(constant)) &&
+            remedy.every((word) => piece.includes(word)),
+        )
+        expect(`${where} ${code}: ${explained}`).toBe(`${where} ${code}: true`)
+      }
+    }
+  })
+
+  /** A figure quoted for either limit anywhere is the constant's. */
+  test("every figure quoted for a step's allowance or the wait to get ready is the constant's", async () => {
+    const texts: Readonly<Record<string, string>> = {
+      guide: await everything(),
+      "docs/sdk.md": await readRepository("docs", "sdk.md"),
+      "README.md": await readFile(join(PACKAGE, "README.md"), "utf8"),
+    }
+    const seen = { step: 0, ready: 0 }
+    for (const [where, raw] of Object.entries(texts)) {
+      const text = raw.replace(/\s+/g, " ")
+      for (const match of text.matchAll(/([\d,]+) microseconds of one CPU/g)) {
+        seen.step += 1
+        expect(`${where}: ${match[1]}`).toBe(
+          `${where}: ${CHECK_STEP_BUDGET_US.toLocaleString("en")}`,
+        )
+      }
+      for (const match of text.matchAll(
+        /within (\d+) seconds of the checks' browser starting/g,
+      )) {
+        seen.ready += 1
+        expect(`${where}: ${match[1]}`).toBe(
+          `${where}: ${CHECK_READY_MS / 1000}`,
+        )
+      }
+    }
+    expect(seen.step).toBeGreaterThanOrEqual(3)
+    expect(seen.ready).toBeGreaterThanOrEqual(3)
   })
 })
 

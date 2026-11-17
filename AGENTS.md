@@ -214,8 +214,11 @@ listing holds a file and refuses a page module that starts a worker without
 
 **Every limit is a constant in `build/limits.ts` or `/build`'s other
 exports**, which the platform imports, so a build that passes `vbz build`
-passes the upload. Each file of the folder is held to its limits by its size
-on disk before a byte is read. The tables in `docs/sdk.md` and the guide's
+passes the upload; the one a build cannot check, `MAX_UNNAMED_FILES_BYTES`,
+counts what the platform already holds. Each file of the folder is held to
+its limits by its size on disk before a byte is read, and the manifest to
+`MAX_MANIFEST_BYTES` by `assertManifestBytes`, measured as the platform
+measures it. The tables in `docs/sdk.md` and the guide's
 `references/files.md` name every `MAX_` constant `/build` exports, at its
 value, and the guide's test holds both ways.
 
@@ -345,7 +348,10 @@ minutes, so it is never shorter than the platform's worst case for one
 attempt and a wait or budget that moves moves it. A patch's replays run
 beside the replay-service check's and share its allowance, so a patch's
 scores arrive with the verdict. It does not cover a retry after a replay
-service that gave no answer.
+service that gave no answer, nor the attempts after a check that ran out of
+time: `E_CHECKS_OVER_BUDGET` and `E_PAGE_MODULE_NOT_READY` are written only
+once every attempt has run out, so either can arrive after the command
+stopped.
 
 **Its exit code is the verdict.** 0 means the version passed its checks and
 is published, and the command has printed which runs it serves. Anything
@@ -416,7 +422,12 @@ everywhere, the engine's `E_RANK_UNDECLARED`; every figure the guide and
 `docs/sdk.md` quote for one replay, and what follows from it, is `/build`'s
 `REPLAY_` budget, every count of a patch's replays they, the package README
 and `/api` quote is `PATCH_SCORE_RUNS`, and the publish wait `docs/sdk.md`
-states is `CHECK_WAIT_MS` and its parts; `references/page.md` explains
+states is `CHECK_WAIT_MS` and its parts; every figure they quote for a
+step's allowance at upload or the page module's wait to get ready is
+`CHECK_STEP_BUDGET_US` or `CHECK_READY_MS`, and the refusal list,
+`references/ingest.md` and `docs/sdk.md` each explain the two codes written
+once every attempt has run out of time: that they come only then, the
+limit and what to change; `references/page.md` explains
 every client code and no other; every prose copy of what a release line
 fixes (in `SKILL.md`,
 `references/ingest.md` and `docs/sdk.md`) names exactly the fields

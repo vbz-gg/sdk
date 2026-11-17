@@ -127,7 +127,11 @@ export function checkWaitOf(parts: readonly number[]): number {
  * It covers one attempt. When the replay service gives no answer the
  * platform holds the replay to its whole wall budget and its margin, then
  * runs the version's job again, half a minute later at the soonest, which
- * this does not wait for.
+ * this does not wait for. Nor does it wait for the checks that run out of
+ * time: the engine's checks over `CHECK_STEP_BUDGET_US` a step, or a page
+ * module not ready within `CHECK_READY_MS`, are tried again, and the
+ * version is refused (`E_CHECKS_OVER_BUDGET`, `E_PAGE_MODULE_NOT_READY`)
+ * only once every attempt has run out, which can be after this has stopped.
  *
  * A version still pending after this is still being checked: the command
  * says so in the platform's terms, names where to read it later, and exits
@@ -697,7 +701,10 @@ const TOO_MANY_REQUESTS = 429
 /**
  * Refusals answered with that status that mean "no" for longer than a
  * publish waits: the studio's uploads for the last 24 hours are used up,
- * which the question about files answers before anything goes up.
+ * which the question about files answers before anything goes up, or a
+ * file's upload would take the game's files that no version names past
+ * `MAX_UNNAMED_FILES_BYTES`, until a version names them or the platform
+ * removes them a day after each was last sent.
  */
 const NOT_WORTH_WAITING_FOR: ReadonlySet<string> = new Set<PublicRefusalCode>([
   "E_QUOTA_EXCEEDED",
@@ -896,8 +903,10 @@ function practiceLine(practice: boolean): string {
 
 /**
  * What the platform measured of a published version against its line's
- * recent ranked runs, in its own terms, or nothing when it has not measured
- * it. The count decides nothing; it is printed for the studio to read.
+ * recent ranked runs, in its own terms. A published version always carries
+ * the count, and an answer without one prints nothing rather than a count
+ * the platform never made. The count decides nothing; it is printed for the
+ * studio to read.
  */
 function patchScoreLines(status: VersionStatus): string[] {
   const scores = status.patchScores

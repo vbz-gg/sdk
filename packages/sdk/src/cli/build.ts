@@ -6,7 +6,9 @@
  *
  * The version is read as a release before anything is written, through the
  * same `parseReleaseVersion` the platform runs on an upload, so a version no
- * release line can hold is refused here rather than after an upload.
+ * release line can hold is refused here rather than after an upload. The
+ * manifest is held to `MAX_MANIFEST_BYTES` the same way, measured as the
+ * platform measures it.
  *
  * The page module is written unrewritten, with its `cw2:sim` and
  * `cw2:files/` specifiers intact. The platform rewrites them to the rules
@@ -28,6 +30,7 @@ import {
   type ListedFolder,
   listingSha256,
 } from "../build/index.js"
+import { assertManifestBytes } from "../build/manifest.js"
 import { parseReleaseVersion, releaseLine } from "../build/version.js"
 import { type GameNeeds, versionNeeds } from "../harness/csp.js"
 import type { LocalBuild } from "../host/local.js"
@@ -86,10 +89,10 @@ function packsOf(manifest: unknown): Parameters<typeof assertPacksListed>[0] {
 
 /**
  * Builds both modules, lists the files folder, reads the manifest out of the
- * rules code, holds the manifest's data packs to the folder, and holds what
- * the game's `package.json` says it needs of a page's policy to what the
- * build does: a page module that starts a worker is refused unless the game
- * says it needs workers.
+ * rules code, holds it to its size, holds its data packs to the folder, and
+ * holds what the game's `package.json` says it needs of a page's policy to
+ * what the build does: a page module that starts a worker is refused unless
+ * the game says it needs workers.
  */
 export async function buildGame(source: GameSource): Promise<BuiltGame> {
   const { sim, present, imports, files } = await buildGameArtifacts(source)
@@ -98,6 +101,7 @@ export async function buildGame(source: GameSource): Promise<BuiltGame> {
     files: files.listing,
   })
   const manifest = await readManifestFromSim(sim)
+  assertManifestBytes(manifest)
   const release = releaseOf(manifest)
   assertPacksListed(packsOf(manifest), files.listing)
   return { sim, present, manifest, ...release, files, needs }

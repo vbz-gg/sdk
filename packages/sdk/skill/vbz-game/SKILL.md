@@ -311,7 +311,9 @@ than about determinism:
   is not in the folder, or is not the size and SHA-256 it declares.
 - `E_VERSION_INVALID` - the version is not plain `MAJOR.MINOR.PATCH`.
 - `E_MANIFEST_INVALID` - the manifest's shape is wrong, or `rankBy` is
-  empty, names a counter you did not declare, or comes without `tiePolicy`.
+  empty, names a counter you did not declare, or comes without `tiePolicy`;
+  a setting it requires has no default, so no run could be served it; or it
+  is over 512 KiB as JSON, which `vbz build` refuses first.
 - `E_RANK_UNDECLARED` - the manifest declares neither `rankBy` nor
   `tiePolicy`, so a ranked run has nothing to be ordered by. A game played
   only on its own page may leave both out; `vbz check --ranked` reports the
@@ -324,6 +326,13 @@ end a version in these:
 - `E_SIM_NO_MANIFEST`, `E_MANIFEST_MISMATCH` - the built simulation exports
   no `MANIFEST`, or one that is not the uploaded `dist/manifest.json`. Build
   again rather than editing either by hand.
+- `E_CHECKS_OVER_BUDGET` - the engine's checks the platform runs at upload
+  ran out of time on the game's steps. They are given 1,389 microseconds of
+  one CPU for every step they play, what one step of an hour's run may cost
+  its replay. Written only once every attempt has run out, so a moment's
+  slowness on the platform's side refuses nothing. `vbz check --ranked`
+  prints what a step cost on your machine in its `performance` check; make
+  the step cheaper.
 - `E_PAGE_MODULE_UNLOADABLE`, `E_PAGE_MODULE_INVALID`,
   `E_PAGE_MODULE_THREW` - the page module would not load in the checks'
   browser, was not one a page plays, or failed while it was mounted in
@@ -331,6 +340,12 @@ end a version in these:
   steps. A game the checks' browser cannot draw, because it has no WebGL
   and no WebGPU, is mounted with `draw: false` and gets ready without
   drawing; that is reported, never refused.
+- `E_PAGE_MODULE_NOT_READY` - the page module did not load and get ready
+  within 60 seconds of the checks' browser starting: its presentation's
+  `prepare`, or its start packs, never settled. Written only once every
+  attempt has run out. A `prepare` that waits on something outside the
+  game's files folder, on a permission, or on a network the checks do not
+  have never gets ready there.
 - `E_REPLAY_MODULE` - the rules code would not load on the platform's
   replay service, which loads it with its data packs and runs a few steps
   with nothing pressed, or the replay died while it loaded them. The first
@@ -457,4 +472,7 @@ newer patch passes, and practice carries on.
   and how many of the line's recent ranked runs end differently under it.
   Anything else exits 1, a version an operator took down included: a
   rejection prints the first check that failed, and a refusal the
-  platform's detail.
+  platform's detail. A version still being checked when the wait runs out
+  exits 1 and says where to read its verdict later: the platform tries a
+  check that ran out of time again before it refuses anything, so that
+  refusal can come after the command has stopped.

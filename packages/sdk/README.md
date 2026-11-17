@@ -108,7 +108,10 @@ differently, which decides nothing and is there for you to read.
 Anything else exits 1: a
 rejection prints the code and the first check that failed, a refusal prints
 the platform's detail, such as the fields a patch may not change, and a
-version an operator took down exits 1 too. The platform is
+version an operator took down exits 1 too. So does a version still being
+checked when the wait runs out: the platform tries a check that ran out of
+time again before it refuses anything, so that refusal can come after the
+command has stopped. The platform is
 `https://api.vbz.gg` unless `--api` or `VBZ_API_ORIGIN` names another.
 Don't add a script called `publish` to your `package.json`: npm runs a script
 with that name on its own, as part of `npm publish`.
@@ -158,6 +161,7 @@ What a build may hold, as `@vbz-gg/sdk/build` exports it:
 |---|---|
 | the rules code | 4 MiB |
 | the page module | 16 MiB |
+| the manifest, as JSON | 512 KiB |
 | one file of the folder | 64 MiB |
 | the whole folder | 512 MiB, in at most 10,000 files |
 | one data pack | 16 MiB |

@@ -138,16 +138,18 @@ never gets ready.
 
 ## The limits
 
-Every size the platform holds a build and a run to, as `@vbz-gg/sdk/build`
-exports it:
+Every size the platform holds a build, a game's files and a run to, as
+`@vbz-gg/sdk/build` exports it:
 
 | Limit | Value | What it holds |
 |---|---|---|
 | `MAX_SIM_BYTES` | 4 MiB | the rules code |
 | `MAX_PRESENT_BYTES` | 16 MiB | the page module |
+| `MAX_MANIFEST_BYTES` | 512 KiB | the manifest, as JSON with no white space |
 | `MAX_FILE_BYTES` | 64 MiB | one file of the folder |
 | `MAX_FILES_BYTES` | 512 MiB | every file of the folder together |
 | `MAX_FILES` | 10,000 | how many files the folder holds |
+| `MAX_UNNAMED_FILES_BYTES` | 1 GiB | the files a game holds on the platform that no version names |
 | `MAX_FILE_PATH_LENGTH` | 512 | the characters of one file's path |
 | `MAX_PACK_BYTES` | 16 MiB | one data pack |
 | `MAX_PACKS_BYTES` | 48 MiB | every data pack together |
@@ -158,14 +160,19 @@ exports it:
 
 A file over its limit is `E_FILE_TOO_LARGE`, a folder over its limits
 `E_FILES_TOO_LARGE` or `E_FILES_TOO_MANY`, and `vbz build` holds each file
-to them by its size on disk before it reads a byte. The rules code and every
-pack together fit one replay, which is why level data goes in packs and not
-in the rules code: every replay starts the rules code afresh. A replay also
-has a budget of CPU time, wall time and memory, which only a replay
-measures, so no build checks it: `@vbz-gg/sdk/build` exports it as
-`REPLAY_CPU_BUDGET_MS`, `REPLAY_WALL_BUDGET_MS` and `REPLAY_MEMORY_MB`, and
-`references/ingest.md` under "5. The rules code on the replay service" has
-the figures and what the platform checks there before a version publishes.
+to them by its size on disk before it reads a byte. A manifest over its
+limit is `E_MANIFEST_INVALID`, from `vbz build` and the upload alike. The
+files a game holds that no version names depend on what the platform
+already has, so no build checks them: a file whose upload would take them
+past their limit is refused with `E_QUOTA_EXCEEDED`, and "Where it goes"
+below says when they leave. The rules code and every pack together fit one
+replay, which is why level data goes in packs and not in the rules code:
+every replay starts the rules code afresh. A replay also has a budget of
+CPU time, wall time and memory, which only a replay measures, so no build
+checks it: `@vbz-gg/sdk/build` exports it as `REPLAY_CPU_BUDGET_MS`,
+`REPLAY_WALL_BUDGET_MS` and `REPLAY_MEMORY_MB`, and `references/ingest.md`
+under "5. The rules code on the replay service" has the figures and what
+the platform checks there before a version publishes.
 
 ## Where it goes
 
@@ -177,7 +184,10 @@ each. The platform keeps each file once per game, in its private store under
 the SHA-256 of its bytes, however many versions or paths name it, so a file
 a version shares with an earlier one is not sent again. Files uploaded for a
 version that never arrives are named by no version, and the platform removes
-them a day later.
+them a day after each was last sent. Until then they count against the 1 GiB
+a game may hold in files no version names (`MAX_UNNAMED_FILES_BYTES`), and
+a file whose upload would pass it is refused with `E_QUOTA_EXCEEDED` until
+a version names them or they are removed.
 
 Only the public store holds a version's folder under its name. When a
 version passes its checks, each file of its listing is copied to

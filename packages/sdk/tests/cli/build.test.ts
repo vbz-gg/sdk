@@ -11,6 +11,7 @@ import { join } from "node:path"
 import { hashCanonical, type PlainValue } from "@clockwork2/engine"
 import { BuildRefusal } from "../../src/build/errors"
 import { canonicalListing, listingSha256 } from "../../src/build/files"
+import { MAX_MANIFEST_BYTES } from "../../src/build/limits"
 import {
   buildGame,
   buildLines,
@@ -172,6 +173,33 @@ describe("building", () => {
     )
     const built = await buildGame({ root, ...SOURCE })
     expect(built.needs).toEqual({ workers: true })
+  })
+
+  /**
+   * The platform refuses a manifest over `MAX_MANIFEST_BYTES` as JSON with
+   * no white space, so `vbz build` refuses it first, measured the same way,
+   * and a build that passes passes the upload. Held at the byte.
+   */
+  test("a manifest at its cap builds, and one a byte over is refused with the platform's code and words", async () => {
+    const padded = (bytes: number): Record<string, unknown> => {
+      const base = { id: "probe", version: "1.0.0", pad: "" }
+      return { ...base, pad: "x".repeat(bytes - JSON.stringify(base).length) }
+    }
+    await writeGame(padded(MAX_MANIFEST_BYTES))
+    const built = await buildGame({ root, ...SOURCE })
+    expect(JSON.stringify(built.manifest)).toHaveLength(MAX_MANIFEST_BYTES)
+
+    await writeGame(padded(MAX_MANIFEST_BYTES + 1))
+    let thrown: unknown
+    try {
+      await buildGame({ root, ...SOURCE })
+    } catch (error) {
+      thrown = error
+    }
+    expect(thrown).toBeInstanceOf(BuildRefusal)
+    expect(failureLine(thrown)).toBe(
+      `E_MANIFEST_INVALID: the manifest is ${MAX_MANIFEST_BYTES + 1} bytes as JSON, over the ${MAX_MANIFEST_BYTES} a manifest may hold`,
+    )
   })
 
   test("a version no line can hold writes nothing", async () => {

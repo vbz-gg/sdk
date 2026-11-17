@@ -1,9 +1,9 @@
 import { MAX_FILE_PATH_LENGTH } from "../game/files.js"
 
 /**
- * Every size the platform holds a version and a run to, the budget one
- * replay of a run has, and how long the platform waits on its checks, in one
- * place.
+ * Every size the platform holds a version, a game's files and a run to, the
+ * budget one replay of a run has, the time the platform's checks allow a
+ * version, and how long the platform waits on them, in one place.
  *
  * The platform imports these, and so does everything here that checks one:
  * `vbz build`, the stand-in a studio's page runs against, and the agent
@@ -37,6 +37,27 @@ export const MAX_FILES_BYTES = 512 * 1024 * 1024
 
 /** The most files a version's folder may hold. */
 export const MAX_FILES = 10_000
+
+/**
+ * The most a game may hold on the platform in files no version names: twice
+ * what one version's folder may hold, 1 GiB, so a version's whole folder can
+ * go up while the files of one that never arrived wait out their day. A file
+ * sent ahead of its version counts from its upload until a version names
+ * it, or until the platform removes it a day after it was last sent. A
+ * file's upload past it is refused (`E_QUOTA_EXCEEDED`). It depends on what
+ * the platform already holds for the game, so no build checks it.
+ */
+export const MAX_UNNAMED_FILES_BYTES = 2 * MAX_FILES_BYTES
+
+/**
+ * The most a version's manifest may hold, as JSON with no white space, the
+ * way the platform stores it: 512 KiB. Every replay of a run carries parts
+ * of it beside the run's log, the config the run is served, its counters and
+ * its data packs' declarations, so a manifest this size leaves the request
+ * room for a log at `MAX_RUN_BYTES`. `vbz build` refuses a larger one, and so
+ * does the upload (`E_MANIFEST_INVALID`).
+ */
+export const MAX_MANIFEST_BYTES = 512 * 1024
 
 /**
  * No canonical listing is longer: `MAX_FILES` entries, each with the longest
@@ -115,14 +136,44 @@ export const REPLAY_ANSWER_MARGIN_MS = 10_000
  */
 export const PATCH_SCORE_RUNS = 3
 
+/** An hour of play at 60 steps a second: 216,000 steps. */
+const STEPS_IN_AN_HOUR = 60 * 60 * 60
+
 /**
- * How long the platform waits for one checks container to answer: 12
- * minutes, sized when the checks ran the cross-engine sweep and played the
- * page module, to cover the checks child's two minutes, two for each of the
- * sweep's three engines and two for the page-module check's browser running
- * out, a cold start and two bundle builds. The checks do neither now, and
- * the wait stays until the platform has measured what they take. The
- * platform takes its wait from here and keeps its container's own deadline
- * under it.
+ * The CPU time the platform's checks allow each step of a version's rules
+ * code that they play at upload, in microseconds of one CPU: what one step
+ * of an hour's run may cost its replay, `REPLAY_CPU_BUDGET_MS` over an hour
+ * of play at 60 steps a second, 216,000 steps, rounded up to 1,389. A game
+ * whose steps the replay service can afford for an hour finishes its checks.
+ * The engine's checks an upload runs are given this for every step they
+ * play; checks that run out of it are tried again, and only once every
+ * attempt has run out is the version refused, `E_CHECKS_OVER_BUDGET`. The
+ * platform takes its allowance from here.
  */
-export const CHECKS_CONTAINER_WAIT_MS = 12 * 60_000
+export const CHECK_STEP_BUDGET_US = Math.ceil(
+  (REPLAY_CPU_BUDGET_MS * 1000) / STEPS_IN_AN_HOUR,
+)
+
+/**
+ * How long the platform's page-module check waits, once the checks' browser
+ * has started, for the page module to load and get ready: 60 seconds.
+ * Getting ready is the presentation's `prepare` settling and the start packs
+ * arriving from the version's files folder, which the checks serve
+ * themselves; there is no other network, nobody to press anything and no
+ * permission granted. The whole check, the browser's start included, took
+ * 5.3 to 6.8 seconds in the platform's checks image. A page module that is
+ * not ready in time is tried again, and only once every attempt has run out
+ * is the version refused, `E_PAGE_MODULE_NOT_READY`. The platform takes its
+ * wait from here.
+ */
+export const CHECK_READY_MS = 60_000
+
+/**
+ * How long the platform waits for one checks container to answer: 7
+ * minutes, over the longest one check can hold its container on the
+ * platform, 6 minutes 29 seconds, the container's start included, in which
+ * every part of the check is held to a timeout sized from measurements in
+ * the checks image. The platform takes its wait from here and keeps its
+ * container's own deadline under it.
+ */
+export const CHECKS_CONTAINER_WAIT_MS = 7 * 60_000
