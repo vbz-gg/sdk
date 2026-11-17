@@ -332,6 +332,11 @@ end a version in these:
   platform's figures for one replay on Cloudflare. Make a step cheaper, or
   hold less at once in the rules code, its data packs and its state; every
   ranked run's replay has the same budget.
+- `E_REPLAY_THREW`, `E_REPLAY_REACHED_OUT`, `E_REPLAY_MALFORMED` - the same
+  replay failed for another reason, and every player's run would too: the
+  rules code threw or reached for something the replay service does not
+  have, such as the network, or the service could not take the replay it
+  was sent. The first failure's message says where.
 
 `references/ingest.md` has the whole path from an upload to a listing.
 

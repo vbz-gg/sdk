@@ -501,6 +501,21 @@ export type VersionCheckCode =
    * gave no answer is the platform's fault and is tried again, never this.
    */
   | "E_REPLAY_OVER_BUDGET"
+  // The same replay failing for a reason other than its budget, under the
+  // code the replay service gave, which a run's own replay would give too.
+  /** The rules code threw while the replay service played the bot's log. */
+  | "E_REPLAY_THREW"
+  /**
+   * The rules code reached for something the replay service's isolate does
+   * not have, such as the network.
+   */
+  | "E_REPLAY_REACHED_OUT"
+  /**
+   * The replay service could not take the replay it was sent: the bot's
+   * log would not decode under the version's manifest, or the request was
+   * over the size the service takes.
+   */
+  | "E_REPLAY_MALFORMED"
 
 /** A version as a studio's build system reads it back. */
 export interface VersionStatus {
