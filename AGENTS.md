@@ -72,6 +72,12 @@ plain node.
 first, even a resolved promise, moves the open out of the click's turn and the
 browser blocks it.
 
+**Every read and write of the kept player goes through `kept`, `keep` and
+`forget` in `client.ts`**, which tell `onPlayerChange`'s listeners when the
+player moved. A `store.read()` or `store.clear()` anywhere else changes the
+player without telling, and `mountSignIn`, which follows it, then shows a
+player the client has let go.
+
 **The client's codes and the platform's never share a name.** `CLIENT_ERROR`
 in `errors.ts` is the client's table, a compile-time check keeps it apart from
 `PublicRefusalCode`, and the skill's `references/page.md` explains every entry,

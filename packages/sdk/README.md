@@ -161,7 +161,7 @@ const platform = createPlatformClient({
   pageKey: PAGE_KEY, // vbz_pk_..., from the dashboard
 })
 
-mountSignIn(signInSlot, { client: platform })
+mountSignIn(signInSlot, { client: platform }) // redraws whenever the player changes
 const board = mountBoard(boardSlot, { client: platform, period: "week" })
 await board.refresh()
 

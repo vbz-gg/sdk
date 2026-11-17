@@ -28,7 +28,12 @@ import {
   PlatformRefusal,
   worthRetrying,
 } from "./errors.js"
-import { keptPlayerKey, type PlayerStore, storagePlayerStore } from "./kept.js"
+import {
+  type KeptPlayer,
+  keptPlayerKey,
+  type PlayerStore,
+  storagePlayerStore,
+} from "./kept.js"
 import { createRequester, type Requester } from "./request.js"
 import { requestSignInCode } from "./signin.js"
 
@@ -41,7 +46,10 @@ export interface PlatformClientOptions {
   readonly pageKey: PageKey
   /** Where the signed-in player is kept. `localStorage` by default. */
   readonly store?: PlayerStore
-  /** Told when the platform says the player's token stopped working. */
+  /**
+   * Told when the platform says the player's token stopped working. Every
+   * change of player, this one included, also reaches `onPlayerChange`.
+   */
   readonly onSignedOut?: () => void
   /** The browser, or a test's stand-in for it. */
   readonly environment?: PageEnvironment
@@ -76,6 +84,17 @@ export interface PlatformClient {
   game(): Promise<PageGame>
   /** The signed-in player, or null. */
   player(): SignedInPlayer["player"] | null
+  /**
+   * Calls `listener` with the player each time the client's player changes:
+   * a sign-in, a sign-out, a token the platform stopped honouring, or one
+   * found expired. A renewed token for the same player is no change. It is
+   * called synchronously, inside the call that found the change, and never
+   * for the player there already was when it subscribed, which `player()`
+   * answers. Returns a function that stops it.
+   */
+  onPlayerChange(
+    listener: (player: SignedInPlayer["player"] | null) => void,
+  ): () => void
   /** Opens the sign-in window. Call it from a click, before anything is awaited. */
   signIn(): Promise<SignedInPlayer["player"]>
   /** Forgets the player on this page. No route signs a player out. */
@@ -123,21 +142,47 @@ export function createPlatformClient(
     fetch: environment.fetch,
   })
 
+  // Every read and write of the kept player goes through `kept`, `keep` and
+  // `forget`, which compare the player with the one last seen and tell the
+  // listeners when it moved, so a widget drawn from `player()` follows a
+  // change it did not make itself.
+  const listeners = new Set<(player: Player) => void>()
+  let seen: Player = store.read()?.player ?? null
+
+  const noticed = (player: Player) => {
+    if (samePlayer(seen, player)) return
+    seen = player
+    for (const listener of [...listeners]) listener(player)
+  }
+
+  const kept = (): KeptPlayer | null => {
+    const found = store.read()
+    noticed(found?.player ?? null)
+    return found
+  }
+
   const keep = (
     token: string,
     expiresIn: number,
     player: SignedInPlayer["player"],
-  ) =>
+  ) => {
     store.write({
       token,
       expiresAt: environment.now() + expiresIn * 1000,
       player,
     })
+    noticed(player)
+  }
+
+  const forget = () => {
+    store.clear()
+    noticed(null)
+  }
 
   const keptOrThrow = () => {
-    const kept = store.read()
-    if (kept === null) throw new PlatformClientError("E_NOT_SIGNED_IN")
-    return kept
+    const found = kept()
+    if (found === null) throw new PlatformClientError("E_NOT_SIGNED_IN")
+    return found
   }
 
   /**
@@ -155,9 +200,9 @@ export function createPlatformClient(
       if (
         error instanceof PlatformRefusal &&
         error.code === "E_SIGN_IN_REQUIRED" &&
-        store.read()?.token === token
+        kept()?.token === token
       ) {
-        store.clear()
+        forget()
         options.onSignedOut?.()
       }
       throw error
@@ -181,7 +226,14 @@ export function createPlatformClient(
 
     game: () => request("GET /v1/game", {}),
 
-    player: () => store.read()?.player ?? null,
+    player: () => kept()?.player ?? null,
+
+    onPlayerChange(listener) {
+      listeners.add(listener)
+      return () => {
+        listeners.delete(listener)
+      }
+    },
 
     async signIn() {
       const grant = await requestSignInCode({
@@ -200,7 +252,7 @@ export function createPlatformClient(
       return signedIn.player
     },
 
-    signOut: () => store.clear(),
+    signOut: forget,
 
     async startRun(body = {}) {
       const kept = keptOrThrow()
@@ -257,15 +309,24 @@ export function createPlatformClient(
           offset: boardOptions.offset,
         },
         // A token that stopped working reads the board as nobody, unrefused.
-        token: store.read()?.token,
+        token: kept()?.token,
       }),
 
     watch: (sessionId) =>
       request("GET /v1/runs/:id", {
         params: { id: sessionId },
-        token: store.read()?.token,
+        token: kept()?.token,
       }),
   }
+}
+
+/** A player signed in on the page, or nobody. */
+type Player = SignedInPlayer["player"] | null
+
+/** The same player under the same name, or nobody both times. */
+function samePlayer(a: Player, b: Player): boolean {
+  if (a === null || b === null) return a === b
+  return a.id === b.id && a.displayName === b.displayName
 }
 
 function pause(

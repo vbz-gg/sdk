@@ -13,6 +13,11 @@
  * patch passes its checks is a ranked run again. When the player is barred,
  * a start answers `E_PLAYER_BARRED`, and the page says when the bar ends.
  *
+ * A player's sign-in can stop working while the page is open: it expires,
+ * or the platform no longer honours it. The client then forgets the player,
+ * and the sign-in box follows the client by itself, so it shows nobody
+ * signed in, and Play asks the player to sign in again.
+ *
  * A game that reads tilt starts no run without it. `playRun` fails the run
  * before asking the platform for one, and the page shows the client's own
  * sentence, which tells the player what happened and what to do.
@@ -77,6 +82,7 @@ export interface SiteOptions {
     | "pageKey"
     | "game"
     | "player"
+    | "onPlayerChange"
     | "signIn"
     | "signOut"
     | "board"
