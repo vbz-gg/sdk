@@ -186,9 +186,14 @@ async function templateBuiltApart(
   return await buildAndAddress(sourceAt(root), SUBJECTS.template.gameId)
 }
 
-/** A module as the studio's bundles origin holds it, with its game's manifest. */
+/**
+ * A module as the studio's bundles origin holds it, with the manifest it was
+ * built with. A frozen module keeps the manifest its own release wrote: the
+ * template's today names a later engine, so its hash is another game's.
+ */
 interface Held {
   readonly game: SubjectName
+  readonly manifest: unknown
   readonly sim: Uint8Array
   readonly simKey: string
   readonly present: Uint8Array
@@ -199,6 +204,7 @@ function held(game: SubjectName, built: BuiltGame): Held {
   const keys = blobKeys(built)
   return {
     game,
+    manifest: manifests.get(game),
     sim: built.sim,
     simKey: keys.sim,
     present: built.present,
@@ -223,6 +229,7 @@ async function frozen(folder: string): Promise<Held> {
   }
   return {
     game: "template",
+    manifest: JSON.parse(await readFile(join(dir, "manifest.json"), "utf8")),
     sim,
     simKey,
     present,
@@ -306,7 +313,7 @@ interface Module {
 
 const modules: Record<string, Module> = {}
 for (const name of Object.keys(studioModules) as ModuleName[]) {
-  const manifest = manifests.get(studioModules[name].game) as {
+  const manifest = studioModules[name].manifest as {
     readonly session: { readonly tickHz: number; readonly maxTicks: number }
   }
   modules[name] = {
