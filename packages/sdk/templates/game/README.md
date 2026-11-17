@@ -1,15 +1,31 @@
 # Lane Runner
 
-A starting point for a game that runs on vbz.gg. Three lanes, rocks coming
-towards you, motes to collect.
+A starting point for a game on the Clockwork 2 engine, built with the vbz
+kit. Three lanes, rocks coming towards you, motes to collect.
 
 ```bash
 bun install
-bun run dev      # play it, loaded the way a studio's page loads it
+bun run dev      # play it, with a replay of every run you play
 bun run check    # the engine's checks, and the input mapping held to the manifest
-bun run build    # the two modules, the manifest and the files an upload carries
-bun run site     # your page, against a stand-in for the platform
+bun run build    # the two modules, the manifest and the files folder, into dist/
+bun run site     # the game's own page, played locally
 ```
+
+It is one build, played two ways:
+
+- **Locally**, on its own page, which is what `site/` does as it ships:
+  the page plays the build beside it and talks to nobody. No account, no
+  upload, and no limit on how long a run lasts.
+- **Ranked**, on vbz.gg, once you opt in: vbz.gg serves each run its seed
+  and settings, this same build plays it on your page and records the
+  player's inputs, and vbz.gg replays them on a server and ranks the score
+  its replay computed. A practice run is the same, and never on a board.
+
+A ranked run holds the game to a few rules a local one does not: the seed
+has to change what happens, a run holds at most 16 inputs a tick on
+average, inputs come from the engine's device helpers and never from a
+script on the page, and the checks play every setting at its default.
+`bunx vbz check . --ranked` runs those checks before an upload.
 
 ## What is where
 
@@ -22,6 +38,7 @@ src/capture.ts        which keys, fingers and controllers drive which inputs
 src/present/canvas.ts the renderer, which reads and never writes
 src/present.ts        the page module's entry, which a studio's page loads
 site/                 your game's page: played locally, or sign-in, Play, Practice and the board
+site/config.json      which of the two the page is: { "mode": "local" } as it ships
 AGENTS.md             what an agent working on the game reads first
 .claude/skills/       the engine's guide and the kit's, for an agent to follow
 ```
@@ -36,6 +53,12 @@ at all.
 The two guides in `.claude/skills/` come from the versions of
 `@clockwork2/engine` and `@vbz-gg/sdk` the game installed. After upgrading
 either, `bunx vbz guides` replaces them with the ones the new versions ship.
+
+Lane Runner ships no files folder. A game that needs one, for a renderer's
+engine, art, or data the rules code reads, names it in `package.json` as
+`"vbz": { "files": "files" }`, and says there what a page's policy has to
+allow for it. The kit's guide has it in `references/files.md`, and drawing
+with null3d in `references/null3d.md`.
 
 ## Controls
 
@@ -113,9 +136,10 @@ To deploy it, bundle `site/main.ts` for the browser with whatever builds the
 rest of your site and serve it as `main.js` beside `index.html` and
 `site.css`, with `dist/` beside them as `game/` when the page plays locally.
 
-## Releasing
+## Releasing on vbz.gg
 
-The version is written once, in `src/sim/manifest.ts`, and `package.json`
+A game played only on its own page needs none of this. The version is
+written once, in `src/sim/manifest.ts`, and `package.json`
 carries none. The comment above it lists what a release line fixes. In
 short: a patch changes how the game looks or fixes a bug and keeps what a
 score means; a minor changes the rules; a major is a different game. Every
