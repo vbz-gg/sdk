@@ -293,7 +293,10 @@ export function playLocal(
       },
       (error: unknown) => {
         if (stopped || destroyed) return
-        failed({ code: "E_UNEXPECTED", message: String(error) })
+        failed({
+          code: "E_UNEXPECTED",
+          message: error instanceof Error ? error.message : String(error),
+        })
       },
     )
   }

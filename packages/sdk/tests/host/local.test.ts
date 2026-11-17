@@ -353,6 +353,30 @@ describe("what a local run refuses", () => {
     expect(played.seen.errors).toEqual([])
     expect(played.seen.frames).toBe(10)
   })
+
+  /**
+   * The engine's own request never fails, and a module built from other code
+   * can. What failed is said in its own words, as the harness shows it.
+   */
+  test("a tilt request that fails says so in its own words, and starts nothing", async () => {
+    for (const [reason, said] of [
+      [new Error("the sensor broke"), "the sensor broke"],
+      ["no sensor", "no sensor"],
+    ] as const) {
+      const scheduler = new ManualScheduler()
+      const failing: PageModule = {
+        ...moduleOf(MANIFEST, { granted: true }),
+        requestMotion: () => Promise.reject(reason),
+      }
+      const game = await loaded(failing, scheduler, devices())
+      const { seen, handlers } = listener()
+      playLocal(stage, { game, scripted: "ignore", ...handlers })
+      await settle()
+      scheduler.run(10, FRAME_MS)
+      expect(seen.errors).toEqual([{ code: "E_UNEXPECTED", message: said }])
+      expect(seen.frames).toBe(0)
+    }
+  })
 })
 
 /**
