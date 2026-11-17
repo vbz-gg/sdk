@@ -50,7 +50,11 @@ from the page's own origin and the game's own path and nowhere else, and no
 The seed is a constant, `local:harness`, so the run you are debugging is the
 run you had a moment ago. The platform's daily seed is a keyed HMAC of the game and the day,
 which does the same job for everybody at once. The config is what the
-platform serves a run: every setting the manifest declares, at its default. A
+platform serves a run: every setting the manifest declares, at its default.
+A setting that is required and has no default has none to serve, so the
+harness refuses the game, naming the setting, until `vbz dev --config
+<file>` names a JSON config of your own; a ranked run cannot play one, so
+`--config` with `--ranked` is refused, and the stand-in refuses the game. A
 run has no step limit, and the game's files folder is served beside its two
 modules, under `/g/<game id>/t/<listing sha256>/`, where the page module
 fetches its data packs.

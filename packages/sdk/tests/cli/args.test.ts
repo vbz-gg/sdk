@@ -37,6 +37,7 @@ describe("what the command line said", () => {
     expect(options.key).toBeUndefined()
     expect(options.site).toBe(false)
     expect(options.ranked).toBe(false)
+    expect(options.config).toBeUndefined()
   })
 
   test("a directory is resolved, so a relative path is not held against a server's cwd", () => {
@@ -66,7 +67,10 @@ describe("what the command line said", () => {
       "--key",
       "key.pem",
       "--site",
+      "--config",
+      "config.json",
     ])
+    expect(options.config).toBe("config.json")
     expect(options.simEntry).toBe("game/sim.ts")
     expect(options.presentEntry).toBe("game/present.ts")
     expect(options.captureEntry).toBe("game/capture.ts")

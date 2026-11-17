@@ -32,9 +32,14 @@ export interface DevSettings {
   readonly site: boolean
   /** Hold the harness page's runs to the input budget of a ranked run. */
   readonly ranked: boolean
+  /**
+   * The config `--config` names, parsed, for the harness page's runs to play
+   * in place of the served one; undefined when it names none.
+   */
+  readonly config: unknown
 }
 
-/** Reads a PEM file; a test stands in for the disk. */
+/** Reads a PEM or JSON file; a test stands in for the disk. */
 export type ReadText = (path: string) => Promise<string>
 
 const readText: ReadText = (path) => readFile(path, "utf8")
@@ -53,7 +58,29 @@ async function pem(
   }
 }
 
-/** Checks the flags `vbz dev` was given and reads the certificate, if any. */
+/**
+ * The config `--config` names, as JSON, held to the game's manifest once the
+ * harness has read it.
+ */
+async function configFile(path: string, read: ReadText): Promise<unknown> {
+  let text: string
+  try {
+    text = await read(path)
+  } catch (error) {
+    throw new Error(
+      `--config ${path} could not be read: ${error instanceof Error ? error.message : String(error)}`,
+    )
+  }
+  try {
+    return JSON.parse(text) as unknown
+  } catch (error) {
+    throw new Error(
+      `--config ${path} is not JSON: ${error instanceof Error ? error.message : String(error)}`,
+    )
+  }
+}
+
+/** Checks the flags `vbz dev` was given and reads the files they name. */
 export async function devSettings(
   options: Pick<
     Options,
@@ -65,6 +92,7 @@ export async function devSettings(
     | "bundlesPort"
     | "site"
     | "ranked"
+    | "config"
   >,
   read: ReadText = readText,
 ): Promise<DevSettings> {
@@ -74,6 +102,20 @@ export async function devSettings(
       "--ranked holds the harness page's runs to a ranked run's input budget, and --site serves your own page instead; give one",
     )
   }
+  if (options.config !== undefined && options.site) {
+    throw new Error(
+      "--config names the harness page's config, and --site serves your own page, which names its own; give one",
+    )
+  }
+  if (options.config !== undefined && options.ranked) {
+    throw new Error(
+      "--config plays a config of your own, and --ranked holds the page's runs to a ranked run, which plays every setting at its default; give one",
+    )
+  }
+  const config =
+    options.config === undefined
+      ? undefined
+      : await configFile(options.config, read)
   if (EVERY_INTERFACE.has(address)) {
     throw new Error(
       `--address ${address} would listen everywhere, and a page has to name one host a browser can reach; give this machine's address on the network, such as 192.168.1.20`,
@@ -94,6 +136,7 @@ export async function devSettings(
       bundlesPort: options.bundlesPort,
       site: options.site,
       ranked: options.ranked,
+      config,
     }
   }
   if (options.cert === undefined || options.key === undefined) {
@@ -111,5 +154,6 @@ export async function devSettings(
     bundlesPort: options.bundlesPort,
     site: options.site,
     ranked: options.ranked,
+    config,
   }
 }

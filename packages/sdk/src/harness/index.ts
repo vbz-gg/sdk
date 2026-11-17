@@ -22,12 +22,13 @@ import {
   assertManifest,
   hashCanonical,
   type Manifest,
+  type ParamValues,
   type PlainValue,
-  servedConfig,
 } from "@clockwork2/engine"
 import { DIST_DIR, DIST_FILES } from "../build/dist.js"
 import type { GameSource } from "../build/index.js"
 import { type BuiltGame, blobKeys, buildAndAddress } from "./artifacts.js"
+import { givenConfig, servedOrRefused } from "./config.js"
 import { type GameNeeds, pageCsp } from "./csp.js"
 import { readBuiltManifest } from "./dist-manifest.js"
 import { HARNESS_STYLE, harnessPage } from "./page/document.js"
@@ -56,6 +57,13 @@ export interface HarnessOptions {
   readonly ranked: boolean
   /** What the game needs of the page's policy, beyond its two modules. */
   readonly needs?: GameNeeds
+  /**
+   * A config of the author's own for the page's runs, `vbz dev --config`,
+   * held to the manifest's settings. The served config by default, which a
+   * game with a required setting that has no default cannot be served, and
+   * which a ranked run always plays, so `ranked` refuses one given here.
+   */
+  readonly config?: unknown
 }
 
 export interface Harness {
@@ -94,6 +102,7 @@ export const HARNESS_SEED = "harness"
 export async function startHarness(options: HarnessOptions): Promise<Harness> {
   const built = await buildAndAddress(options.source, HARNESS_GAME_ID)
   const manifest = await readManifest(options.source.root)
+  const config = configToPlay(manifest, options)
   const listen = options.listen ?? LOOPBACK
 
   const title = manifest.name
@@ -154,9 +163,7 @@ export async function startHarness(options: HarnessOptions): Promise<Harness> {
         title,
         seed: options.seed ?? HARNESS_SEED,
         tickHz: manifest.session.tickHz,
-        // What a platform serves a ranked or practice run: every declared
-        // setting at its default.
-        config: servedConfig(manifest),
+        config,
         replayPath: REPLAY_PATH,
         ranked: options.ranked,
       },
@@ -174,6 +181,31 @@ export async function startHarness(options: HarnessOptions): Promise<Harness> {
       await Promise.all([host.stop(), bundles.stop()])
     },
   }
+}
+
+/**
+ * What the page's runs play, decided before anything is served: the
+ * author's own config, held to the manifest, or the served config, which a
+ * ranked or practice run always plays.
+ */
+function configToPlay(
+  manifest: Manifest,
+  options: Pick<HarnessOptions, "config" | "ranked">,
+): ParamValues {
+  if (options.config === undefined) {
+    return servedOrRefused(
+      manifest,
+      options.ranked
+        ? "a ranked run plays every setting at its default, so give each one a default in the manifest"
+        : "give vbz dev a config to play with --config <file>, or give each setting a default in the manifest",
+    )
+  }
+  if (options.ranked) {
+    throw new Error(
+      "--config plays a config of your own, and --ranked holds the page's runs to a ranked run, which plays every setting at its default; give one",
+    )
+  }
+  return givenConfig(manifest, options.config, "--config")
 }
 
 /**

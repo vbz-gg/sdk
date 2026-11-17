@@ -27,7 +27,6 @@ import {
   isClockworkError,
   type Manifest,
   type PlainValue,
-  servedConfig,
 } from "@clockwork2/engine"
 import type {
   ApiErrorBody,
@@ -51,6 +50,7 @@ import type {
 import { sha256Hex } from "../build/digest.js"
 import { MAX_CHUNK_BYTES, MAX_RUN_BYTES } from "../build/limits.js"
 import { parseReleaseVersion, releaseLine } from "../build/version.js"
+import { servedOrRefused } from "./config.js"
 import { escapeHtml } from "./page/document.js"
 import { type Listen, originOf, serveOptions } from "./servers.js"
 
@@ -246,8 +246,12 @@ export function startStandIn(options: StandInOptions): RunningStandIn {
     )
   }
   const ranking: Pick<Board, "rankBy" | "tiePolicy"> = { rankBy, tiePolicy }
-  // What a platform serves a run: every declared setting at its default.
-  const config = servedConfig(manifest)
+  // What a platform serves a run: every declared setting at its default,
+  // which a game with a required setting that has none cannot be served.
+  const config = servedOrRefused(
+    manifest,
+    "a ranked or practice run plays every setting at its default, so give each one a default in the manifest to play it against the stand-in for the platform",
+  )
   // A seed shaped as the platform's are: 64 hex characters.
   const seed = sha256Hex(new TextEncoder().encode(options.seed))
   const now = options.now ?? (() => new Date())

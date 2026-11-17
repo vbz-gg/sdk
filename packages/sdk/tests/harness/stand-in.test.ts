@@ -32,7 +32,7 @@ import {
   createPlatformClient,
   type RunRecording,
 } from "../../src/platform/client"
-import { PlatformRefusal } from "../../src/platform/errors"
+import { CLIENT_ERROR, PlatformRefusal } from "../../src/platform/errors"
 import { RUN_PHASE, Run, type RunState } from "../../src/platform/run"
 import {
   type Config,
@@ -824,6 +824,17 @@ describe("what the stand-in serves, and the platform's limits", () => {
     const { rankBy: _, tiePolicy: __, ...unranked } = MANIFEST
     expect(() => standIn({ manifest: unranked })).toThrow(
       /rankBy and tiePolicy/,
+    )
+  })
+
+  /** A ranked or practice run plays the served config, which this has none of. */
+  test("a game with a required setting that has no default is refused, naming it", () => {
+    const manifest = {
+      ...MANIFEST,
+      params: { endAt: { type: "int", label: "End" } },
+    }
+    expect(() => standIn({ manifest })).toThrow(
+      `E_CONFIG_REQUIRED: ${CLIENT_ERROR.E_CONFIG_REQUIRED} (params.endAt); a ranked or practice run plays every setting at its default`,
     )
   })
 

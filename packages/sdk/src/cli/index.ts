@@ -53,6 +53,8 @@ const FLAGS = `  --sim <path>       the simulation's entry   (default src/sim/in
   --ranked           check: also what a ranked or practice run needs: the seed
                      changes the state, and the manifest says how a run ranks
                      dev: hold each run to a ranked run's input budget
+  --config <file>    dev: a JSON config for the page's runs to play, in place
+                     of every setting at its default
   --game <id>      publish: the game to upload to
   --api <origin>   publish: the platform    (default ${DEFAULT_API_ORIGIN},
                    or ${API_ORIGIN_VARIABLE})
@@ -104,6 +106,7 @@ async function dev(options: Options): Promise<void> {
     listen: settings.listen,
     ranked: settings.ranked,
     needs: await needsOf(options.dir),
+    ...(settings.config === undefined ? {} : { config: settings.config }),
   })
   process.stdout.write(
     `\n  play     ${harness.hostOrigin}\n` +

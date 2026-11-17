@@ -56,7 +56,10 @@ on another port loads the page module from there and plays it, under the
 Content-Security-Policy a studio's page should send. When a run ends, the
 page shows whether the run replays to what it showed, how many inputs it
 recorded against the budget a ranked or practice run is held to, and its size
-in bytes; `--ranked` turns the report red over that budget.
+in bytes; `--ranked` turns the report red over that budget. The runs play
+every setting at its default, as the platform serves them, and
+`--config <file>` plays a JSON config of your own instead, which a game with
+a required setting that has no default needs here.
 `--address` and `--https` with `--cert` and `--key` serve it to a phone on
 your network, and `--site` serves your game's own page from `site/`, in the
 mode `site/config.json` names: played locally from the build beside it, or

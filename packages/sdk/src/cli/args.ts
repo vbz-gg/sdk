@@ -33,6 +33,7 @@ export const VALUE_FLAGS = [
   "key",
   "game",
   "api",
+  "config",
 ] as const
 
 /** The flags that take none. */
@@ -58,6 +59,8 @@ export interface Options {
   readonly key: string | undefined
   /** `dev`: serve the game's `site/` against a stand-in for the platform. */
   readonly site: boolean
+  /** `dev`: a JSON file holding the config the harness page's runs play. */
+  readonly config: string | undefined
   /**
    * `check`: also run what only a ranked or practice run needs. `dev`: hold
    * a run's inputs to the budget a ranked or practice run is held to.
@@ -135,6 +138,7 @@ export function parseArgs(argv: readonly string[]): Options {
     cert: values.get("cert"),
     key: values.get("key"),
     site: switches.has("site"),
+    config: values.get("config"),
     ranked: switches.has("ranked"),
     game: values.get("game"),
     api: values.get("api"),

@@ -32,6 +32,7 @@ import {
   serveOptions,
   startHostServer,
 } from "../../src/harness/servers"
+import { CLIENT_ERROR } from "../../src/platform/errors"
 import { MANIFEST } from "../game/subject"
 
 describe("the host origin", () => {
@@ -263,6 +264,74 @@ describe("the harness, started whole", () => {
     } finally {
       await rm(bare, { recursive: true, force: true })
     }
+  })
+})
+
+describe("a game with a setting that has no default", () => {
+  const UNSERVED = {
+    ...DIST_MANIFEST,
+    params: {
+      speed: { type: "int", label: "Speed", default: 2 },
+      endAt: { type: "int", label: "End" },
+    },
+  }
+  let root: string
+
+  beforeAll(async () => {
+    root = await mkdtemp(join(tmpdir(), "sdk-unserved-"))
+    await mkdir(join(root, "src", "sim"), { recursive: true })
+    await writeFile(
+      join(root, "src", "sim", "index.ts"),
+      `export const MANIFEST = ${JSON.stringify(UNSERVED)}\n`,
+    )
+    await writeFile(
+      join(root, "src", "present.ts"),
+      `import { MANIFEST } from "cw2:sim"\ndocument.title = MANIFEST.name\n`,
+    )
+    await mkdir(join(root, "dist"), { recursive: true })
+    await writeFile(
+      join(root, "dist", "manifest.json"),
+      JSON.stringify(UNSERVED),
+    )
+  })
+
+  afterAll(async () => {
+    await rm(root, { recursive: true, force: true })
+  })
+
+  const start = (extra: { ranked?: boolean; config?: unknown } = {}) =>
+    startHarness({
+      source: { root, ...SOURCE },
+      hostPort: 0,
+      bundlesPort: 0,
+      ranked: extra.ranked ?? false,
+      ...(extra.config === undefined ? {} : { config: extra.config }),
+    })
+
+  /** No config can be served, so it says which setting and what to do. */
+  test("is refused before anything is served, naming the setting", async () => {
+    await expect(start()).rejects.toThrow(
+      `E_CONFIG_REQUIRED: ${CLIENT_ERROR.E_CONFIG_REQUIRED} (params.endAt); give vbz dev a config to play with --config <file>`,
+    )
+    await expect(start({ ranked: true })).rejects.toThrow(
+      "a ranked run plays every setting at its default",
+    )
+  })
+
+  test("plays the config its author names, its defaults filled in", async () => {
+    const harness = await start({ config: { endAt: 9 } })
+    try {
+      const html = await (await fetch(harness.hostOrigin)).text()
+      expect(html).toContain(`"config":{"speed":2,"endAt":9}`)
+    } finally {
+      await harness.stop()
+    }
+    await expect(start({ config: { endAt: "soon" } })).rejects.toThrow(
+      "--config is not a config this game takes: params.endAt",
+    )
+    await expect(start({ config: { endAt: 9 }, ranked: true })).rejects.toThrow(
+      "--ranked holds the page's runs to a ranked run",
+    )
   })
 })
 

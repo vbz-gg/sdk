@@ -13,7 +13,12 @@ import { devSettings } from "../../src/cli/dev"
 import { startHarness } from "../../src/harness"
 import { MANIFEST } from "../game/subject"
 
-const PEM = { "cert.pem": "CERTIFICATE", "key.pem": "PRIVATE KEY" }
+const PEM = {
+  "cert.pem": "CERTIFICATE",
+  "key.pem": "PRIVATE KEY",
+  "config.json": `{ "endAt": 5 }`,
+  "broken.json": "{ endAt: 5",
+}
 const read = async (path: string) => {
   const text = PEM[path as keyof typeof PEM]
   if (text === undefined) throw new Error(`ENOENT: ${path}`)
@@ -74,6 +79,7 @@ describe("where vbz dev listens", () => {
       bundlesPort: 9001,
       site: true,
       ranked: false,
+      config: undefined,
     })
   })
 
@@ -84,6 +90,31 @@ describe("where vbz dev listens", () => {
       (await devSettings(parseArgs(["dev", "--ranked"]), read)).ranked,
     ).toBe(true)
     expect(await refusal(["--site", "--ranked"])).toContain("give one")
+  })
+
+  /**
+   * A game with a setting that has no default can be played here only on a
+   * config its author names, which a ranked run never plays and a site
+   * names for itself.
+   */
+  test("--config reads a JSON config for the harness page's runs", async () => {
+    expect(
+      (await devSettings(parseArgs(["dev", "--config", "config.json"]), read))
+        .config,
+    ).toEqual({ endAt: 5 })
+    expect((await devSettings(parseArgs(["dev"]), read)).config).toBeUndefined()
+    expect(await refusal(["--config", "gone.json"])).toContain(
+      "--config gone.json could not be read",
+    )
+    expect(await refusal(["--config", "broken.json"])).toContain(
+      "--config broken.json is not JSON",
+    )
+    expect(await refusal(["--config", "config.json", "--site"])).toContain(
+      "give one",
+    )
+    expect(await refusal(["--config", "config.json", "--ranked"])).toContain(
+      "plays every setting at its default",
+    )
   })
 
   /**

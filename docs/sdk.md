@@ -763,7 +763,13 @@ moment ago. The platform's daily seed is a keyed HMAC of the game and the day,
 which does the same job for a different reason. The config is the manifest's
 served config, what the platform serves a run, and the harness reads both it
 and the tick rate from the manifest `vbz build` wrote, refusing to start
-without one. The files folder is served beside the two modules, and the
+without one. A game with a setting that is required and has no default can
+be served no config, so the harness refuses it, in the client's
+`E_CONFIG_REQUIRED` sentence naming each such setting, unless
+`vbz dev --config <file>` names a config of the author's own, a JSON object
+the harness holds to the manifest with the engine's `validateParams`. A
+ranked run always plays the served config, so `--config` with `--ranked` is
+refused, and so is a manifest the stand-in would have to serve without one. The files folder is served beside the two modules, and the
 replay is handed the data packs from it.
 
 **A phone** is another machine, and a browser loads a game's code from
