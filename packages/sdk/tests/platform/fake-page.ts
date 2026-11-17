@@ -9,6 +9,7 @@ import type {
   MessageLike,
   PageEnvironment,
   SignInBox,
+  SignInBoxHandlers,
 } from "../../src/platform/environment"
 
 export interface Sent {
@@ -31,10 +32,17 @@ export class FakeBox implements SignInBox {
   url: string | null = null
   removed = false
 
-  constructor(
-    /** The player closing it from the page: Cancel, or Escape. */
-    readonly cancel: () => void,
-  ) {}
+  constructor(private readonly handlers: SignInBoxHandlers) {}
+
+  /** The player closing it from the page: Cancel, or Escape. */
+  cancel(): void {
+    this.handlers.onCancel()
+  }
+
+  /** The frame finishing a page, shown or refused alike. */
+  loaded(): void {
+    this.handlers.onFrameLoad()
+  }
 
   load(url: string): void {
     this.url = url
@@ -83,9 +91,9 @@ export class FakePage implements PageEnvironment {
     return new Response(text, { status: answer.status })
   }) as typeof fetch
 
-  mountSignInBox(onCancel: () => void): SignInBox {
+  mountSignInBox(handlers: SignInBoxHandlers): SignInBox {
     if (this.boxFails !== null) throw this.boxFails
-    const box = new FakeBox(onCancel)
+    const box = new FakeBox(handlers)
     this.boxes.push(box)
     return box
   }

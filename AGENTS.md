@@ -75,9 +75,10 @@ frame pointed at the sign-in. Anything awaited first, even a resolved
 promise, moves the focus out of the click's turn, and a phone opens its
 keyboard only from a gesture. A message is taken only from the frame the box
 holds, on the sign-in origin, carrying the state sent. **The sign-in's ready
-message is the only sign the box works**: a frame the browser refused still
-fires `load`, so no `vbz.signin.ready` within `SIGN_IN_READY_MS` is
-`E_SIGNIN_UNREACHABLE`, never a fallback to a window. Nothing calls
+message is the only sign the box works**, for every page the frame shows: a
+frame the browser refused still fires `load`, so each page the frame loads
+owes one `vbz.signin.ready`, and one still owed `SIGN_IN_READY_MS` after its
+load is `E_SIGNIN_UNREACHABLE`, never a fallback to a window. Nothing calls
 `requestStorageAccess`.
 
 **Every read and write of the kept player goes through `kept`, `keep` and
@@ -405,7 +406,10 @@ What only a browser can settle, and what each spec found:
   `E_SIGNIN_CANCELLED`. A page whose policy has no `frame-src` never asks
   for the frame, reports a `frame-src` violation and gets
   `E_SIGNIN_UNREACHABLE` once the ready time runs out; the refused frame
-  fired `load` in Chromium and `error` in Firefox. A studio's page framed by
+  fired `load` in Chromium and `error` in Firefox. A later page the browser
+  will not show, a form step the sign-in answers framed for nobody, gets
+  `E_SIGNIN_UNREACHABLE` too, because every page the frame loads owes a
+  ready. A studio's page framed by
   a portal on another origin asks for the sign-in and the browser refuses to
   show it, since every ancestor is held to `frame-ancestors`, so it too gets
   `E_SIGNIN_UNREACHABLE`. Chromium and Firefox, measured; WebKit is in the

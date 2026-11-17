@@ -14,6 +14,15 @@
  * iframe (measured in Chromium 141 and 153, and Firefox 142 for a
  * `frame-ancestors` refusal), so the only sign of a sign-in that works is
  * the `vbz.signin.ready` message it posts as it loads.
+ *
+ * That holds for every page the frame shows, not only the first: a form
+ * step the sign-in answers with a page the browser will not frame leaves
+ * the box as empty as a refused first page does. Each page of the sign-in
+ * posts one ready as it loads, and the box counts both: while fewer readies
+ * have come than pages have loaded, or none at all, the page waits
+ * `SIGN_IN_READY_MS` from the last load for the one still owed. A page's
+ * ready and its `load` reach the page in either order, which counting
+ * leaves alone.
  */
 
 import type {
@@ -66,8 +75,9 @@ export interface OpenSignIn {
  * the sign-in origin, carrying the state sent. It rejects with
  * `E_SIGNIN_CANCELLED` when the player closes the box, from the page or
  * from inside the frame, or the page cancels it, and with
- * `E_SIGNIN_UNREACHABLE` when no `vbz.signin.ready` arrives within
- * `SIGN_IN_READY_MS`. The box is taken down either way.
+ * `E_SIGNIN_UNREACHABLE` when a page the frame loaded, the first or any
+ * after it, says no `vbz.signin.ready` within `SIGN_IN_READY_MS`. The box
+ * is taken down either way.
  */
 export function openSignIn(options: {
   readonly environment: PageEnvironment
@@ -85,12 +95,30 @@ export function openSignIn(options: {
 
   let settled = false
   let pkce: Awaited<ReturnType<typeof makePkce>> | null = null
+  /** The wait for a ready still owed, while there is one. */
   let waiting: unknown
+  /** Pages the frame finished loading, and readies their sign-in posted. */
+  let loads = 0
+  let readies = 0
+  const stopWaiting = () => {
+    if (waiting !== undefined) environment.clearTimeout(waiting)
+    waiting = undefined
+  }
+  /** A fresh wait, from now, for the ready still owed. */
+  const waitForReady = () => {
+    stopWaiting()
+    waiting = environment.setTimeout(
+      () => failWith("E_SIGNIN_UNREACHABLE"),
+      SIGN_IN_READY_MS,
+    )
+  }
+  /** Whether a page has loaded, or is loading, that has not said it is ready. */
+  const owed = () => readies < Math.max(loads, 1)
   const finish = (): boolean => {
     if (settled) return false
     settled = true
     environment.removeMessageListener(listen)
-    if (waiting !== undefined) environment.clearTimeout(waiting)
+    stopWaiting()
     box.remove()
     return true
   }
@@ -112,8 +140,8 @@ export function openSignIn(options: {
     if (data?.state !== pkce.state) return
     const type = data.type as SignInMessage["type"] | undefined
     if (type === READY) {
-      if (waiting !== undefined) environment.clearTimeout(waiting)
-      waiting = undefined
+      readies += 1
+      if (!owed()) stopWaiting()
     } else if (type === CANCEL) {
       failWith("E_SIGNIN_CANCELLED")
     } else if (type === HANDOFF && typeof data.code === "string") {
@@ -126,7 +154,16 @@ export function openSignIn(options: {
   // First, before anything is awaited: the box, in the click's own turn.
   let box: ReturnType<PageEnvironment["mountSignInBox"]>
   try {
-    box = environment.mountSignInBox(() => failWith("E_SIGNIN_CANCELLED"))
+    box = environment.mountSignInBox({
+      onCancel: () => failWith("E_SIGNIN_CANCELLED"),
+      // Every page the frame shows owes a ready, whether or not the browser
+      // let it render, so each load waits afresh for the one it owes.
+      onFrameLoad: () => {
+        if (settled) return
+        loads += 1
+        if (owed()) waitForReady()
+      },
+    })
   } catch (error) {
     settled = true
     rejectGrant(error)
@@ -146,10 +183,10 @@ export function openSignIn(options: {
         code_challenge_method: "S256",
       })
       box.load(`${signInOrigin}/authorize?${query}`)
-      waiting = environment.setTimeout(
-        () => failWith("E_SIGNIN_UNREACHABLE"),
-        SIGN_IN_READY_MS,
-      )
+      // From the moment it is asked for: a frame the policy refuses may
+      // fire no load at all (Firefox 142 fires error for a missing
+      // frame-src, and nothing for a page COEP refused).
+      waitForReady()
     },
     (error: unknown) => fail(error),
   )

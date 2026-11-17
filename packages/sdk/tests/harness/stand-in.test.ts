@@ -480,7 +480,15 @@ describe("signing in", () => {
         postMessage: (message: unknown, origin: string) =>
           posted.push([message, origin]),
       }
-      const page: { parent?: unknown } = {}
+      const onLoad: Array<() => void> = []
+      const page: {
+        parent?: unknown
+        addEventListener?: (type: string, listener: () => void) => void
+      } = {
+        addEventListener: (type, listener) => {
+          if (type === "load") onLoad.push(listener)
+        },
+      }
       page.parent = framed ? parent : page
       const document = {
         getElementById: (id: string) =>
@@ -492,6 +500,10 @@ describe("signing in", () => {
         querySelector: () => ({ focus: () => {} }),
       }
       new Function("window", "document", script)(page, document)
+      // Nothing is posted before the page has loaded, and one ready after.
+      const before = posted.length
+      for (const listener of onLoad) listener()
+      if (before !== 0) throw new Error("posted before the page loaded")
       return { posted, status: status.textContent, keys }
     }
 

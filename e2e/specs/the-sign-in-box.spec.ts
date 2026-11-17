@@ -180,6 +180,36 @@ test("a page whose policy has no frame-src gets E_SIGNIN_UNREACHABLE, and asks t
 })
 
 /**
+ * Every page the frame shows owes a ready, not only the first. Here the
+ * first renders and says so, and its Continue posts a request the sign-in
+ * cannot check, which it answers with a page framed for nobody: the
+ * browser refuses to show it and fires `load` all the same, and the box
+ * gives up rather than leaving the player in front of an empty frame.
+ */
+test("a later page of the sign-in the browser will not show gets E_SIGNIN_UNREACHABLE", async ({
+  page,
+}) => {
+  test.setTimeout(60_000)
+  await openRuns(page, "template")
+  await page.getByRole("button", { name: "Sign in", exact: true }).click()
+  const frame = signInFrame(page)
+  const continuing = frame.getByRole("button", { name: /Sign in as/ })
+  await expect(continuing).toBeVisible()
+  // A form whose state was lost: the sign-in refuses it, framed for nobody.
+  await frame
+    .locator('input[name="state"]')
+    .evaluate((input) => input.setAttribute("value", ""))
+  await continuing.click()
+  await expect(page.locator("body")).toHaveAttribute(
+    "data-signin",
+    "E_SIGNIN_UNREACHABLE",
+    { timeout: 20_000 },
+  )
+  await expect(page.getByRole("dialog")).toHaveCount(0)
+  await expect(page.locator("body")).toHaveAttribute("data-player", "")
+})
+
+/**
  * The sign-in frames for the exact origin that asked, and a browser holds
  * every ancestor to `frame-ancestors`, not only the parent. A studio's page
  * embedded in a portal on another origin asks for the sign-in, gets it, and

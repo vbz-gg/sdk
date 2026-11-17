@@ -13,7 +13,7 @@
  * rendering on a server.
  */
 
-import type { SignInBox } from "./environment.js"
+import type { SignInBox, SignInBoxHandlers } from "./environment.js"
 
 /** The layout and colours every button the package draws shares. */
 export function styleButton(button: HTMLButtonElement): void {
@@ -30,16 +30,33 @@ export function styleButton(button: HTMLButtonElement): void {
 export const SIGN_IN_LABEL = "Sign in"
 
 /**
+ * Whether the frame still holds its first document, `about:blank`, which is
+ * the page's own origin and so readable. A sign-in page, or the page a
+ * browser shows for one it refused, is another origin's, and reading it
+ * throws.
+ */
+function holdsBlank(frame: HTMLIFrameElement): boolean {
+  try {
+    return frame.contentWindow?.location.href === "about:blank"
+  } catch {
+    return false
+  }
+}
+
+/**
  * Puts the box over `document`'s page, its frame holding nothing yet, and
  * moves focus into the frame, all in the calling turn. `onCancel` hears the
  * Cancel button, and Escape while focus is in the page rather than in the
  * frame; the sign-in tells the page about an Escape inside the frame
- * itself, with `vbz.signin.cancel`.
+ * itself, with `vbz.signin.cancel`. `onFrameLoad` hears each page the frame
+ * finishes loading once it is pointed at the sign-in, and never the blank
+ * document it starts with, whose `load` may come after it is pointed.
  */
 export function mountSignInBox(
   document: Document,
-  onCancel: () => void,
+  handlers: SignInBoxHandlers,
 ): SignInBox {
+  const { onCancel } = handlers
   const before = document.activeElement
 
   const backdrop = document.createElement("div")
@@ -81,6 +98,10 @@ export function mountSignInBox(
   // Opaque, so a sign-in page whose colour scheme matches the page's, and
   // so paints no background of its own, is never drawn on the box's colour.
   frame.style.background = "var(--gb-widget-frame-bg, Canvas)"
+  let pointed = false
+  frame.addEventListener("load", () => {
+    if (pointed && !holdsBlank(frame)) handlers.onFrameLoad()
+  })
 
   const cancel = document.createElement("button")
   cancel.type = "button"
@@ -108,6 +129,7 @@ export function mountSignInBox(
       return frame.contentWindow
     },
     load(url) {
+      pointed = true
       frame.src = url
     },
     remove() {

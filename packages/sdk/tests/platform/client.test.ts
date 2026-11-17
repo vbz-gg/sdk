@@ -254,6 +254,62 @@ describe("signing a player in", () => {
     expect(seen.value).toEqual(PLAYER)
   })
 
+  /**
+   * Every page the frame shows owes a ready, not only the first. A form
+   * step answered with a page the browser will not frame, a 404 the
+   * sign-in frames for nobody, or one sent without the headers a page under
+   * COOP and COEP needs, leaves the box as empty as a refused first page,
+   * and fires `load` all the same.
+   */
+  test("a later page that never says it is ready rejects E_SIGNIN_UNREACHABLE too", async () => {
+    const { page, client: platform } = client()
+    const seen = outcome(platform.signIn())
+    await settle()
+    const state = authorizeQuery(page).get("state")
+    // The first page: its load and its ready, in either order.
+    page.box?.loaded()
+    fromFrame(page, { type: "vbz.signin.ready", state })
+    page.advance(SIGN_IN_READY_MS * 4)
+    expect(page.pendingTimers).toBe(0)
+    // A second page, whose ready comes before its load: still accounted for.
+    fromFrame(page, { type: "vbz.signin.ready", state })
+    page.box?.loaded()
+    page.advance(SIGN_IN_READY_MS * 4)
+    await settle()
+    expect(seen).toEqual({})
+    // A third, the browser refused to show: it loads and says nothing.
+    page.box?.loaded()
+    page.advance(SIGN_IN_READY_MS - 1)
+    await settle()
+    expect(seen).toEqual({})
+    page.advance(1)
+    await settle()
+    expect(seen.code).toBe("E_SIGNIN_UNREACHABLE")
+    expect(page.box?.removed).toBe(true)
+    expect(page.listening).toBe(0)
+  })
+
+  /** A load says a page came; the wait for its ready starts there. */
+  test("each page's wait for its ready starts at its load", async () => {
+    const { page, client: platform } = client()
+    const seen = outcome(platform.signIn())
+    await settle()
+    const state = authorizeQuery(page).get("state")
+    page.advance(SIGN_IN_READY_MS - 10)
+    page.box?.loaded()
+    page.advance(SIGN_IN_READY_MS - 10)
+    await settle()
+    expect(seen).toEqual({})
+    fromFrame(page, { type: "vbz.signin.ready", state })
+    expect(page.pendingTimers).toBe(0)
+    page.box?.cancel()
+    await settle()
+    expect(seen.code).toBe("E_SIGNIN_CANCELLED")
+    // A load after the box came down waits for nothing.
+    page.box?.loaded()
+    expect(page.pendingTimers).toBe(0)
+  })
+
   /** A second click while the box is up opens no second box. */
   test("a second signIn while one is open answers the first's promise, and opens nothing", async () => {
     const { page, client: platform } = client()

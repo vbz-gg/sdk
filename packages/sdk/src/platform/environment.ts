@@ -21,6 +21,20 @@ export interface SignInBox {
   remove(): void
 }
 
+/** What the sign-in hears from its box. */
+export interface SignInBoxHandlers {
+  /** The player closing the box from the page: its Cancel button, or Escape. */
+  readonly onCancel: () => void
+  /**
+   * The frame finished loading a page, once it has been pointed at the
+   * sign-in: a page the browser refused to show fires it as well as one it
+   * showed (measured in Chromium 141 and 153, and in Firefox 142 for a
+   * `frame-ancestors` refusal), so it says a page came and nothing about
+   * whether it works.
+   */
+  readonly onFrameLoad: () => void
+}
+
 /** The fields of a `MessageEvent` the sign-in flow reads. */
 export interface MessageLike {
   readonly origin: string
@@ -38,10 +52,10 @@ export interface PageEnvironment {
   readonly crypto: Pick<Crypto, "getRandomValues" | "subtle">
   /**
    * Puts the sign-in's box over the page in the calling turn, its frame
-   * holding nothing yet, and calls `onCancel` when the player closes it
-   * from the page: its Cancel button, or Escape.
+   * holding nothing yet, and tells `handlers` when the player closes it from
+   * the page and each time its frame finishes loading a page.
    */
-  mountSignInBox(onCancel: () => void): SignInBox
+  mountSignInBox(handlers: SignInBoxHandlers): SignInBox
   addMessageListener(listener: (event: MessageLike) => void): void
   removeMessageListener(listener: (event: MessageLike) => void): void
   setTimeout(run: () => void, ms: number): unknown
@@ -64,7 +78,7 @@ export function browserEnvironment(): PageEnvironment {
     // Bound, because a browser refuses a `fetch` called on another object.
     fetch: page.fetch.bind(page),
     crypto: page.crypto,
-    mountSignInBox: (onCancel) => mountSignInBox(page.document, onCancel),
+    mountSignInBox: (handlers) => mountSignInBox(page.document, handlers),
     addMessageListener: (listener) =>
       page.addEventListener("message", listener),
     removeMessageListener: (listener) =>

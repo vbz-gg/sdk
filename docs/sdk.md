@@ -382,13 +382,18 @@ every ancestor is checked.
 
 The client takes a message only from the frame it holds, on the sign-in
 origin, carrying the state it sent, and the platform posts three, declared in
-`/api` as `SignInMessage`. `vbz.signin.ready` comes as each sign-in page
-loads. A browser that refuses the frame still fires `load` on the iframe
-(measured in Chromium 141 and 153, and in Firefox 142 for a `frame-ancestors`
-refusal), so the ready message is the only sign the box works, and with none
-within `SIGN_IN_READY_MS`, 15 seconds, an estimate nobody measured on a slow
-network, `signIn()` rejects with `E_SIGNIN_UNREACHABLE` and the box comes
-down. `vbz.signin` carries the code, which the client trades at
+`/api` as `SignInMessage`. `vbz.signin.ready` comes once from each sign-in
+page, on its `load`. A browser that refuses the frame still fires `load` on
+the iframe (measured in Chromium 141 and 153, and in Firefox 142 for a
+`frame-ancestors` refusal), so the ready message is the only sign the box
+works, and that holds for every page the frame shows, not only the first: a
+form step answered with a page the browser will not frame leaves the box as
+empty as a refused first page. So the client counts the pages its frame
+loads and the readies their sign-in posted, in whichever order the two
+arrive, and while a page owes one, it waits `SIGN_IN_READY_MS`, 15 seconds,
+an estimate nobody measured on a slow network, from that page's load, or
+from asking for the first. With none, `signIn()` rejects with
+`E_SIGNIN_UNREACHABLE` and the box comes down. `vbz.signin` carries the code, which the client trades at
 `POST /v1/oauth/token`. `vbz.signin.cancel` is Escape inside the frame,
 which the page cannot hear while the frame has focus. The Cancel button,
 Escape in the page, the sign-in's cancel and the page's own `closeSignIn()`

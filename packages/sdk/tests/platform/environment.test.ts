@@ -93,9 +93,12 @@ describe("in a page", () => {
 
   describe("the sign-in's box", () => {
     let cancelled = 0
-    const mount = () =>
-      browserEnvironment().mountSignInBox(() => {
-        cancelled += 1
+    const mount = (onFrameLoad = () => {}) =>
+      browserEnvironment().mountSignInBox({
+        onCancel: () => {
+          cancelled += 1
+        },
+        onFrameLoad,
       })
     const backdrop = () =>
       document.querySelector(".gb-signin-box") as HTMLElement | null
@@ -159,6 +162,31 @@ describe("in a page", () => {
       expect(document.querySelector("iframe")?.getAttribute("src")).toBe(
         "about:blank#authorize",
       )
+      box.remove()
+    })
+
+    /**
+     * Each page the frame finishes once it is pointed at the sign-in is
+     * told, and the blank document it starts with is not, even when that
+     * one's `load` comes late: counted, it would be a page owing a ready
+     * that never comes.
+     */
+    test("tells each page its frame loads once pointed, and never the blank one it starts with", async () => {
+      let loads = 0
+      const box = mount(() => {
+        loads += 1
+      })
+      const frame = document.querySelector("iframe") as HTMLIFrameElement
+      frame.dispatchEvent(new Event("load"))
+      await Bun.sleep(5)
+      expect(loads).toBe(0)
+      box.load("about:blank#authorize")
+      await Bun.sleep(5)
+      expect(loads).toBe(1)
+      // The first document's load, arriving after the frame was pointed.
+      frame.src = "about:blank"
+      await Bun.sleep(5)
+      expect(loads).toBe(1)
       box.remove()
     })
 

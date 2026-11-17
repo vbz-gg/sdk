@@ -192,7 +192,7 @@ in `@vbz-gg/sdk/api`. A `PlatformClientError` is the client's:
 | Code | What it means |
 |---|---|
 | `E_SIGNIN_CANCELLED` | The sign-in's box was closed before a player signed in: its Cancel button, Escape, or the page's `closeSignIn()`. `mountSignIn` shows nothing for it. |
-| `E_SIGNIN_UNREACHABLE` | The sign-in did not say it loaded in its box within 15 seconds. The browser refused to frame it, which it shows as an empty box and tells the page nothing of: the page's policy has no `frame-src` naming the sign-in origin, the page is framed by another site, or the page's origin is not one the game allows. |
+| `E_SIGNIN_UNREACHABLE` | A page of the sign-in, the first or a later step, did not say it loaded in its box within 15 seconds of loading. The browser refused to frame it, which it shows as an empty box and tells the page nothing of: the page's policy has no `frame-src` naming the sign-in origin, the page is framed by another site, or the page's origin is not one the game allows. |
 | `E_NOT_SIGNED_IN` | A run route, and no player is signed in on this page. Nothing was sent. |
 | `E_UNREACHABLE` | No answer. The request may or may not have arrived; a run write can be sent again. |
 | `E_ANSWER_UNREADABLE` | An answer that is not JSON, or a failure without a code. |
