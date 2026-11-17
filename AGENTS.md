@@ -242,8 +242,10 @@ Never add a flag for it: a flag puts the key in shell history and the
 process list. The command sends no `Origin` header, and the platform
 refuses a secret key that arrives with one.
 
-**The upload is sent once; only the read-back retries.** A second upload of
-a version that did arrive is refused as `E_VERSION_EXISTS`.
+**The version is sent once; only what is safe to repeat retries.** A second
+upload of a version that did arrive is refused as `E_VERSION_EXISTS`. Asking
+which files the platform lacks, each file's upload, which is stored under
+the hash of its bytes, and the read-back are tried again.
 
 **The platform is `https://api.vbz.gg`** unless `--api` or `VBZ_API_ORIGIN`
 names another, and the key is sent only over https or to this machine.

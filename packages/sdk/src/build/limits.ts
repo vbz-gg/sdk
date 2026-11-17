@@ -1,3 +1,5 @@
+import { MAX_FILE_PATH_LENGTH } from "../game/files.js"
+
 /**
  * Every size the platform holds a version and a run to, in one place.
  *
@@ -33,6 +35,22 @@ export const MAX_FILES_BYTES = 512 * 1024 * 1024
 
 /** The most files a version's folder may hold. */
 export const MAX_FILES = 10_000
+
+/**
+ * No canonical listing is longer: `MAX_FILES` entries, each with the longest
+ * path, a size as long as `MAX_FILE_BYTES` written out and a SHA-256, as
+ * `canonicalListing` writes them, where no path character needs escaping.
+ * The listing is a request's whole body when `vbz publish` asks which files
+ * the platform lacks, so that route takes a body this size: 6,170,011 bytes.
+ */
+export const MAX_LISTING_BYTES =
+  `{"files":[]}`.length +
+  MAX_FILES *
+    (`{"path":"","bytes":,"sha256":""}`.length +
+      MAX_FILE_PATH_LENGTH +
+      String(MAX_FILE_BYTES).length +
+      64) +
+  (MAX_FILES - 1)
 
 /** The most one data pack may hold: 16 MiB. */
 export const MAX_PACK_BYTES = 16 * 1024 * 1024

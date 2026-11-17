@@ -34,7 +34,10 @@ export const BUILD_REFUSAL = {
   REWRITE_FAILED: "E_REWRITE_FAILED",
   /** The manifest's version is not one a release line can hold. */
   VERSION_INVALID: "E_VERSION_INVALID",
-  /** A files listing that is not a list of paths, sizes and hashes. */
+  /**
+   * A files listing that is not a list of paths, sizes and hashes, or a file
+   * uploaded under a name that is not a SHA-256.
+   */
   FILES_INVALID: "E_FILES_INVALID",
   /** A path a version's folder may not hold, or one listed twice. */
   FILE_PATH_INVALID: "E_FILE_PATH_INVALID",
@@ -46,6 +49,10 @@ export const BUILD_REFUSAL = {
   FILES_TOO_MANY: "E_FILES_TOO_MANY",
   /** The page module imports `cw2:files/<path>` for a file the folder does not hold. */
   FILE_UNLISTED: "E_FILE_UNLISTED",
+  /** A version's listing names a file the game's store does not hold. */
+  FILES_MISSING: "E_FILES_MISSING",
+  /** A file uploaded under a SHA-256 its bytes do not hash to. */
+  FILE_HASH_MISMATCH: "E_FILE_HASH_MISMATCH",
   /** The manifest declares a data pack the folder does not hold. */
   PACK_UNLISTED: "E_PACK_UNLISTED",
   /** A data pack's size or hash in the folder is not the manifest's. */

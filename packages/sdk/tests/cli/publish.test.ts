@@ -5,6 +5,10 @@
  * is what the command sends and how it reads each answer. The last block runs
  * the real command against a local server, so the multipart body, the missing
  * `Origin` header and the exit codes are the ones a build system sees.
+ *
+ * The stand-in answers the two files routes from a store of its own unless a
+ * test gives it answers for them, so a test about the version reads the
+ * version's requests alone.
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
@@ -12,10 +16,17 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import type {
+  FilesListing,
   UploadedVersion,
   VersionState,
   VersionStatus,
 } from "../../src/api/index.js"
+import { sha256Hex } from "../../src/build/digest.js"
+import {
+  canonicalListing,
+  EMPTY_LISTING,
+  listingSha256,
+} from "../../src/build/files.js"
 import { parseArgs } from "../../src/cli/args.js"
 import { TEMPLATE_DIR } from "../../src/cli/new.js"
 import {
@@ -23,6 +34,8 @@ import {
   CHECK_POLL_MS,
   CHECK_WAIT_MS,
   DEFAULT_API_ORIGIN,
+  FILE_ATTEMPTS,
+  FILE_RETRY_MS,
   failureLines,
   PUBLISH_ERROR,
   PublishError,
@@ -42,6 +55,7 @@ const VERSION_ID = "9a0e5d3c-1f3e-4b7f-a2d4-57c1c0a5c2b9"
 const MANIFEST = `${JSON.stringify({ id: "lane-runner", version: "1.2.0" })}\n`
 const SIM = new TextEncoder().encode("export const MANIFEST = {}\n")
 const PRESENT = new TextEncoder().encode('import "cw2:sim"\n')
+const EMPTY_FILES = canonicalListing(EMPTY_LISTING)
 
 let dir: string
 
@@ -53,11 +67,32 @@ afterEach(async () => {
   await rm(dir, { recursive: true, force: true })
 })
 
-async function writeDist(root: string): Promise<void> {
+/**
+ * What `vbz build` writes, with the files given in its folder: the folder's
+ * copy and its canonical listing.
+ */
+async function writeDist(
+  root: string,
+  files: Readonly<Record<string, Uint8Array>> = {},
+): Promise<FilesListing> {
   await mkdir(join(root, "dist"), { recursive: true })
   await writeFile(join(root, "dist", "manifest.json"), MANIFEST)
   await writeFile(join(root, "dist", "sim.js"), SIM)
   await writeFile(join(root, "dist", "present.js"), PRESENT)
+  for (const [path, bytes] of Object.entries(files)) {
+    const at = join(root, "dist", "files", ...path.split("/"))
+    await mkdir(join(at, ".."), { recursive: true })
+    await writeFile(at, bytes)
+  }
+  const listing = {
+    files: Object.entries(files).map(([path, bytes]) => ({
+      path,
+      bytes: bytes.byteLength,
+      sha256: sha256Hex(bytes),
+    })),
+  }
+  await writeFile(join(root, "dist", "files.json"), canonicalListing(listing))
+  return listing
 }
 
 function settings(overrides: Partial<PublishSettings> = {}): PublishSettings {
@@ -84,6 +119,8 @@ function uploaded(overrides: Partial<UploadedVersion> = {}): UploadedVersion {
     manifestSha256: "e".repeat(64),
     simUrl: `https://bundles.example/g/${GAME}/sim/a.js`,
     presentUrl: `https://bundles.example/g/${GAME}/present/b.js`,
+    filesSha256: listingSha256(EMPTY_LISTING),
+    filesUrl: `https://bundles.example/g/${GAME}/t/${listingSha256(EMPTY_LISTING)}/`,
     ...overrides,
   }
 }
@@ -124,22 +161,72 @@ interface Sent {
   readonly init: RequestInit
 }
 
+type Answer = () => Response | Promise<Response>
+
+/**
+ * The platform's files routes, answered as the platform would: which of a
+ * listing's files the store lacks, and a file stored under its hash.
+ */
+function filesStore(held: Iterable<string>) {
+  const store = new Set(held)
+  return (url: string, init: RequestInit): Response => {
+    if (url.endsWith("/files/missing")) {
+      const listing = JSON.parse(
+        new TextDecoder().decode(init.body as Uint8Array),
+      ) as FilesListing
+      const missing = [
+        ...new Set(
+          listing.files
+            .map((file) => file.sha256)
+            .filter((sha256) => !store.has(sha256)),
+        ),
+      ]
+      return json({ filesSha256: listingSha256(listing), missing })
+    }
+    const sha256 = url.slice(url.lastIndexOf("/") + 1)
+    const bytes = init.body as Uint8Array
+    store.add(sha256)
+    return json({ sha256, bytes: bytes.byteLength }, 201)
+  }
+}
+
 /**
  * A stand-in for the network: each request takes the next answer in turn,
- * and a clock that only moves when the command sleeps.
+ * and a clock that only moves when the command sleeps. A request to one of
+ * the files routes goes to `files` instead, in turn, and to a store holding
+ * `held` once those run out, and is kept apart, in `filesSent`.
  */
-function world(answers: ReadonlyArray<() => Response | Promise<Response>>) {
+function world(
+  answers: ReadonlyArray<Answer>,
+  options: {
+    readonly files?: ReadonlyArray<Answer>
+    readonly held?: Iterable<string>
+  } = {},
+) {
   const sent: Sent[] = []
+  const filesSent: Sent[] = []
+  const order: string[] = []
   const slept: number[] = []
   const logged: string[] = []
+  const store = filesStore(options.held ?? [])
   let clock = 1_000_000
   let next = 0
+  let nextFiles = 0
   return {
     sent,
+    filesSent,
+    order,
     slept,
     logged,
     deps: {
       fetch: async (url: string, init: RequestInit) => {
+        order.push(`${init.method} ${new URL(url).pathname}`)
+        if (new URL(url).pathname.includes("/files/")) {
+          filesSent.push({ url, init })
+          const answer = options.files?.[nextFiles]
+          nextFiles += 1
+          return answer === undefined ? store(url, init) : answer()
+        }
         sent.push({ url, init })
         const answer = answers[next]
         next += 1
@@ -293,12 +380,33 @@ describe("what the command line and the environment say", () => {
 })
 
 describe("reading what vbz build wrote", () => {
-  test("the three files, as the bytes on disk", async () => {
-    await writeDist(dir)
+  test("the three files and the listing, as the bytes on disk", async () => {
+    const listing = await writeDist(dir, { "a.bin": new Uint8Array([1, 2]) })
     const built = await readBuild(dir)
     expect(built.manifest).toEqual(new TextEncoder().encode(MANIFEST))
     expect(built.sim).toEqual(SIM)
     expect(built.present).toEqual(PRESENT)
+    expect(built.listingText).toEqual(
+      new TextEncoder().encode(canonicalListing(listing)),
+    )
+    expect(built.listing).toEqual(listing)
+  })
+
+  test("a build with no listing, or one that is not a listing, is not a build", async () => {
+    await writeDist(dir)
+    await rm(join(dir, "dist", "files.json"))
+    const missing = await refusalOf(readBuild(dir))
+    expect(missing.code).toBe(PUBLISH_ERROR.NOT_BUILT)
+    expect(missing.message).toContain(join(dir, "dist", "files.json"))
+    for (const text of [
+      "{",
+      `{"files":[{"path":"../x","bytes":1,"sha256":"${"a".repeat(64)}"}]}`,
+    ]) {
+      await writeFile(join(dir, "dist", "files.json"), text)
+      const refused = await refusalOf(readBuild(dir))
+      expect(refused.code).toBe(PUBLISH_ERROR.NOT_BUILT)
+      expect(refused.message).toContain("run vbz build again")
+    }
   })
 
   test("a missing file is named, with what to run", async () => {
@@ -326,7 +434,7 @@ describe("reading what vbz build wrote", () => {
 })
 
 describe("the upload", () => {
-  test("is one multipart POST to the game, with the secret key and the three files", async () => {
+  test("is one multipart POST to the game, with the secret key, the three files and the listing", async () => {
     await writeDist(dir)
     const net = world([
       () => json(uploaded(), 201),
@@ -335,6 +443,14 @@ describe("the upload", () => {
     await publish(settings(), net.deps)
 
     const upload = net.sent[0]
+    if (upload === undefined) throw new Error("nothing was uploaded")
+    expect(
+      new Uint8Array(
+        await (
+          (upload.init.body as FormData).get("files") as File
+        ).arrayBuffer(),
+      ),
+    ).toEqual(new TextEncoder().encode(EMPTY_FILES))
     expect(upload?.url).toBe(`https://studio.example/v1/games/${GAME}/versions`)
     expect(upload?.init.method).toBe("POST")
     const headers = upload?.init.headers as Record<string, string>
@@ -712,6 +828,28 @@ describe("what a refusal's detail says", () => {
     ).toEqual(['detail: {"highestInLine":3}'])
   })
 
+  test("a version naming files the platform lacks names them", () => {
+    const missing = ["1".repeat(64), "2".repeat(64)]
+    const error = new PublishError(
+      PUBLISH_ERROR.REFUSED,
+      "the platform refused: files missing",
+      "E_FILES_MISSING",
+      409,
+      { missing },
+    )
+    expect(failureLines(error)[1]).toBe(
+      `the platform does not hold 2 of the folder's files: ${missing.join(", ")}; publish again to upload them`,
+    )
+    // Not a list of hashes: printed as sent.
+    expect(
+      failureLines(
+        new PublishError(PUBLISH_ERROR.REFUSED, "m", "E_FILES_MISSING", 409, {
+          missing: ["../x"],
+        }),
+      )[1],
+    ).toBe(`detail: {"missing":["../x"]}`)
+  })
+
   test("a refusal with no detail is its sentence alone", () => {
     expect(failureLines(refused("E_VERSION_EXISTS"))).toHaveLength(1)
   })
@@ -746,26 +884,270 @@ describe("what a refusal's detail says", () => {
   })
 })
 
+describe("the files folder", () => {
+  const ONE = new TextEncoder().encode("one\n")
+  const TWO = new TextEncoder().encode("two\n")
+
+  test("is asked about first, with the listing as built, and only what the platform lacks is sent", async () => {
+    const listing = await writeDist(dir, {
+      "a/one.bin": ONE,
+      "b/two.bin": TWO,
+      "c/same-as-one.bin": ONE,
+    })
+    const net = world(
+      [() => json(uploaded(), 201), () => json(status("published"))],
+      { held: [sha256Hex(TWO)] },
+    )
+    await publish(settings(), net.deps)
+
+    const gameUrl = `/v1/games/${GAME}`
+    // One file, though two paths hold it, and nothing the platform holds.
+    expect(net.order).toEqual([
+      `POST ${gameUrl}/files/missing`,
+      `PUT ${gameUrl}/files/${sha256Hex(ONE)}`,
+      `POST ${gameUrl}/versions`,
+      `GET /v1/studios/${STUDIO}/versions/${VERSION_ID}`,
+    ])
+    const [ask, put] = net.filesSent
+    if (ask === undefined || put === undefined) {
+      throw new Error("the files were not asked about and sent")
+    }
+    expect(new Uint8Array(ask.init.body as Uint8Array)).toEqual(
+      new TextEncoder().encode(canonicalListing(listing)),
+    )
+    for (const request of [ask, put]) {
+      const headers = request.init.headers as Record<string, string>
+      expect(headers.authorization).toBe(`Bearer ${KEY}`)
+      expect(Object.keys(headers)).not.toContain("origin")
+    }
+    expect((ask.init.headers as Record<string, string>)["content-type"]).toBe(
+      "application/json",
+    )
+    expect((put.init.headers as Record<string, string>)["content-type"]).toBe(
+      "application/octet-stream",
+    )
+    expect(new Uint8Array(put.init.body as Uint8Array)).toEqual(ONE)
+    expect(net.logged.join("\n")).toContain("uploaded a/one.bin, 4 bytes")
+  })
+
+  test("a folder of nothing is still named to the platform, and nothing is sent", async () => {
+    await writeDist(dir)
+    const net = world([
+      () => json(uploaded(), 201),
+      () => json(status("published")),
+    ])
+    await publish(settings(), net.deps)
+    expect(net.filesSent).toHaveLength(1)
+    expect(net.logged.join("\n")).toContain(
+      `files: 0 in the folder, named ${listingSha256(EMPTY_LISTING)}; the platform lacks 0`,
+    )
+  })
+
+  /**
+   * A file is stored under the hash of its bytes, so sending it again can
+   * only store what it stored. The version is still sent once.
+   */
+  test("a file upload or a question with no answer is tried again, a pause apart", async () => {
+    await writeDist(dir, { "one.bin": ONE })
+    const store = filesStore([])
+    const net = world(
+      [() => json(uploaded(), 201), () => json(status("published"))],
+      {
+        files: [
+          () => json({ error: "E_INTERNAL", message: "internal" }, 503),
+          () => store(...lastFilesRequest()),
+          () => {
+            throw new TypeError("socket hang up")
+          },
+          () => json({ error: "E_RATE_LIMITED", message: "slow down" }, 429),
+          () => store(...lastFilesRequest()),
+        ],
+      },
+    )
+    function lastFilesRequest(): [string, RequestInit] {
+      const last = net.filesSent.at(-1)
+      if (last === undefined) throw new Error("no files request")
+      return [last.url, last.init]
+    }
+    const decided = await publish(settings(), net.deps)
+    expect(decided.state).toBe("published")
+    expect(net.slept.slice(0, 3)).toEqual([
+      FILE_RETRY_MS,
+      FILE_RETRY_MS,
+      FILE_RETRY_MS,
+    ])
+    expect(net.filesSent.map((sent) => sent.init.method)).toEqual([
+      "POST",
+      "POST",
+      "PUT",
+      "PUT",
+      "PUT",
+    ])
+    expect(net.sent.filter((sent) => sent.init.method === "POST")).toHaveLength(
+      1,
+    )
+    expect(net.logged.filter((l) => l.includes("trying again"))).toHaveLength(3)
+  })
+
+  test(`a file not answered ${FILE_ATTEMPTS} times stops the publish before the version is sent`, async () => {
+    await writeDist(dir, { "one.bin": ONE })
+    const lost = () => json({ error: "E_INTERNAL", message: "internal" }, 502)
+    const store = filesStore([])
+    const net = world([], {
+      files: [
+        () =>
+          store(`https://studio.example/v1/games/${GAME}/files/missing`, {
+            body: new TextEncoder().encode(
+              canonicalListing({
+                files: [
+                  {
+                    path: "one.bin",
+                    bytes: ONE.byteLength,
+                    sha256: sha256Hex(ONE),
+                  },
+                ],
+              }),
+            ),
+          }),
+        ...Array.from({ length: FILE_ATTEMPTS }, () => lost),
+      ],
+    })
+    const refused = await refusalOf(publish(settings(), net.deps))
+    expect(refused.status).toBe(502)
+    expect(net.filesSent).toHaveLength(1 + FILE_ATTEMPTS)
+    expect(net.slept).toHaveLength(FILE_ATTEMPTS - 1)
+    expect(net.sent).toHaveLength(0)
+  })
+
+  test("a file the platform refuses stops the publish at once", async () => {
+    await writeDist(dir, { "one.bin": ONE })
+    const net = world([], {
+      held: [],
+      files: [
+        () =>
+          json({
+            filesSha256: listingSha256({
+              files: [
+                {
+                  path: "one.bin",
+                  bytes: ONE.byteLength,
+                  sha256: sha256Hex(ONE),
+                },
+              ],
+            }),
+            missing: [sha256Hex(ONE)],
+          }),
+        () =>
+          json(
+            { error: "E_FILE_HASH_MISMATCH", message: "not the bytes named" },
+            400,
+          ),
+      ],
+    })
+    const refused = await refusalOf(publish(settings(), net.deps))
+    expect(refused.refusal).toBe("E_FILE_HASH_MISMATCH")
+    expect(net.filesSent).toHaveLength(2)
+    expect(net.slept).toEqual([])
+    expect(net.sent).toHaveLength(0)
+  })
+
+  /**
+   * A platform naming the folder otherwise would publish a version whose
+   * files are not the ones built; one asking for a file the listing does not
+   * name has nothing to be sent.
+   */
+  test("an answer naming the folder otherwise, or asking for a file not listed, uploads nothing", async () => {
+    const listing = await writeDist(dir, { "one.bin": ONE })
+    for (const answer of [
+      { filesSha256: "f".repeat(64), missing: [] },
+      { filesSha256: listingSha256(listing), missing: [sha256Hex(TWO)] },
+      { filesSha256: listingSha256(listing), missing: "all" },
+      { missing: [] },
+    ]) {
+      const net = world([], { files: [() => json(answer)] })
+      const refused = await refusalOf(publish(settings(), net.deps))
+      expect(refused.code).toBe(PUBLISH_ERROR.ANSWER_UNREADABLE)
+      expect(net.filesSent).toHaveLength(1)
+      expect(net.sent).toHaveLength(0)
+    }
+  })
+
+  test("an upload answered for another file is no answer", async () => {
+    await writeDist(dir, { "one.bin": ONE })
+    const net = world([], {
+      files: [
+        () =>
+          json({
+            filesSha256: listingSha256({
+              files: [
+                {
+                  path: "one.bin",
+                  bytes: ONE.byteLength,
+                  sha256: sha256Hex(ONE),
+                },
+              ],
+            }),
+            missing: [sha256Hex(ONE)],
+          }),
+        () => json({ sha256: sha256Hex(TWO), bytes: TWO.byteLength }, 201),
+      ],
+    })
+    const refused = await refusalOf(publish(settings(), net.deps))
+    expect(refused.code).toBe(PUBLISH_ERROR.ANSWER_UNREADABLE)
+    expect(refused.message).toContain(sha256Hex(ONE))
+    expect(net.sent).toHaveLength(0)
+  })
+
+  test("a file changed since the build is not sent", async () => {
+    await writeDist(dir, { "one.bin": ONE })
+    await writeFile(join(dir, "dist", "files", "one.bin"), TWO)
+    const net = world([])
+    const refused = await refusalOf(publish(settings(), net.deps))
+    expect(refused.code).toBe(PUBLISH_ERROR.NOT_BUILT)
+    expect(refused.message).toContain(join(dir, "dist", "files", "one.bin"))
+    expect(net.filesSent.map((sent) => sent.init.method)).toEqual(["POST"])
+  })
+
+  test("a file gone since the build is named", async () => {
+    await writeDist(dir, { "a/one.bin": ONE })
+    await rm(join(dir, "dist", "files", "a", "one.bin"))
+    const refused = await refusalOf(publish(settings(), world([]).deps))
+    expect(refused.code).toBe(PUBLISH_ERROR.NOT_BUILT)
+    expect(refused.message).toContain(
+      join(dir, "dist", "files", "a", "one.bin"),
+    )
+  })
+})
+
 describe("the real command", () => {
   const CLI = resolve(import.meta.dir, "..", "..", "src", "cli", "index.ts")
 
   /**
-   * A local platform answering the two routes. It records what arrived, as
-   * the bytes each part carried, so the test reads the request a real fetch
-   * made rather than the one the command meant to make.
+   * A local platform answering the four routes. It records what arrived, as
+   * the bytes each part and each file carried, so the test reads the request
+   * a real fetch made rather than the one the command meant to make.
    */
   function platform(decided: VersionStatus) {
     const seen: {
       origin: string | null
       authorization: string | null
       parts: Record<string, Uint8Array>
+      files: Record<string, Uint8Array>
       reads: number
-    } = { origin: null, authorization: null, parts: {}, reads: 0 }
+    } = { origin: null, authorization: null, parts: {}, files: {}, reads: 0 }
+    const store = filesStore([])
     const server = Bun.serve({
       port: 0,
       hostname: "127.0.0.1",
       async fetch(request) {
         const path = new URL(request.url).pathname
+        if (path.startsWith(`/v1/games/${GAME}/files/`)) {
+          const body = new Uint8Array(await request.arrayBuffer())
+          if (request.method === "PUT") {
+            seen.files[path.slice(path.lastIndexOf("/") + 1)] = body
+          }
+          return store(request.url, { method: request.method, body })
+        }
         if (
           request.method === "POST" &&
           path === `/v1/games/${GAME}/versions`
@@ -773,7 +1155,7 @@ describe("the real command", () => {
           seen.origin = request.headers.get("origin")
           seen.authorization = request.headers.get("authorization")
           const form = await request.formData()
-          for (const name of ["manifest", "sim", "present"]) {
+          for (const name of ["manifest", "sim", "present", "files"]) {
             const part = form.get(name)
             seen.parts[name] =
               typeof part === "string"
@@ -810,7 +1192,8 @@ describe("the real command", () => {
   }
 
   test("uploads a build with no Origin header and exits 0 when it goes live", async () => {
-    await writeDist(dir)
+    const file = new TextEncoder().encode("level data\r\n")
+    const listing = await writeDist(dir, { "packs/one.bin": file })
     const { server, seen } = platform(
       status("published", { patchScores: { compared: 50, differing: 3 } }),
     )
@@ -834,7 +1217,9 @@ describe("the real command", () => {
         manifest: new TextEncoder().encode(MANIFEST),
         sim: SIM,
         present: PRESENT,
+        files: new TextEncoder().encode(canonicalListing(listing)),
       })
+      expect(seen.files).toEqual({ [sha256Hex(file)]: file })
       expect(seen.reads).toBe(1)
     } finally {
       server.stop(true)
@@ -890,23 +1275,28 @@ describe("the real command", () => {
 
   test("exits 1 and prints a refusal's detail when the platform refuses the upload", async () => {
     await writeDist(dir)
+    const store = filesStore([])
     const server = Bun.serve({
       port: 0,
       hostname: "127.0.0.1",
-      fetch: () =>
-        json(
-          {
-            error: "E_PATCH_CHANGES_RULES",
-            message: "version 1.2.1 changes what release line 1.2 fixes",
-            detail: {
-              line: "1.2",
-              comparedWith: "1.2.0",
-              fields: ["inputs"],
-              nextMinor: "1.3.0",
-            },
-          },
-          409,
-        ),
+      fetch: async (request) =>
+        new URL(request.url).pathname.includes("/files/")
+          ? store(request.url, {
+              body: new Uint8Array(await request.arrayBuffer()),
+            })
+          : json(
+              {
+                error: "E_PATCH_CHANGES_RULES",
+                message: "version 1.2.1 changes what release line 1.2 fixes",
+                detail: {
+                  line: "1.2",
+                  comparedWith: "1.2.0",
+                  fields: ["inputs"],
+                  nextMinor: "1.3.0",
+                },
+              },
+              409,
+            ),
     })
     try {
       const result = await run(`http://127.0.0.1:${server.port}`, {

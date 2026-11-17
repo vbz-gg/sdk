@@ -538,6 +538,15 @@ What the contract checks, on the bytes rather than on the source:
    `MAX_PACK_BYTES` (16 MiB), all of them `MAX_PACKS_BYTES` (48 MiB)
    together. `MAX_RUN_BYTES` (31 MiB) and `MAX_CHUNK_BYTES` (1 MiB) are a
    run's, which the platform hands a page and the stand-in reads.
+   `MAX_LISTING_BYTES` is no limit of its own: it is the longest canonical
+   listing those allow, which the platform takes as the body of the route
+   that asks which files it lacks.
+
+The platform also imports what it does with a file upload from here:
+`missingFiles` answers which of a listing's files the game's store lacks,
+`assertFileBytes` holds an uploaded file to the SHA-256 it was sent under
+(`E_FILE_HASH_MISMATCH`), and `assertFilesHeld` refuses a version whose
+listing names a file the store lacks (`E_FILES_MISSING`).
 
 Then the addressing. Each module is stored under the SHA-256 of its own
 bytes, and each file under the folder's name and its path.
@@ -699,8 +708,8 @@ with an empty environment, and never in its own process:
   imports `src/capture.ts` in one such process, which writes what it found to
   a file, because the game's own code may print.
 - `vbz dev` replays each run against the rules code in one.
-- `vbz publish` evaluates nothing of a game: it uploads the three files as
-  bytes, so the key it holds is never beside the game's code.
+- `vbz publish` evaluates nothing of a game: it uploads what `vbz build`
+  wrote as bytes, so the key it holds is never beside the game's code.
 
 One function starts them all, `runGameProcess` in `build/game-process.ts`,
 and a test per command plants a variable in its environment and holds the
@@ -858,17 +867,30 @@ the platform mails the studio's admins and the vbz operators instead.
 
 ## Publishing a version
 
-`vbz publish ./my-game --game <id>` uploads the three files `vbz build`
-wrote, `manifest`, `sim` and `present`, as one multipart
-`POST /v1/games/:gameId/versions`, prints the release line the version
-joined, and then reads the version back at
+`vbz publish ./my-game --game <id>` uploads what `vbz build` wrote, the
+files folder first. It sends the listing, `dist/files.json` as written, to
+`POST /v1/games/:gameId/files/missing`, which answers with the SHA-256 of
+each listed file the game's store lacks, and uploads each of those from
+`dist/files/` as its own `PUT /v1/games/:gameId/files/:sha256`, its bytes
+the body. A file is stored once per game under the hash of its bytes, so a
+file a version shares with an earlier one is not sent again, two paths
+holding the same bytes are sent once, and the store is the game's own, so a
+studio learns nothing of another's files. The command checks each file
+against the listing before it sends it, and checks that the platform names
+the folder as `vbz build` did.
+
+Then it uploads the version, `manifest`, `sim`, `present` and the listing as
+`files`, as one multipart `POST /v1/games/:gameId/versions`, which the
+platform refuses with `E_FILES_MISSING` if its store lacks a listed file,
+prints the release line the version joined, and then reads the version back
+at
 `GET /v1/studios/:studioId/versions/:versionId` every two seconds until the
 platform's checks decide. The upload's answer names the studio, so the
 command needs only the game's id. It waits up to 15 minutes, because the
 checks run the game in three engines, and a version still pending after that
 is reported as still being checked rather than as failed.
 
-Each of the three goes as a file part carrying the file's bytes as they are
+Each of the four goes as a file part carrying the file's bytes as they are
 on disk. A text part would not arrive that way: an encoder that follows the
 HTML standard rewrites every line feed in one as CRLF, and Bun 1.4.3's and
 Node 22's both do, where Bun 1.3.11's did not.
@@ -902,10 +924,14 @@ browser: a secret key sent with one is refused. The platform's origin is
 be https, or http to the same machine, because the key travels with the
 request.
 
-The upload is sent once. A retry of an upload that did arrive is refused as
-`E_VERSION_EXISTS`, so a slow answer would turn into a confusing one.
-Reading the version back is safe to repeat, and a read the platform fails
-to answer is tried again until the wait runs out.
+The version is sent once. A retry of an upload that did arrive is refused
+as `E_VERSION_EXISTS`, so a slow answer would turn into a confusing one.
+Asking which files the platform lacks and uploading one are safe to repeat,
+since a file is stored under the hash of its bytes, and each is tried up to
+four times, two seconds apart, when the platform does not answer, fails or
+asks for time; a refusal stops the command before the version is sent.
+Reading the version back is safe to repeat too, and a read the platform
+fails to answer is tried again until the wait runs out.
 
 ## The package
 

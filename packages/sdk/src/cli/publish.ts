@@ -12,6 +12,13 @@
  * in shell history and in the process list, where anybody on the machine can
  * read it.
  *
+ * A version's files go first. The command sends the listing `vbz build`
+ * wrote and asks which of its files the platform lacks, uploads each of
+ * those in a request of its own, and only then uploads the version, with
+ * the listing beside its manifest and its two modules. A file is stored
+ * under the SHA-256 of its bytes, so a file whose answer was lost is safe to
+ * send again, and the platform only ever holds files a version may name.
+ *
  * Every decision is here rather than in the entry point, because the entry
  * point is excluded from the coverage floor.
  */
@@ -20,17 +27,25 @@ import { readFile } from "node:fs/promises"
 import { join } from "node:path"
 import type {
   ApiErrorBody,
+  FilesListing,
+  FilesMissingDetail,
+  MissingFiles,
   PageKey,
   PatchChangesRulesDetail,
   PlatformRoutes,
   SecretKey,
+  StoredFile,
   UploadedVersion,
   VersionNotNewerDetail,
   VersionServing,
   VersionState,
   VersionStatus,
 } from "../api/index.js"
-import { DIST_DIR, DIST_FILES } from "../build/dist.js"
+import { sha256Hex } from "../build/digest.js"
+import { DIST_DIR, DIST_FILES, DIST_FILES_DIR } from "../build/dist.js"
+import { BuildRefusal } from "../build/errors.js"
+import { assertListing, listingSha256 } from "../build/files.js"
+import { SHA256 } from "../build/paths.js"
 
 /**
  * The platform's API, unless a flag or the environment names another.
@@ -55,8 +70,17 @@ export const CHECK_POLL_MS = 2_000
  */
 export const CHECK_WAIT_MS = 15 * 60_000
 
-/** How long one upload may take to be answered. */
+/** How long one upload, of the version or of one file, may take to be answered. */
 export const UPLOAD_TIMEOUT_MS = 120_000
+
+/**
+ * How many times the command tries a request that is safe to send again,
+ * asking which files the platform lacks and uploading one, before it stops.
+ */
+export const FILE_ATTEMPTS = 4
+
+/** How long between two tries of one of those. */
+export const FILE_RETRY_MS = 2_000
 
 /** How long one read of a version may take to be answered. */
 export const READ_TIMEOUT_MS = 30_000
@@ -83,7 +107,7 @@ export const PUBLISH_ERROR = {
   NOT_A_SECRET_KEY: "E_PUBLISH_NOT_A_SECRET_KEY",
   /** The platform's origin is not one a key may be sent to. */
   BAD_API_ORIGIN: "E_PUBLISH_BAD_API_ORIGIN",
-  /** `dist/` is missing a file `vbz build` writes. */
+  /** `dist/` is missing a file `vbz build` writes, or holds one it did not write. */
   NOT_BUILT: "E_PUBLISH_NOT_BUILT",
   /** The platform did not answer. */
   UNREACHABLE: "E_PUBLISH_UNREACHABLE",
@@ -231,35 +255,66 @@ function badOrigin(raw: string, why: string): PublishError {
   )
 }
 
-/** The three files an upload carries, as the bytes `vbz build` wrote. */
+/**
+ * What an upload carries, as the bytes `vbz build` wrote: the version's
+ * manifest, its two modules and its folder's listing. The folder's files
+ * are read one at a time, only when the platform lacks them.
+ */
 export interface BuiltGame {
   readonly manifest: Uint8Array<ArrayBuffer>
   readonly sim: Uint8Array<ArrayBuffer>
   readonly present: Uint8Array<ArrayBuffer>
+  /** `dist/files.json`, as written. */
+  readonly listingText: Uint8Array<ArrayBuffer>
+  readonly listing: FilesListing
 }
 
 /** Reads `dist/`, naming a file that is missing. */
 export async function readBuild(dir: string): Promise<BuiltGame> {
   const dist = join(dir, DIST_DIR)
-  const read = async (name: string): Promise<Uint8Array<ArrayBuffer>> => {
-    try {
-      return new Uint8Array(await readFile(join(dist, name)))
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-        throw new PublishError(
-          PUBLISH_ERROR.NOT_BUILT,
-          `${join(dist, name)} is missing; run vbz build first`,
-        )
-      }
-      throw error
-    }
-  }
-  const [manifest, sim, present] = await Promise.all([
+  const read = (name: string) => readBuilt(join(dist, name))
+  const [manifest, sim, present, listingText] = await Promise.all([
     read(DIST_FILES.manifest),
     read(DIST_FILES.sim),
     read(DIST_FILES.present),
+    read(DIST_FILES.listing),
   ])
-  return { manifest, sim, present }
+  return {
+    manifest,
+    sim,
+    present,
+    listingText,
+    listing: listingOf(listingText, join(dist, DIST_FILES.listing)),
+  }
+}
+
+/** One file `vbz build` wrote, or `E_PUBLISH_NOT_BUILT` naming it. */
+async function readBuilt(path: string): Promise<Uint8Array<ArrayBuffer>> {
+  try {
+    return new Uint8Array(await readFile(path))
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      throw new PublishError(
+        PUBLISH_ERROR.NOT_BUILT,
+        `${path} is missing; run vbz build first`,
+      )
+    }
+    throw error
+  }
+}
+
+function listingOf(text: Uint8Array, path: string): FilesListing {
+  try {
+    return assertListing(JSON.parse(new TextDecoder().decode(text)) as unknown)
+  } catch (error) {
+    if (error instanceof SyntaxError || error instanceof BuildRefusal) {
+      throw new PublishError(
+        PUBLISH_ERROR.NOT_BUILT,
+        `${path} is not a listing vbz build writes (${error.message}); run vbz build again`,
+      )
+    }
+    throw error
+  }
 }
 
 /** What a publish needs from the world, so a test can stand in for each. */
@@ -288,6 +343,7 @@ export async function publish(
 ): Promise<VersionStatus> {
   const built = await readBuild(settings.dir)
   deps.log(`uploading ${join(settings.dir, DIST_DIR)} to ${settings.apiOrigin}`)
+  await uploadFiles(settings, deps, built)
 
   // Every part is a file, sent as its bytes. A text part is not: an encoder
   // following the HTML standard, as Bun 1.4's and Node's do, rewrites each
@@ -308,18 +364,19 @@ export async function publish(
     new Blob([built.present], { type: "text/javascript" }),
     DIST_FILES.present,
   )
+  form.append(
+    "files",
+    new Blob([built.listingText], { type: "application/json" }),
+    DIST_FILES.listing,
+  )
 
   const uploaded: ResponseOf<"POST /v1/games/:gameId/versions"> = asUploaded(
-    await call(
-      deps,
-      `${settings.apiOrigin}/v1/games/${encodeURIComponent(settings.gameId)}/versions`,
-      {
-        method: "POST",
-        headers: headersFor(settings),
-        body: form,
-        signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS),
-      },
-    ),
+    await call(deps, `${gameUrl(settings)}/versions`, {
+      method: "POST",
+      headers: headersFor(settings),
+      body: form,
+      signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS),
+    }),
   )
   deps.log(
     `uploaded version ${uploaded.version} as ${uploaded.gameVersionId}, in release line ${uploaded.line}; the platform is checking it`,
@@ -338,6 +395,148 @@ export async function publish(
     }
     await deps.sleep(CHECK_POLL_MS)
   }
+}
+
+function gameUrl(settings: PublishSettings): string {
+  return `${settings.apiOrigin}/v1/games/${encodeURIComponent(settings.gameId)}`
+}
+
+/**
+ * Makes sure the platform holds every file of the version's folder: asks
+ * which it lacks, then uploads each of those, one request a file. Both are
+ * safe to send again, so each is tried again when the platform did not
+ * answer or asked for time.
+ */
+async function uploadFiles(
+  settings: PublishSettings,
+  deps: PublishDeps,
+  built: BuiltGame,
+): Promise<void> {
+  const { listing } = built
+  const asked: ResponseOf<"POST /v1/games/:gameId/files/missing"> = await tried(
+    deps,
+    "asking which files the platform lacks",
+    async () =>
+      asMissing(
+        await call(deps, `${gameUrl(settings)}/files/missing`, {
+          method: "POST",
+          headers: {
+            ...headersFor(settings),
+            "content-type": "application/json",
+          },
+          body: built.listingText,
+          signal: AbortSignal.timeout(READ_TIMEOUT_MS),
+        }),
+        listing,
+      ),
+  )
+  const count = listing.files.length
+  deps.log(
+    `files: ${count} in the folder, named ${asked.filesSha256}; the platform lacks ${asked.missing.length}`,
+  )
+  const folder = join(settings.dir, DIST_DIR, DIST_FILES_DIR)
+  for (const sha256 of asked.missing) {
+    // `asMissing` holds every name to one the listing has.
+    const file = listing.files.find((entry) => entry.sha256 === sha256)
+    if (file === undefined) throw new Error(`${sha256} is not listed`)
+    const path = join(folder, ...file.path.split("/"))
+    const bytes = await readBuilt(path)
+    if (sha256Hex(bytes) !== sha256) {
+      throw new PublishError(
+        PUBLISH_ERROR.NOT_BUILT,
+        `${path} is not the file ${DIST_FILES.listing} lists; run vbz build again`,
+      )
+    }
+    await tried(deps, `uploading ${file.path}`, async () =>
+      asStored(
+        await call(
+          deps,
+          `${gameUrl(settings)}/files/${encodeURIComponent(sha256)}`,
+          {
+            method: "PUT",
+            headers: {
+              ...headersFor(settings),
+              "content-type": "application/octet-stream",
+            },
+            body: bytes,
+            signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS),
+          },
+        ),
+        sha256,
+        bytes.byteLength,
+      ),
+    )
+    deps.log(`uploaded ${file.path}, ${bytes.byteLength} bytes`)
+  }
+}
+
+/**
+ * `attempt`, tried again a pause apart when the platform did not answer or
+ * asked for time, at most `FILE_ATTEMPTS` times. Only for a request that is
+ * safe to send twice.
+ */
+async function tried<T>(
+  deps: PublishDeps,
+  what: string,
+  attempt: () => Promise<T>,
+): Promise<T> {
+  for (let tries = 1; ; tries += 1) {
+    try {
+      return await attempt()
+    } catch (error) {
+      if (
+        !(error instanceof PublishError) ||
+        !worthTryingAgain(error) ||
+        tries >= FILE_ATTEMPTS
+      ) {
+        throw error
+      }
+      deps.log(
+        `${what}: the platform did not answer; trying again (${error.message})`,
+      )
+      await deps.sleep(FILE_RETRY_MS)
+    }
+  }
+}
+
+/**
+ * The platform's answer about which files it lacks, held to the listing it
+ * was asked about: it names the folder as `vbz build` did, and asks only for
+ * files the listing has. A name that differs means the two disagree about
+ * the folder, and the version would not be the one built.
+ */
+function asMissing(value: unknown, listing: FilesListing): MissingFiles {
+  const listed = new Set(listing.files.map((file) => file.sha256))
+  if (
+    !isRecord(value) ||
+    typeof value.filesSha256 !== "string" ||
+    !isStrings(value.missing) ||
+    !value.missing.every((sha256) => listed.has(sha256))
+  ) {
+    throw new PublishError(
+      PUBLISH_ERROR.ANSWER_UNREADABLE,
+      "the platform's answer about which files it lacks is not one naming files the listing has",
+    )
+  }
+  const named = listingSha256(listing)
+  if (value.filesSha256 !== named) {
+    throw new PublishError(
+      PUBLISH_ERROR.ANSWER_UNREADABLE,
+      `the platform names the files folder ${value.filesSha256}, and vbz build named it ${named}`,
+    )
+  }
+  return { filesSha256: value.filesSha256, missing: value.missing }
+}
+
+/** The answer to one file's upload, which has to be that file. */
+function asStored(value: unknown, sha256: string, bytes: number): StoredFile {
+  if (isRecord(value) && value.sha256 === sha256 && value.bytes === bytes) {
+    return { sha256, bytes }
+  }
+  throw new PublishError(
+    PUBLISH_ERROR.ANSWER_UNREADABLE,
+    `the platform's answer to the upload of ${sha256} does not name that file and its ${bytes} bytes`,
+  )
 }
 
 /**
@@ -361,7 +560,7 @@ async function readStatus(
       }),
     )
   } catch (error) {
-    if (error instanceof PublishError && worthReadingAgain(error)) {
+    if (error instanceof PublishError && worthTryingAgain(error)) {
       deps.log(
         `the platform did not answer the read; trying again (${error.message})`,
       )
@@ -374,7 +573,7 @@ async function readStatus(
 /** An answer meaning "not now" rather than "no": asked to slow down. */
 const TOO_MANY_REQUESTS = 429
 
-function worthReadingAgain(error: PublishError): boolean {
+function worthTryingAgain(error: PublishError): boolean {
   if (error.code === PUBLISH_ERROR.UNREACHABLE) return true
   return (
     error.status !== undefined &&
@@ -631,6 +830,15 @@ function isStrings(value: unknown): value is readonly string[] {
   return Array.isArray(value) && value.every((v) => typeof v === "string")
 }
 
+function isFilesMissing(
+  detail: Readonly<Record<string, unknown>>,
+): detail is Readonly<Record<string, unknown>> & FilesMissingDetail {
+  return (
+    isStrings(detail.missing) &&
+    detail.missing.every((sha256) => SHA256.test(sha256))
+  )
+}
+
 function isPatchChangesRules(
   detail: Readonly<Record<string, unknown>>,
 ): detail is Readonly<Record<string, unknown>> & PatchChangesRulesDetail {
@@ -667,6 +875,11 @@ function detailLines(
     return [
       `release line ${detail.line} fixes ${detail.fields.join(", ")}, as ${detail.comparedWith} set them`,
       `publish these rules as ${detail.nextMinor} instead`,
+    ]
+  }
+  if (refusal === "E_FILES_MISSING" && isFilesMissing(detail)) {
+    return [
+      `the platform does not hold ${detail.missing.length} of the folder's files: ${detail.missing.join(", ")}; publish again to upload them`,
     ]
   }
   if (refusal === "E_VERSION_NOT_NEWER" && isVersionNotNewer(detail)) {

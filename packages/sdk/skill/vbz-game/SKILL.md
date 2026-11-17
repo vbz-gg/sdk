@@ -292,7 +292,8 @@ newer patch passes, and practice carries on.
   the set a ranked or practice run needs, as the platform does.
 - `vbz dev <dir>` - your game's page, locally, on two origins, with a report
   on every run.
-- `vbz publish <dir> --game <id>` - upload `dist/` and wait for the
+- `vbz publish <dir> --game <id>` - upload `dist/`, each file of the
+  files folder the platform lacks and then the version, and wait for the
   platform's verdict. The studio's secret key comes from `VBZ_STUDIO_KEY`,
   never a flag. It exits 0 when the version passed its checks and is
   published, and prints the release line it joined, which runs it serves,

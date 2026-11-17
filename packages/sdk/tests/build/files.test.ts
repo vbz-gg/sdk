@@ -18,6 +18,8 @@ import { assertSize } from "../../src/build/contract"
 import { sha256Hex } from "../../src/build/digest"
 import { BuildRefusal } from "../../src/build/errors"
 import {
+  assertFileBytes,
+  assertFilesHeld,
   assertListing,
   assertPacksListed,
   canonicalListing,
@@ -26,17 +28,23 @@ import {
   type FilesListing,
   listFolder,
   listingSha256,
+  missingFiles,
 } from "../../src/build/files"
 import {
   MAX_FILE_BYTES,
   MAX_FILES,
   MAX_FILES_BYTES,
+  MAX_LISTING_BYTES,
   MAX_PACK_BYTES,
   MAX_PACKS_BYTES,
   MAX_PRESENT_BYTES,
   MAX_SIM_BYTES,
 } from "../../src/build/limits"
-import { gameFiles, isFilePath } from "../../src/game/files"
+import {
+  gameFiles,
+  isFilePath,
+  MAX_FILE_PATH_LENGTH,
+} from "../../src/game/files"
 
 const SHA = "d".repeat(64)
 
@@ -188,6 +196,107 @@ describe("a listing", () => {
         assertListing({ files: [...atLimit.files, entry("one.bin", 1)] }),
       ),
     ).toBe("E_FILES_TOO_LARGE")
+  })
+})
+
+describe("the longest listing", () => {
+  /** A path of the longest length, distinct for each `i`, ignoring case. */
+  const longest = (i: number) =>
+    `${String(i).padStart(5, "0")}/${"a".repeat(MAX_FILE_PATH_LENGTH - 6)}`
+
+  /**
+   * The platform takes the listing as a request's whole body, so the bound
+   * has to be the text of the worst entries, written as the canonical
+   * listing writes them, and not a guess at it.
+   */
+  test("is MAX_LISTING_BYTES: every file at the longest path and size", () => {
+    const sizeDigits = Number(
+      `1${"0".repeat(String(MAX_FILE_BYTES).length - 1)}`,
+    )
+    const text = JSON.stringify({
+      files: Array.from({ length: MAX_FILES }, (_, i) => ({
+        path: longest(i),
+        bytes: sizeDigits,
+        sha256: SHA,
+      })),
+    })
+    expect(longest(0)).toHaveLength(MAX_FILE_PATH_LENGTH)
+    expect(String(sizeDigits)).toHaveLength(String(MAX_FILE_BYTES).length)
+    expect(new TextEncoder().encode(text).byteLength).toBe(MAX_LISTING_BYTES)
+    expect(MAX_LISTING_BYTES).toBe(6_170_011)
+  })
+
+  test("a listing the folder's limits allow is never longer", () => {
+    const listing = {
+      files: Array.from({ length: MAX_FILES }, (_, i) =>
+        entry(longest(i), Math.floor(MAX_FILES_BYTES / MAX_FILES)),
+      ),
+    }
+    const text = canonicalListing(listing)
+    expect(text.length).toBeLessThanOrEqual(MAX_LISTING_BYTES)
+    expect(text.length).toBeGreaterThan(MAX_LISTING_BYTES - 4 * MAX_FILES)
+  })
+})
+
+describe("which files a game's store lacks", () => {
+  const ONE = "1".repeat(64)
+  const TWO = "2".repeat(64)
+
+  test("each once, in order of path, however many paths share its bytes", () => {
+    const listing = {
+      files: [
+        entry("z.bin", 1, ONE),
+        entry("b.bin", 1, TWO),
+        entry("a.bin", 1, ONE),
+        entry("c.bin", 1, SHA),
+      ],
+    }
+    expect(missingFiles(listing, new Set([SHA]))).toEqual([ONE, TWO])
+    expect(missingFiles(listing, new Set([ONE, TWO, SHA]))).toEqual([])
+    expect(missingFiles(EMPTY_LISTING, new Set())).toEqual([])
+  })
+
+  test("a version naming a file the store lacks is refused", () => {
+    const listing = { files: [entry("a.bin", 1, ONE)] }
+    expect(code(() => assertFilesHeld(listing, new Set()))).toBe(
+      "E_FILES_MISSING",
+    )
+    expect(() => assertFilesHeld(listing, new Set([ONE]))).not.toThrow()
+    expect(() => assertFilesHeld(EMPTY_LISTING, new Set())).not.toThrow()
+  })
+
+  test("a listing that is not one is refused before anything is looked up", () => {
+    expect(code(() => missingFiles({ files: [{}] } as never, new Set()))).toBe(
+      "E_FILES_INVALID",
+    )
+  })
+})
+
+describe("a file uploaded on its own", () => {
+  const BYTES = new TextEncoder().encode("a file of the folder\n")
+
+  test("is held to the SHA-256 it was sent under", () => {
+    expect(() => assertFileBytes(sha256Hex(BYTES), BYTES)).not.toThrow()
+    expect(code(() => assertFileBytes(SHA, BYTES))).toBe("E_FILE_HASH_MISMATCH")
+  })
+
+  test("a name that is not a lowercase hex SHA-256 is refused", () => {
+    for (const name of [
+      sha256Hex(BYTES).toUpperCase(),
+      sha256Hex(BYTES).slice(1),
+      "../present.js",
+    ]) {
+      expect(code(() => assertFileBytes(name, BYTES))).toBe("E_FILES_INVALID")
+    }
+  })
+
+  test("a file at the file limit is held, one byte past it refused", () => {
+    const atLimit = new Uint8Array(MAX_FILE_BYTES)
+    expect(() => assertFileBytes(sha256Hex(atLimit), atLimit)).not.toThrow()
+    const over = new Uint8Array(MAX_FILE_BYTES + 1)
+    expect(code(() => assertFileBytes(sha256Hex(over), over))).toBe(
+      "E_FILE_TOO_LARGE",
+    )
   })
 })
 

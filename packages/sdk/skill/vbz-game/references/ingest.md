@@ -4,9 +4,14 @@ What the platform does with a submission, in order. Sections 0 to 2 run
 before the first storage write, so a submission they refuse leaves nothing
 behind and costs no quota: an upload is its own dry run.
 
-`vbz publish <dir> --game <id>` is how a submission arrives. It sends
-`dist/`, then reads the version back until the checks below decide, and
-prints the code and the first failed check of a rejection.
+`vbz publish <dir> --game <id>` is how a submission arrives. It sends the
+files folder's listing and asks which files the platform lacks, uploads each
+of those on its own, sends the version with the listing beside it, then
+reads the version back until the checks below decide, and prints the code
+and the first failed check of a rejection. A file is stored under the hash
+of its bytes (`E_FILE_HASH_MISMATCH` when they are not), so a file an
+earlier version sent is not sent again, and a version whose listing names a
+file the platform does not hold is refused with `E_FILES_MISSING`.
 
 ## 0. The version
 

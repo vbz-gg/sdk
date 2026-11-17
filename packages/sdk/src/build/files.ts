@@ -14,6 +14,7 @@
 
 import { readdir, readFile, stat } from "node:fs/promises"
 import { join, relative, sep } from "node:path"
+import type { FileEntry, FilesListing } from "../api/index.js"
 import { isFilePath } from "../game/files.js"
 import { sha256Hex } from "./digest.js"
 import { refuse } from "./errors.js"
@@ -26,19 +27,7 @@ import {
 } from "./limits.js"
 import { SHA256 } from "./paths.js"
 
-/** One file in a version's folder. */
-export interface FileEntry {
-  /** Where it is in the folder: relative, POSIX, from `isFilePath`'s set. */
-  readonly path: string
-  readonly bytes: number
-  /** Lowercase hex SHA-256 of its bytes. */
-  readonly sha256: string
-}
-
-/** Everything a version's folder holds. A game with no folder lists nothing. */
-export interface FilesListing {
-  readonly files: readonly FileEntry[]
-}
+export type { FileEntry, FilesListing }
 
 /** The listing of a game with no folder. */
 export const EMPTY_LISTING: FilesListing = { files: [] }
@@ -122,13 +111,20 @@ export function assertListing(value: unknown): FilesListing {
  * writes exactly this as `dist/files.json`.
  */
 export function canonicalListing(listing: FilesListing): string {
-  const { files } = assertListing(listing)
-  const sorted = [...files].sort((a, b) =>
+  return JSON.stringify({
+    files: byPath(assertListing(listing)).map(({ path, bytes, sha256 }) => ({
+      path,
+      bytes,
+      sha256,
+    })),
+  })
+}
+
+/** A listing's files in order of path, as the canonical text lists them. */
+function byPath(listing: FilesListing): FileEntry[] {
+  return [...listing.files].sort((a, b) =>
     a.path < b.path ? -1 : a.path > b.path ? 1 : 0,
   )
-  return JSON.stringify({
-    files: sorted.map(({ path, bytes, sha256 }) => ({ path, bytes, sha256 })),
-  })
 }
 
 /** The folder's name: the SHA-256 of its canonical listing. */
@@ -142,6 +138,70 @@ export function listedFile(
   path: string,
 ): FileEntry | undefined {
   return listing.files.find((file) => file.path === path)
+}
+
+/**
+ * The SHA-256 of every file `listing` names that `held` does not hold, each
+ * once however many paths share its bytes, in order of path. The platform
+ * answers `POST /v1/games/:gameId/files/missing` with it, against what the
+ * game's store holds, and `vbz publish` uploads exactly those.
+ */
+export function missingFiles(
+  listing: FilesListing,
+  held: ReadonlySet<string>,
+): string[] {
+  const missing = new Set<string>()
+  for (const file of byPath(assertListing(listing))) {
+    if (!held.has(file.sha256)) missing.add(file.sha256)
+  }
+  return [...missing]
+}
+
+/**
+ * Refuses a version whose listing names a file the game's store does not
+ * hold, with `E_FILES_MISSING`. The platform answers the refusal's `detail`
+ * with `missingFiles`.
+ */
+export function assertFilesHeld(
+  listing: FilesListing,
+  held: ReadonlySet<string>,
+): void {
+  const missing = missingFiles(listing, held)
+  if (missing.length > 0) {
+    refuse(
+      "E_FILES_MISSING",
+      `the listing names ${missing.length} file${missing.length === 1 ? "" : "s"} the game's store does not hold, the first ${missing[0]}; upload each one POST /v1/games/:gameId/files/missing names before the version`,
+    )
+  }
+}
+
+/**
+ * One uploaded file held to the name it was sent under: `E_FILES_INVALID`
+ * for a name that is not a lowercase hex SHA-256, `E_FILE_TOO_LARGE` over
+ * `MAX_FILE_BYTES`, and `E_FILE_HASH_MISMATCH` for bytes that hash to
+ * another. The platform checks the size against `Content-Length` before it
+ * reads a body; this holds the bytes it read.
+ */
+export function assertFileBytes(sha256: string, bytes: Uint8Array): void {
+  if (!SHA256.test(sha256)) {
+    refuse(
+      "E_FILES_INVALID",
+      `${JSON.stringify(sha256)} is not a lowercase hex SHA-256, which a file is uploaded under`,
+    )
+  }
+  if (bytes.byteLength > MAX_FILE_BYTES) {
+    refuse(
+      "E_FILE_TOO_LARGE",
+      `the file is ${bytes.byteLength} bytes, over the ${MAX_FILE_BYTES} one file may hold`,
+    )
+  }
+  const actual = sha256Hex(bytes)
+  if (actual !== sha256) {
+    refuse(
+      "E_FILE_HASH_MISMATCH",
+      `the file was sent as ${sha256} and its bytes hash to ${actual}`,
+    )
+  }
 }
 
 /** A manifest's data pack, as far as this file reads one. */

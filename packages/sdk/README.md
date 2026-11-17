@@ -63,8 +63,9 @@ mode `site/config.json` names: played locally from the build beside it, or
 ranked, against a stand-in for the platform.
 
 `publish` is for your build system. It uploads `dist/` to the game you name,
-with one of your studio's secret keys from `VBZ_STUDIO_KEY`, then waits for
-the platform's checks:
+with one of your studio's secret keys from `VBZ_STUDIO_KEY`: first each file
+of the files folder the platform does not already hold, then the version.
+Then it waits for the platform's checks:
 
 ```bash
 VBZ_STUDIO_KEY=vbz_sk_... vbz publish . --game <game id>

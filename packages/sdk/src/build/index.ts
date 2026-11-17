@@ -38,6 +38,8 @@ export {
   type BuildRefusalCode,
 } from "./errors.js"
 export {
+  assertFileBytes,
+  assertFilesHeld,
   assertListing,
   assertPacksListed,
   canonicalListing,
@@ -48,12 +50,14 @@ export {
   listedFile,
   listFolder,
   listingSha256,
+  missingFiles,
 } from "./files.js"
 export {
   MAX_CHUNK_BYTES,
   MAX_FILE_BYTES,
   MAX_FILES,
   MAX_FILES_BYTES,
+  MAX_LISTING_BYTES,
   MAX_PACK_BYTES,
   MAX_PACKS_BYTES,
   MAX_PRESENT_BYTES,
