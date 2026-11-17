@@ -100,6 +100,32 @@ const CORS_HEADERS: Record<string, string> = {
   "access-control-allow-origin": "*",
   "access-control-allow-methods": "GET, HEAD, OPTIONS",
   "cross-origin-resource-policy": "cross-origin",
+  // Makes a wrong content-type a deterministic refusal rather than a
+  // browser-dependent guess.
+  "x-content-type-options": "nosniff",
+}
+
+/**
+ * The policy every answer that is not JavaScript carries. The bundles
+ * origin is shared by every studio's games, and a file opened there as a
+ * document, such as an SVG holding a `<script>`, would run on it; under
+ * this it runs nothing and reaches nothing. Measured in Chromium 141 and
+ * Firefox 142: an SVG with a script, opened at its address, ran it without
+ * this policy and not with it, and still drew as an `<img>`. A policy on a
+ * response does nothing to a stylesheet, an image, a font or a `fetch`.
+ *
+ * JavaScript is left without it, because a worker runs under the policy of
+ * the script that starts it: measured in both, a worker whose script came
+ * with this policy could not `fetch` anything. A script opened as a
+ * document is shown as text and runs nothing.
+ */
+export const DOCUMENT_POLICY = "default-src 'none'; sandbox"
+
+/** The headers an answer of `contentType` carries beside the CORS ones. */
+function headersFor(contentType: string): Record<string, string> {
+  return contentType === JS_CONTENT_TYPE
+    ? CORS_HEADERS
+    : { ...CORS_HEADERS, "content-security-policy": DOCUMENT_POLICY }
 }
 
 /** Reads a stored module or file by its path, without the leading slash. */
@@ -134,7 +160,10 @@ export function createBlobServer(
     const { pathname } = new URL(request.url)
 
     if (request.method === "OPTIONS") {
-      return new Response(null, { status: 204, headers: CORS_HEADERS })
+      return new Response(null, {
+        status: 204,
+        headers: headersFor("text/plain"),
+      })
     }
     if (request.method !== "GET" && request.method !== "HEAD") {
       return text(405, "method not allowed")
@@ -145,8 +174,11 @@ export function createBlobServer(
     if (body === undefined) return text(404, "not found")
 
     const etag = etagOf(pathname)
+    const contentType = BLOB_PATH.test(pathname)
+      ? JS_CONTENT_TYPE
+      : contentTypeFor(pathname)
     const cached: Record<string, string> = {
-      ...CORS_HEADERS,
+      ...headersFor(contentType),
       "cache-control": BLOB_CACHE_CONTROL,
       etag,
     }
@@ -155,12 +187,7 @@ export function createBlobServer(
     }
     const headers: Record<string, string> = {
       ...cached,
-      "content-type": BLOB_PATH.test(pathname)
-        ? JS_CONTENT_TYPE
-        : contentTypeFor(pathname),
-      // Makes a wrong content-type a deterministic refusal rather than a
-      // browser-dependent guess.
-      "x-content-type-options": "nosniff",
+      "content-type": contentType,
       "content-length": String(body.byteLength),
     }
     if (request.method === "HEAD") {
@@ -171,8 +198,9 @@ export function createBlobServer(
 }
 
 function text(status: number, message: string): Response {
+  const contentType = "text/plain; charset=utf-8"
   return new Response(message, {
     status,
-    headers: { ...CORS_HEADERS, "content-type": "text/plain; charset=utf-8" },
+    headers: { ...headersFor(contentType), "content-type": contentType },
   })
 }

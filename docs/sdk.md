@@ -607,6 +607,18 @@ meets one answer from a laptop and from the edge:
   for WebAssembly, which a browser compiles by streaming only from that type,
   and `application/octet-stream` for anything it does not name, HTML among
   it, so a file opened on the bundles origin is never a page there.
+- `X-Content-Type-Options: nosniff` on every answer, so a wrong type is a
+  refusal in every browser rather than a guess.
+- `Content-Security-Policy: default-src 'none'; sandbox` on every answer
+  that is not JavaScript, `DOCUMENT_POLICY`, because the origin is every
+  studio's and an SVG holding a `<script>` would run on it when opened.
+  Measured in Chromium 141 and Firefox 142: such an SVG opened at its address
+  ran its script without the policy and not with it, and still drew as an
+  `<img>`. A response's policy does nothing to a stylesheet, an image, a font
+  or a `fetch`. JavaScript carries none, because a worker runs under the
+  policy of the script that starts it: measured in both, a worker whose
+  script came with this policy could not `fetch` anything. The platform's
+  public store sends the same headers.
 
 ## Starting a game
 
