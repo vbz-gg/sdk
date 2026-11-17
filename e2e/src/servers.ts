@@ -88,7 +88,7 @@ import { hold, startRegistry } from "./registry"
 const ROOT = join(import.meta.dir, "..", "..")
 const PAGE = join(import.meta.dir, "..", "page")
 
-/** Where the entries are in both subjects, as in every game `vbz new` makes. */
+/** Where the entries are in every subject, as in every game `vbz new` makes. */
 const ENTRIES = {
   simEntry: "src/sim/index.ts",
   presentEntry: "src/present.ts",

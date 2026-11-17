@@ -11,7 +11,9 @@ This repository sits between two others. [clockwork2](https://github.com/vbz-gg/
 is the engine and owns determinism, the manifest, the host that runs a game
 in a page and the device helpers that record its inputs; the
 [platform](https://github.com/vbz-gg/platform) is the backend that checks an
-upload, replays a run and ranks it. A studio serves its game from its own page.
+upload, replays a run and ranks it. A game made with this kit is one build:
+played locally on its own page with no platform, and, opted in, played as
+ranked and practice runs on a studio's page.
 
 ## Commands
 
@@ -31,11 +33,12 @@ Never start a dev server. Ask the user to run it.
 
 ## The one rule
 
-**A studio's page and the harness load a game through `loadGame` and play it
-through the module's own `mount`.** They run the same code, so the game an
-author tried in the harness is the game a studio's page plays, and the engine
-that plays it is the one the game was built and checked with, bundled into
-its page module. Nothing on a page builds a `GameHost`, draws a control for a
+**Every page, a studio's, the game's own playing locally, and the harness,
+loads a game through `loadGame` and plays it through the module's own
+`mount`.** They run the same code, so the game an author tried in the
+harness is the game a studio's page plays and the game a local page plays,
+and the engine that plays it is the one the game was built and checked
+with, bundled into its page module. Nothing on a page builds a `GameHost`, draws a control for a
 game, or works out again what the module already decides.
 
 That is also why the page and the module pass each other plain data behind a
@@ -101,8 +104,9 @@ new row in both.
 while changing it:
 
 **`./game` holds no DOM and no dynamic import.** It is bundled into every
-page module, which may import exactly one module by name, its rules code, and
-the platform refuses one with a dynamic import before it stores a byte.
+page module, which imports its rules code as `cw2:sim` and files of its
+folder as `cw2:files/<path>`, statically, and nothing else, and the platform
+refuses one with a dynamic import before it stores a byte.
 Nothing in it reads the browser until `mount` is called, and it imports
 nothing of `./host`, `./platform` or the CLI. `tests/game/subpath.test.ts`
 holds all three.
@@ -119,6 +123,14 @@ rebuild one once its contract is released.
 **What crosses is plain data.** A failure is `{ code, message }`, never an
 error object, and an engine error is recognised by its mark, because the page
 holds no engine and the module's classes are not the page's.
+
+**No tick runs before the game is ready.** The module mounts the
+presentation, waits for its `prepare` and fetches the start packs, and only
+then builds the run's host and attaches the device helpers; a failure to
+get ready reaches `onError` before tick 0. A page that asks for a run, and
+so spends one, asks only once `ready` has settled with null: `playRun`
+prepares before `startRun`. Never start the clock, or a ranked run, on a
+game that has not said it can draw.
 
 ## The page's host
 
@@ -148,6 +160,14 @@ the platform has the run. A browser with no Web Locks starts nothing, with
 before the lock is held: two tabs on one run post chunks that conflict, and a
 second tab's start closes a run the first has committed to.
 
+**A local run's seed always carries its prefix.** `playLocal` plays
+`local:` and the page's seed, or a fresh one, through `localSeed`, and never
+a seed without it: every seed the platform issues is 64 hex characters, so
+the prefix is what makes a local recording one the platform refuses
+(`E_PINNED_MISMATCH`). The recording's type, `LocalRecording`, is the
+compile-time half; the seed is the half a page with devtools cannot get
+past. `playLocal` takes no client and makes no request.
+
 **The page never chooses a version.** A run plays what its start names, and
 `playRun` loads a resumed run's own module when its manifest hash is not the
 loaded module's. The hash names a module; its address can be written more
@@ -156,6 +176,46 @@ than one way.
 **The widgets are plain DOM with every colour a `--gb-widget-*` custom
 property**, and show a failure in the client's or the platform's own sentence
 for its code.
+
+## The files folder
+
+`packages/sdk/src/build/files.ts` lists it, and `contract.ts` and
+`loads.ts` hold the page module's loads to it. `docs/sdk.md` and the guide's `references/files.md`
+describe both. What to hold while changing either:
+
+**The folder is named by its listing's SHA-256 and nothing else.**
+`canonicalListing` writes the listing, `dist/files.json` holds exactly that
+text, and `listingSha256` of it is the folder's name in every address. No
+version, date, path of the author's machine or option reaches the name, so
+the same files are the same folder in every build and on the platform, and a
+page module naming the folder names every byte in it.
+
+**A page module loads only what its bytes name.** Its imports are static,
+`cw2:sim` and `cw2:files/<path>` with each path in the listing; `import()`,
+literal or computed, `importScripts` and `new SharedWorker` are refused,
+found by reading the text as tokens, because Bun's scanner sees only a
+literal `import()`. `new Worker` is counted and allowed only when the game
+says it needs workers. Code inside the folder is not read, and the page's
+policy, naming the game's own path and nothing else, is all that bounds it:
+never widen that policy past the game's path.
+
+**A need is named, and the files need is derived.** A game names `wasm` and
+`workers` in `"vbz": { "needs" }`; `versionNeeds` adds `files` whenever the
+listing holds a file and refuses a page module that starts a worker without
+`workers`. Nothing a game needs adds `unsafe-eval`.
+
+**Every limit is a constant in `build/limits.ts` or `/build`'s other
+exports**, which the platform imports, so a build that passes `vbz build`
+passes the upload. Each file of the folder is held to its limits by its size
+on disk before a byte is read. The tables in `docs/sdk.md` and the guide's
+`references/files.md` name every `MAX_` constant `/build` exports, at its
+value, and the guide's test holds both ways.
+
+**null3d is a recipe, never a dependency.** Nothing in `packages/sdk`
+imports null3d, which is not on npm. The recipe, the guide's
+`references/null3d.md`, says a vbz game creates null3d with
+`input: false`, and the guide's test holds the policy it prints and the
+mouse figures it quotes to the code and to the engine guide.
 
 ## What a game records
 
@@ -281,7 +341,8 @@ that name as a lifecycle hook of `npm publish`.
 
 `packages/sdk/skill/vbz-game/` is prose an agent follows literally, so a
 stale sentence is worse than a missing one. It has one subject: everything
-between a conforming simulation and a game the platform can check and replay.
+between a conforming simulation and a game a page plays, locally or as runs
+the platform checks and replays.
 Determinism belongs to the engine's guide, `clockwork2`, which the engine
 package ships, and this one points at it rather than repeating it - two copies
 of that rulebook is how one of them goes quietly out of date.
@@ -292,7 +353,11 @@ taken from somewhere other than `init` and a stream of readings recorded every
 frame, and an author meets both before they think to open a second guide. So
 each says only what an author needs at that point, quotes only what the
 engine exports, and points at the engine guide's reference for the full
-rules. Nothing else in this guide restates a determinism rule.
+rules. Nothing else in this guide restates a determinism rule. The null3d
+recipe, `references/null3d.md`, comes closest: it quotes the engine guide's
+measured rows for a mouse under lock, which the test holds to the engine's
+copy, and says which of null3d's maths the rules code may import, which is
+null3d's to say and is quoted from its guide.
 
 The guide ships in the package, and its tests sit beside it at
 `packages/sdk/skill/tests/`, outside what ships. `vbz new` copies it into a
@@ -317,16 +382,25 @@ byte for byte and execute bit, and fails on anything else under `skill/` in
 the tarball, because npm packs the disk and not the commit.
 
 `packages/sdk/skill/tests/skill.test.ts` measures the drift a machine can
-see: the size caps match the code, every artifact refusal named exists and
-every one that exists is explained, `references/page.md` explains every
-client code and no other, every prose copy of what a release line fixes (in
-`SKILL.md`, `references/ingest.md` and `docs/sdk.md`) names exactly the
-fields `LINE_RULES` fixes, the commands are the CLI's, the layout it prints is
-the template's, and every reference is linked both ways. Every limit it quotes
-is the constant that decides it, every `Prng` method it quotes is on the
-engine's `Prng`, every file of the engine's guide it names is one the
-installed engine ships, and it calls that guide `clockwork2` and nothing
-older. Adding a client code fails it until `page.md` has a row.
+see: the limit tables in `references/files.md` and `docs/sdk.md` name every
+`MAX_` constant `/build` exports and no other, each at its value, and the
+package README's table matches too; every artifact refusal named anywhere in
+the guide, `docs/sdk.md` or the package README exists, and every one that
+exists is explained; `references/page.md` explains every client code and no
+other; every prose copy of what a release line fixes (in `SKILL.md`,
+`references/ingest.md` and `docs/sdk.md`) names exactly the fields
+`LINE_RULES` fixes; every need the prose shows a `package.json` naming is
+one `vbz` takes; the policy the null3d recipe and `docs/sdk.md` print for a
+game that needs everything is `pageCsp`'s, directive for directive; the
+recipe's mouse figures are the engine guide's measured row and its run
+lengths follow from `MAX_RUN_BYTES`; the commands are the CLI's, the layout
+it prints is the template's, and every reference is linked both ways. Every
+other limit it quotes is the constant that decides it, every `Prng` method
+it quotes is on the engine's `Prng`, every file of the engine's guide it
+names is one the installed engine ships, and it calls that guide
+`clockwork2` and nothing older. Adding a client code fails it until
+`page.md` has a row, and adding a limit fails it until both tables have
+one.
 
 ## Tests
 
@@ -355,13 +429,14 @@ older. Adding a client code fails it until `page.md` has a row.
 
 ## The browser suite
 
-`e2e/` drives what an author and a studio's page actually run. One process,
-`e2e/src/servers.ts`, builds the package and both subjects through the real
+`e2e/` drives what an author and a page actually run. One process,
+`e2e/src/servers.ts`, builds the package and every subject through the real
 CLI, so a stale `dist` cannot be what is tested, and serves: each subject's
 harness, as `vbz dev` serves it; the suite's studio page, `e2e/page/`, on an
-origin of its own under the policy the SDK recommends, against a stand-in for
-the platform per game; a bundles origin holding every game's modules under
-the game's own path; this package packed and installed apart; and a package
+origin of its own under the policy the SDK recommends with each game's
+needs, against a stand-in for the platform per game whose sign-in is on
+another site, or playing a game locally; a bundles origin holding every
+game's modules and files under the game's own path; this package packed and installed apart; and a package
 registry holding that tarball and one of the engine, packed from the copy
 installed here, which fetches every other package from npm. It keeps a
 request log per bundles origin and one for the registry, which a spec reads
