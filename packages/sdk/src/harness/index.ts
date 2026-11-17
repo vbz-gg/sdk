@@ -49,6 +49,11 @@ export interface HarnessOptions {
   readonly seed?: string
   /** Every path the bundles origin was asked for, for a test. */
   readonly onRequest?: (path: string) => void
+  /**
+   * Whether the page's report holds a run's inputs to the budget a ranked or
+   * practice run is held to, `vbz dev --ranked`, or says it as a figure.
+   */
+  readonly ranked: boolean
 }
 
 export interface Harness {
@@ -148,6 +153,7 @@ export async function startHarness(options: HarnessOptions): Promise<Harness> {
         // setting at its default.
         config: servedConfig(manifest),
         replayPath: REPLAY_PATH,
+        ranked: options.ranked,
       },
     }),
     csp,

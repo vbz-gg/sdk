@@ -35,6 +35,8 @@ interface HarnessConfig {
   readonly config: Readonly<Record<string, string | number | boolean>>
   /** Where a run's recording goes for the harness's report. */
   readonly replayPath: string
+  /** Whether the report holds a run to a ranked run's input budget. */
+  readonly ranked: boolean
 }
 
 const config = JSON.parse(
@@ -91,8 +93,8 @@ async function publish(ended: LocalEnd): Promise<void> {
       body: recording,
     })
     report = (await answer.json()) as DevReport
-    reportBlock.textContent = reportLines(report).join("\n")
-    reportBlock.dataset.passes = String(reportPasses(report))
+    reportBlock.textContent = reportLines(report, config.ranked).join("\n")
+    reportBlock.dataset.passes = String(reportPasses(report, config.ranked))
   } catch (error) {
     reportBlock.textContent = `the harness did not answer: ${String(error)}`
     reportBlock.dataset.passes = "false"

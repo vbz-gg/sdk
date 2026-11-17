@@ -57,8 +57,50 @@ async function copyTemplate(): Promise<void> {
 }
 
 describe("checking the template", () => {
+  /**
+   * The ranked set is what a ranked or practice run needs besides: the seed
+   * changes the state, and the manifest says how a run ranks. The template
+   * is a ranked game, so it passes both.
+   */
+  test("with --ranked it runs the ranked set, which the template passes too", async () => {
+    const checked = await checkGame(
+      { root: TEMPLATE_DIR, ...SOURCE },
+      { ranked: true },
+    )
+    expect(checked.set).toBe("ranked")
+    expect(checked.ok).toBe(true)
+    const names = checked.conformance.outcomes.map((outcome) => outcome.check)
+    expect(names).toContain("seed-sensitivity")
+    expect(names).toContain("ranking")
+    expect(checkLines(checked, SOURCE.captureEntry).join("\n")).toContain(
+      "all checks in the ranked set passed",
+    )
+  }, 120_000)
+
+  /** A game played only on its own page need not say how it ranks. */
+  test("a game that says nothing of ranking passes, and fails only --ranked", async () => {
+    await copyTemplate()
+    const path = join(root, "src", "sim", "manifest.ts")
+    const text = await readFile(path, "utf8")
+    const unranked = text
+      .replace(/ {2}rankBy: \[[^\]]*\],\n/, "")
+      .replace(/ {2}tiePolicy: "shared",\n/, "")
+    expect(unranked).not.toContain("rankBy:")
+    await writeFile(path, unranked)
+    const local = await checkGame({ root, ...SOURCE }, { ranked: false })
+    expect(local.ok).toBe(true)
+    const ranked = await checkGame({ root, ...SOURCE }, { ranked: true })
+    expect(ranked.ok).toBe(false)
+    const failed = ranked.conformance.outcomes.find((o) => !o.ok)
+    expect(failed?.findings[0]?.code).toBe("E_RANK_UNDECLARED")
+  }, 120_000)
+
   test("it passes, and names its line and the contract its patches keep", async () => {
-    const checked = await checkGame({ root: TEMPLATE_DIR, ...SOURCE })
+    const checked = await checkGame(
+      { root: TEMPLATE_DIR, ...SOURCE },
+      { ranked: false },
+    )
+    expect(checked.set).toBe("every-game")
     expect(checked.ok).toBe(true)
     expect(checked.conformance.ok).toBe(true)
     // A suite that ran nothing would pass vacuously.
@@ -83,7 +125,7 @@ describe("checking the template", () => {
       join(root, "src", "capture.ts"),
       `export const capture = { keys: { Space: "jump" } }\n`,
     )
-    const checked = await checkGame({ root, ...SOURCE })
+    const checked = await checkGame({ root, ...SOURCE }, { ranked: false })
     expect(checked.conformance.ok).toBe(true)
     expect(checked.ok).toBe(false)
     expect(checked.capture.length).toBe(1)
@@ -123,7 +165,7 @@ describe("the game's own code", () => {
     }
     process.env.VBZ_STUDIO_KEY = PLANTED
     try {
-      const checked = await checkGame({ root, ...SOURCE })
+      const checked = await checkGame({ root, ...SOURCE }, { ranked: false })
       expect(JSON.stringify(checked)).not.toContain(PLANTED)
       expect(checked.capture).toEqual([])
       expect(checked.conformance.ok).toBe(true)

@@ -39,8 +39,9 @@ installed, so after upgrading `@vbz-gg/sdk` or `@clockwork2/engine`, run
 ```bash
 vbz new     <dir>   copy a game that already conforms, and rename it
 vbz guides  <dir>   replace the game's agent guides with the installed ones
-vbz build   <dir>   write dist/sim.js, dist/present.js and dist/manifest.json
-vbz check   <dir>   run the engine's checks and hold src/capture.ts to the manifest
+vbz build   <dir>   write dist/: the two modules, the manifest and the files folder
+vbz check   <dir>   run the engine's checks and hold src/capture.ts to the manifest;
+                    --ranked adds what a ranked or practice run needs
 vbz dev     <dir>   load the game the way a studio's page does, on two origins
 vbz publish <dir> --game <id>   upload dist/ and wait for the verdict
 ```
@@ -54,7 +55,8 @@ on one port at the paths and with the headers `files.vbz.gg` uses, and a page
 on another port loads the page module from there and plays it, under the
 Content-Security-Policy a studio's page should send. When a run ends, the
 page shows whether the run replays to what it showed, how many inputs it
-recorded against the budget the platform allows, and its size in bytes.
+recorded against the budget a ranked or practice run is held to, and its size
+in bytes; `--ranked` turns the report red over that budget.
 `--address` and `--https` with `--cert` and `--key` serve it to a phone on
 your network, and `--site` serves your game's own page from `site/` against
 a stand-in for the platform.
@@ -124,7 +126,8 @@ export const capture: CaptureMapping = {
 
 Keep the ranges coarse and record changes rather than a stream: every value a
 finger crosses is an input to send, store and replay, and the platform holds
-a run to a budget of 16 inputs per tick, counted over the whole run. The
+a ranked or practice run to a budget of 16 inputs per tick, counted over the
+whole run. The
 template records a finger in steps of 30 field units, which is enough to tell
 its two buttons apart. Its presentation fills the element it is mounted in,
 because a finger is measured across that element.

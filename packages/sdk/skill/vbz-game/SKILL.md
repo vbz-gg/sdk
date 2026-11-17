@@ -97,7 +97,7 @@ is where that breaks first:
 
 A game that ignores its seed passes every check the engine runs on every game
 and is still refused at upload. The engine's ranked set, which the platform
-runs on an upload, adds a seed check that plays one input log under two seeds,
+runs on an upload and `vbz check --ranked` runs here, adds a seed check that plays one input log under two seeds,
 and a game that passes through the same states under both is rejected with
 `E_SEED_IGNORED`, because every day would be the same puzzle and the daily
 board an all-time one. `clockwork2/references/determinism-rules.md`
@@ -176,9 +176,11 @@ position is measured across that element.
 ## Testing it
 
 `bun run check` builds the game and runs the engine's conformance checks
-over the rules code, holds `src/capture.ts` to the manifest, and prints the
-version, its release line and the line's contract hash. It exits 0 only when
-all of that passes.
+every game needs over the rules code, holds `src/capture.ts` to the manifest,
+and prints the version, its release line and the line's contract hash. It
+exits 0 only when all of that passes. `vbz check --ranked` runs the set the
+platform runs on an upload instead, which adds the seed check and that the
+manifest says how a run ranks.
 
 `bun run dev` is your game's page on your laptop: the game's two modules on
 one origin, and a page on another that loads the page module the way a
@@ -284,7 +286,8 @@ newer patch passes, and practice carries on.
 - `vbz build <dir>` - the two modules, the manifest and the files folder a
   submission carries.
 - `vbz check <dir>` - the engine's checks and the input mapping, with the
-  version, its release line and the line's contract hash.
+  version, its release line and the line's contract hash. `--ranked` runs
+  the set a ranked or practice run needs, as the platform does.
 - `vbz dev <dir>` - your game's page, locally, on two origins, with a report
   on every run.
 - `vbz publish <dir> --game <id>` - upload `dist/` and wait for the

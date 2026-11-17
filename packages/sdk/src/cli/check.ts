@@ -3,7 +3,9 @@
  * runs, said on the author's machine.
  *
  * It builds the game as `vbz build` does, runs the engine's conformance
- * checks over the rules code exactly as built, holds the input mapping in
+ * checks over the rules code exactly as built, the set every game needs or
+ * with `--ranked` the set a ranked or practice run needs, holds the input
+ * mapping in
  * `src/capture.ts` to the manifest with the engine's `checkCapture`, and
  * prints the release line and the hash of the contract every patch of that
  * line has to keep. The platform adds checks of its own after an upload, so a
@@ -43,6 +45,8 @@ import { contractSha256 } from "../build/line.js"
 import { buildGame } from "./build.js"
 
 export interface GameCheck {
+  /** Which of the engine's sets ran. */
+  readonly set: CheckSet
   readonly version: string
   /** The release line, `MAJOR.MINOR`. */
   readonly line: string
@@ -105,20 +109,28 @@ function declaredFiles(
 }
 
 /**
- * Builds the game and checks it. A manifest that is not one stops here with
- * the engine's own refusal, because nothing after it can be read against it.
+ * Builds the game and checks it: with the engine's `every-game` set, or with
+ * `ranked`, its `ranked` set, which adds what only a ranked or practice run
+ * needs: a seed that changes the state, and a manifest that says how a run
+ * ranks. A manifest that is not one stops here with the engine's own
+ * refusal, because nothing after it can be read against it.
  */
-export async function checkGame(source: GameSource): Promise<GameCheck> {
+export async function checkGame(
+  source: GameSource,
+  options: { readonly ranked: boolean },
+): Promise<GameCheck> {
   const built = await buildGame(source)
   const manifest = assertManifest(built.manifest)
+  const set: CheckSet = options.ranked ? "ranked" : "every-game"
   const { conformance, capture } = await checkInChild({
     source,
     sim: built.sim,
     manifest,
     declared: declaredFiles(manifest, built.files.onDisk),
-    set: "every-game",
+    set,
   })
   return {
+    set,
     version: built.version,
     line: built.line,
     contractSha256: contractSha256(manifest),

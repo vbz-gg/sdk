@@ -30,6 +30,8 @@ export interface DevSettings {
   readonly bundlesPort: number
   /** Serve the game's `site/` against the stand-in rather than the harness page. */
   readonly site: boolean
+  /** Hold the harness page's runs to the input budget of a ranked run. */
+  readonly ranked: boolean
 }
 
 /** Reads a PEM file; a test stands in for the disk. */
@@ -55,11 +57,23 @@ async function pem(
 export async function devSettings(
   options: Pick<
     Options,
-    "address" | "https" | "cert" | "key" | "hostPort" | "bundlesPort" | "site"
+    | "address"
+    | "https"
+    | "cert"
+    | "key"
+    | "hostPort"
+    | "bundlesPort"
+    | "site"
+    | "ranked"
   >,
   read: ReadText = readText,
 ): Promise<DevSettings> {
   const { address } = options
+  if (options.site && options.ranked) {
+    throw new Error(
+      "--ranked holds the harness page's runs to a ranked run's input budget, and --site serves your own page instead; give one",
+    )
+  }
   if (EVERY_INTERFACE.has(address)) {
     throw new Error(
       `--address ${address} would listen everywhere, and a page has to name one host a browser can reach; give this machine's address on the network, such as 192.168.1.20`,
@@ -79,6 +93,7 @@ export async function devSettings(
       hostPort: options.hostPort,
       bundlesPort: options.bundlesPort,
       site: options.site,
+      ranked: options.ranked,
     }
   }
   if (options.cert === undefined || options.key === undefined) {
@@ -95,5 +110,6 @@ export async function devSettings(
     hostPort: options.hostPort,
     bundlesPort: options.bundlesPort,
     site: options.site,
+    ranked: options.ranked,
   }
 }

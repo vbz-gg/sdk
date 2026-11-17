@@ -140,6 +140,8 @@ for (const name of Object.keys(SUBJECTS) as SubjectName[]) {
     hostPort: subject.hostPort,
     bundlesPort: subject.bundlesPort,
     onRequest: (path) => log.push(path),
+    // The specs' runs are held to a ranked run's input budget.
+    ranked: true,
   })
   const keys = blobKeys(harness.built)
   harnesses.set(name, {

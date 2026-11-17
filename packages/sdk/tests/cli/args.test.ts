@@ -36,6 +36,7 @@ describe("what the command line said", () => {
     expect(options.cert).toBeUndefined()
     expect(options.key).toBeUndefined()
     expect(options.site).toBe(false)
+    expect(options.ranked).toBe(false)
   })
 
   test("a directory is resolved, so a relative path is not held against a server's cwd", () => {
@@ -76,6 +77,12 @@ describe("what the command line said", () => {
     expect(options.cert).toBe("cert.pem")
     expect(options.key).toBe("key.pem")
     expect(options.site).toBe(true)
+  })
+
+  test("--ranked is a switch, for check and dev", () => {
+    const options = parseArgs(["check", "--ranked", "./game"])
+    expect(options.ranked).toBe(true)
+    expect(options.dir).toMatch(/game$/)
   })
 
   test("a switch takes no value, so the directory after it is still the directory", () => {

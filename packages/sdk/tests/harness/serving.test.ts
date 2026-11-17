@@ -139,6 +139,7 @@ describe("the harness, started whole", () => {
       source: { root, ...SOURCE },
       hostPort: 0,
       bundlesPort: 0,
+      ranked: false,
     })
   })
 
@@ -164,6 +165,8 @@ describe("the harness, started whole", () => {
     expect(html).toContain(`"tickHz":30`)
     // What a platform serves a run: every declared setting at its default.
     expect(html).toContain(`"config":{"speed":2}`)
+    // The input budget is a ranked run's, said as a figure unless asked.
+    expect(html).toContain(`"ranked":false`)
     expect(html).not.toContain("maxTicks")
     // The seed is fixed, so a run an author is debugging is the run they had
     // a moment ago.
@@ -249,6 +252,7 @@ describe("the harness, started whole", () => {
           hostPort: 0,
           bundlesPort: 0,
           seed: "chosen",
+          ranked: false,
         }),
       ).rejects.toThrow(/run vbz build first/)
     } finally {

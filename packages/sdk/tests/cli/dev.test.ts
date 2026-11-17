@@ -73,7 +73,17 @@ describe("where vbz dev listens", () => {
       hostPort: 9000,
       bundlesPort: 9001,
       site: true,
+      ranked: false,
     })
+  })
+
+  /** A ranked run's budget is a figure on the harness page, red when asked. */
+  test("--ranked holds the harness page's runs to a ranked run's budget, and not --site's", async () => {
+    expect((await devSettings(parseArgs(["dev"]), read)).ranked).toBe(false)
+    expect(
+      (await devSettings(parseArgs(["dev", "--ranked"]), read)).ranked,
+    ).toBe(true)
+    expect(await refusal(["--site", "--ranked"])).toContain("give one")
   })
 
   /**
@@ -195,6 +205,7 @@ describe("the harness over https", () => {
       hostPort: 0,
       bundlesPort: 0,
       listen: settings.listen,
+      ranked: settings.ranked,
     })
     try {
       expect(harness.hostOrigin).toMatch(/^https:\/\/127\.0\.0\.1:\d+$/)

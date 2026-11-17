@@ -200,8 +200,8 @@ the result on the client, where nothing checks it, which is why a game never
 constructs an input.
 
 What to record is a choice about size. Every value a finger crosses is an
-input to record, send, store and replay, and the platform holds a run to a
-budget of 16 inputs per tick, counted over the whole run. So record changes,
+input to record, send, store and replay, and the platform holds a ranked or
+practice run to a budget of 16 inputs per tick, counted over the whole run. So record changes,
 not a stream, in the coarsest range that still tells the game what it needs:
 the template records a finger in steps of 30 field units, 0 to 16 across and
 0 to 24 down, which is all it takes to tell two buttons apart. A deadband on
@@ -642,7 +642,12 @@ guide from one release beside the engine's from another.
 `vbz check ./my-game` builds the game, holds the manifest to its schema, runs
 the engine's `every-game` set of conformance checks over the built rules code,
 with every file the manifest declares laid out beside it, and holds
-`src/capture.ts` to the manifest with `checkCapture`. It prints the version,
+`src/capture.ts` to the manifest with `checkCapture`. `vbz check --ranked`
+runs the engine's `ranked` set instead, which adds what only a ranked or
+practice run needs and the platform runs on an upload: two seeds pass through
+different states on one input log (`E_SEED_IGNORED`), and the manifest says
+how a run ranks (`E_RANK_UNDECLARED`), which a game played only on its own
+page may leave out. It prints the version,
 its release line and the line's contract hash, `contractSha256`, so a patch
 can be compared with the line it joins before it is uploaded. It exits 0
 only when everything passes.
@@ -701,9 +706,11 @@ the page sends its recording back, and the harness replays it against the
 built rules code, to the tick it ended, in a process of its own with an empty
 environment, so a game cannot read a studio's key or a cloud credential from
 the shell `vbz dev` runs in. It holds the run's inputs to the manifest with
-the engine's `checkInputs` and the platform's budget, and measures the
-recording. The page shows three lines: whether the replay matches, how many
-inputs against the budget, and the recording's size in bytes. It publishes the
+the engine's `checkInputs`, and measures the recording. The page shows three
+lines: whether the replay matches, how many inputs against the budget of 16 a
+tick a ranked or practice run is held to, and the recording's size in bytes.
+The budget binds only those runs, so a run over it is said as that figure and
+turns the report red only under `vbz dev --ranked`. It publishes the
 recording too, so an author can save the evidence the platform would replay.
 
 The seed is a constant, so a run an author is debugging is the run they had a

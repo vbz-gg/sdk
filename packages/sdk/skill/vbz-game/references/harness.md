@@ -35,11 +35,13 @@ from the page's own origin and the game's own path and nowhere else, and no
   - `replayed:` whether the recording, replayed against the built rules code
     to the tick it ended, matches what the page reported. A run that differs
     names the first tick it differs from, and fails on the platform too.
-  - `inputs:` how many the recording holds, against the budget the platform
-    allows a run that long, or the code the platform would refuse them with.
+  - `inputs:` how many the recording holds, against the budget a ranked or
+    practice run that long is held to, or the code the platform would refuse
+    them with.
   - `recording:` its size in bytes, which is what a submit sends.
   The report turns red when the replay does not match or the inputs would be
-  refused.
+  refused. The budget binds only ranked and practice runs, so a run over it
+  turns the report red only under `vbz dev --ranked`.
 - **The recording**, with a link to save it. It is the same envelope the
   platform would replay.
 - **A status line** carrying what the game is saying: `ready`, the tick

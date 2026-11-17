@@ -120,7 +120,7 @@ describe("replaying a recording", () => {
     expect(answer.bytes).toBe(
       new TextEncoder().encode(JSON.stringify(recording)).byteLength,
     )
-    expect(reportPasses(answer)).toBe(true)
+    expect(reportPasses(answer, false)).toBe(true)
   })
 
   test("a recording claiming another score differs, and says where", async () => {
@@ -131,7 +131,7 @@ describe("replaying a recording", () => {
     expect(answer.replay.differences).toContain(
       "presses: recorded 9, replayed 3",
     )
-    expect(reportPasses(answer)).toBe(false)
+    expect(reportPasses(answer, false)).toBe(false)
   })
 
   test("a recording whose checkpoint was changed differs from that checkpoint", async () => {
@@ -157,7 +157,7 @@ describe("replaying a recording", () => {
       ),
     })
     expect(answer.inputs.problem?.code).toBe("E_INPUT_UNDECLARED")
-    expect(reportPasses(answer)).toBe(false)
+    expect(reportPasses(answer, false)).toBe(false)
   })
 
   test("more inputs than the budget allows is refused with the budget's code", async () => {
@@ -189,7 +189,7 @@ describe("replaying a recording", () => {
       checkpoints: recording.checkpoints.slice(0, 1),
     })
     expect(answer.replay).toEqual({ kind: "nothing" })
-    expect(reportLines(answer)[0]).toContain("ended at tick 0")
+    expect(reportLines(answer, false)[0]).toContain("ended at tick 0")
   })
 
   /**
@@ -264,54 +264,100 @@ describe("what the page is told", () => {
   }
 
   test("a run that matches says where it ended and what it counted", () => {
-    expect(reportLines(base)).toEqual([
+    expect(reportLines(base, false)).toEqual([
       "replayed: it matches, ending at tick 1,650 with motes 3",
-      "inputs: 1,204, within the budget of 26,416",
+      "inputs: 1,204, within the budget of 26,416 a ranked or practice run is held to",
       "recording: 18,234 bytes",
     ])
     expect(
-      reportLines({
-        ...base,
-        replay: { kind: "matches", endTick: 1, counters: {} },
-      })[0],
+      reportLines(
+        {
+          ...base,
+          replay: { kind: "matches", endTick: 1, counters: {} },
+        },
+        false,
+      )[0],
     ).toBe("replayed: it matches, ending at tick 1")
   })
 
   test("a run that differs names the first difference", () => {
     expect(
-      reportLines({
-        ...base,
-        replay: {
-          kind: "differs",
-          divergedAt: 120,
-          differences: ["tick 120: recorded a, replayed b"],
+      reportLines(
+        {
+          ...base,
+          replay: {
+            kind: "differs",
+            divergedAt: 120,
+            differences: ["tick 120: recorded a, replayed b"],
+          },
         },
-      })[0],
+        false,
+      )[0],
     ).toBe(
       "replayed: it differs from tick 120: tick 120: recorded a, replayed b",
     )
     expect(
-      reportLines({
-        ...base,
-        replay: { kind: "differs", divergedAt: null, differences: [] },
-      })[0],
+      reportLines(
+        {
+          ...base,
+          replay: { kind: "differs", divergedAt: null, differences: [] },
+        },
+        false,
+      )[0],
     ).toBe("replayed: it differs: no difference named")
   })
 
   test("a replay that failed, and inputs that were refused, say their codes", async () => {
-    const lines = reportLines({
-      ...base,
-      replay: { kind: "failed", code: "E_X", message: "broke" },
-      inputs: {
-        count: 9,
-        budget: 16,
-        problem: { code: "E_INPUT_RANGE", message: "too far" },
+    const lines = reportLines(
+      {
+        ...base,
+        replay: { kind: "failed", code: "E_X", message: "broke" },
+        inputs: {
+          count: 9,
+          budget: 16,
+          problem: { code: "E_INPUT_RANGE", message: "too far" },
+        },
       },
-    })
+      false,
+    )
     expect(lines.slice(0, 2)).toEqual([
       "replayed: it failed, E_X: broke",
       "inputs: 9, refused as E_INPUT_RANGE: too far",
     ])
+  })
+
+  /**
+   * The budget binds a ranked or practice run alone: a game played on its
+   * own page may record more, and is told the figure rather than refused,
+   * unless the author asked for a ranked run's rules.
+   */
+  test("over the input budget is a ranked run's figure, and red only when ranked", () => {
+    const over: DevReport = {
+      ...base,
+      inputs: {
+        count: 30_000,
+        budget: 26_416,
+        problem: { code: "E_INPUT_BUDGET", message: "too many" },
+      },
+    }
+    expect(reportLines(over, false)[1]).toBe(
+      "inputs: 30,000, over the budget of 26,416 a ranked or practice run is held to, which a game played on its own page is not",
+    )
+    expect(reportPasses(over, false)).toBe(true)
+    expect(reportLines(over, true)[1]).toBe(
+      "inputs: 30,000, refused as E_INPUT_BUDGET: too many",
+    )
+    expect(reportPasses(over, true)).toBe(false)
+    // Any other problem with the inputs is red either way.
+    const undeclared: DevReport = {
+      ...base,
+      inputs: {
+        count: 3,
+        budget: 26_416,
+        problem: { code: "E_INPUT_UNDECLARED", message: "jump" },
+      },
+    }
+    expect(reportPasses(undeclared, false)).toBe(false)
   })
 })
 
@@ -492,6 +538,7 @@ describe("the harness, asked about a run its page played", () => {
       },
       hostPort: 0,
       bundlesPort: 0,
+      ranked: true,
     })
     try {
       const recording = await templateRun()
@@ -507,7 +554,7 @@ describe("the harness, asked about a run its page played", () => {
         counters: recording.counters,
       })
       expect(report.inputs.problem).toBeNull()
-      expect(reportPasses(report)).toBe(true)
+      expect(reportPasses(report, false)).toBe(true)
     } finally {
       await harness.stop()
     }

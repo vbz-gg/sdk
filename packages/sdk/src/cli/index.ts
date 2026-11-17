@@ -48,6 +48,9 @@ const FLAGS = `  --sim <path>       the simulation's entry   (default src/sim/in
   --https            dev: serve https, with --cert <file> and --key <file> (PEM)
   --site             dev: serve the game's site/ against a stand-in for the
                      platform, which plays one local player and ranks nothing
+  --ranked           check: also what a ranked or practice run needs: the seed
+                     changes the state, and the manifest says how a run ranks
+                     dev: hold each run to a ranked run's input budget
   --game <id>      publish: the game to upload to
   --api <origin>   publish: the platform    (default ${DEFAULT_API_ORIGIN},
                    or ${API_ORIGIN_VARIABLE})
@@ -93,6 +96,7 @@ async function dev(options: Options): Promise<void> {
     hostPort: settings.hostPort,
     bundlesPort: settings.bundlesPort,
     listen: settings.listen,
+    ranked: settings.ranked,
   })
   process.stdout.write(
     `\n  play     ${harness.hostOrigin}\n` +
@@ -130,7 +134,9 @@ async function check(options: Options): Promise<number> {
   // with TypeScript, which a game has only once its own install has run,
   // and `vbz new` runs before that.
   const { checkGame, checkLines } = await import("./check.js")
-  const checked = await checkGame(await sourceOf(options))
+  const checked = await checkGame(await sourceOf(options), {
+    ranked: options.ranked,
+  })
   for (const line of checkLines(checked, options.captureEntry)) {
     process.stdout.write(`${line}\n`)
   }
@@ -206,14 +212,15 @@ export const COMMANDS: readonly Command[] = [
     name: "check",
     args: "[dir]",
     summary: [
-      "run the engine's checks and hold src/capture.ts to the manifest",
+      "run the engine's checks every game needs, or with --ranked the",
+      "ranked set, and hold src/capture.ts to the manifest",
     ],
     run: check,
   },
   {
     name: "dev",
     args: "[dir]",
-    summary: ["serve the game the way production does"],
+    summary: ["serve the game the way production does, and play it locally"],
     run: serve,
   },
   {
