@@ -107,11 +107,6 @@ export async function devSettings(
       "--config names the harness page's config, and --site serves your own page, which names its own; give one",
     )
   }
-  if (options.config !== undefined && options.ranked) {
-    throw new Error(
-      "--config plays a config of your own, and --ranked holds the page's runs to a ranked run, which plays every setting at its default; give one",
-    )
-  }
   const config =
     options.config === undefined
       ? undefined

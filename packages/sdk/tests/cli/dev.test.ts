@@ -112,9 +112,16 @@ describe("where vbz dev listens", () => {
     expect(await refusal(["--config", "config.json", "--site"])).toContain(
       "give one",
     )
-    expect(await refusal(["--config", "config.json", "--ranked"])).toContain(
-      "plays every setting at its default",
-    )
+    // With --ranked it is read here and refused by the harness, which says
+    // why in one place: tests/harness/serving.test.ts holds that.
+    expect(
+      (
+        await devSettings(
+          parseArgs(["dev", "--config", "config.json", "--ranked"]),
+          read,
+        )
+      ).config,
+    ).toEqual({ endAt: 5 })
   })
 
   /**
