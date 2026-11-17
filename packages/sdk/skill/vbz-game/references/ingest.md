@@ -137,9 +137,13 @@ replay service gave, which every player's run would meet too: the rules code
 threw (`E_REPLAY_THREW`), reached for something the service's isolate does
 not have, such as the network (`E_REPLAY_REACHED_OUT`), or the service
 could not take the replay, a log that would not decode under the version's
-manifest or a request over the size it takes (`E_REPLAY_MALFORMED`). Each is
-the game's to fix. A replay service that gives no answer is the platform's:
-the check is tried again, and the version stays pending.
+manifest or a request over the size it takes (`E_REPLAY_MALFORMED`). The
+replay holds the log to the manifest's inputs first, as every run's does, so
+the check can also refuse under the engine's own `E_INPUT_UNDECLARED`,
+`E_INPUT_RANGE` or `E_INPUT_BUDGET`, which the engine's guide explains in
+`clockwork2/references/failure-modes.md`. Each is the game's to fix. A
+replay service that gives no answer is the platform's: the check is tried
+again, and the version stays pending.
 
 Passing says the bot's run fits, and a player's run can be longer. Every
 run's replay starts the rules code afresh, holds the data packs the manifest
