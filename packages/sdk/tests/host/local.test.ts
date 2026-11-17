@@ -355,6 +355,50 @@ describe("what a local run refuses", () => {
   })
 
   /**
+   * The player leaves while the tilt prompt is open: the page still hears
+   * back, from onEnded with a run of no ticks once the prompt is granted, or
+   * from onError when it is not.
+   */
+  test("ended while its tilt prompt is open, the page still hears how it ended", async () => {
+    for (const answer of [
+      { granted: true },
+      { granted: false, code: MOTION_REFUSALS.DENIED, detail: "no" },
+    ] as const) {
+      const scheduler = new ManualScheduler()
+      let grant: (access: MotionAccess) => void = () => {}
+      const asking: PageModule = {
+        ...moduleOf(MANIFEST, { granted: true }),
+        requestMotion: () =>
+          new Promise<MotionAccess>((resolve) => {
+            grant = resolve
+          }),
+      }
+      const game = await loaded(asking, scheduler, devices())
+      const { seen, handlers } = listener()
+      const run = playLocal(stage, { game, scripted: "ignore", ...handlers })
+      run.end()
+      await settle()
+      expect(seen).toMatchObject({ ended: [], errors: [] })
+      grant(answer)
+      await settle()
+      await settle()
+      scheduler.run(10, FRAME_MS)
+      if (answer.granted) {
+        expect(seen.errors).toEqual([])
+        expect(seen.ended).toHaveLength(1)
+        expect(seen.ended[0]).toMatchObject({ tick: 0, reason: "abandoned" })
+        expect(seen.ended[0]?.recording.inputs).toEqual([])
+        expect(seen.frames).toBe(0)
+      } else {
+        expect(seen.ended).toEqual([])
+        expect(seen.errors.map((error) => error.code)).toEqual([
+          "E_MOTION_DENIED",
+        ])
+      }
+    }
+  })
+
+  /**
    * The engine's own request never fails, and a module built from other code
    * can. What failed is said in its own words, as the harness shows it.
    */

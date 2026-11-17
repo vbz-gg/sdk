@@ -129,7 +129,8 @@ platform; `references/harness.md` says what the stand-in does.
 module with no platform at all: no client, no page key, no sign-in and no
 request. It plays a fresh seed and the module's served config unless the page
 gives others, asks for tilt in the click as `playRun` does, and hands
-`onEnded` the recording. Its seed always starts `local:`, so the platform
+`onEnded` the recording, also after `end()` while the tilt prompt is open,
+where the run has no ticks. Its seed always starts `local:`, so the platform
 refuses its recording as one played on a seed no run was issued
 (`E_PINNED_MISMATCH`), and the client's `submit` does not take its
 `LocalRecording`.

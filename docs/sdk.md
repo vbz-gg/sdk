@@ -320,7 +320,10 @@ reads tilt asks for it first, in the click, and starts nothing without it,
 as `playRun` does. A contract-1 module cannot say its tick rate or its
 config, and is refused with `E_LOCAL_PLAY_UNSUPPORTED`; a game with a
 required setting that has no default, played with no config, with
-`E_CONFIG_REQUIRED`.
+`E_CONFIG_REQUIRED`. A page always hears how a run ended: `end()` ends it
+where it stands and `onEnded` follows, and an `end()` while the tilt prompt
+is still open ends it at tick 0 once the prompt is answered, with a run of
+no ticks to `onEnded` after a grant and the refusal to `onError` otherwise.
 
 A local run can never pass for a ranked or practice run. Its seed always
 starts `local:`, whatever the page passes, and every seed the platform issues

@@ -113,7 +113,13 @@ export interface LocalRun {
   readonly motion: Promise<MotionAccess> | null
   /** The inputs recorded so far. */
   recorded(): readonly InputEvent[]
-  /** The player leaving: the run ends where it stands, and `onEnded` follows. */
+  /**
+   * The player leaving: the run ends where it stands, and `onEnded` follows.
+   * Before the game is mounted, while the tilt prompt is open, it ends at
+   * tick 0 once the prompt is answered: a grant mounts the game and stops it
+   * before a tick runs, so `onEnded` follows with a run of no ticks, and
+   * anything else reaches `onError` as it would have.
+   */
   end(): void
   /** Takes everything down, and reports nothing more. */
   destroy(): void
@@ -285,14 +291,21 @@ export function playLocal(
   else {
     motion.then(
       (access) => {
-        if (stopped || destroyed) return
+        if (destroyed) return
         // A game steered by tilt is not played without it.
         const refused = motionRefusal(access)
-        if (refused === null) start()
-        else failed({ code: refused.code, message: refused.message })
+        if (refused !== null) {
+          failed({ code: refused.code, message: refused.message })
+          return
+        }
+        start()
+        // Ended while the prompt was open: the module ends it at tick 0,
+        // before a tick runs, with its own recording, so the page hears
+        // back as it would from any end.
+        if (stopped) handle?.stop("abandoned")
       },
       (error: unknown) => {
-        if (stopped || destroyed) return
+        if (destroyed) return
         failed({
           code: "E_UNEXPECTED",
           message: error instanceof Error ? error.message : String(error),
