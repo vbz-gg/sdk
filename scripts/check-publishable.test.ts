@@ -108,11 +108,6 @@ describe("what a tarball would do to a consumer", () => {
   })
 
   /**
-   * npm 12 logs a rewritten command entry as removed, and 0.3.0 went out
-   * with that line in its release log. Written the way npm publishes it,
-   * the log says nothing.
-   */
-  /**
    * `vbz new` renames each of these on the way into a game. One the tarball
    * lacks is a game without its ignore file, or without the file that tells
    * an agent where the guides are, and nothing says so.
@@ -133,6 +128,11 @@ describe("what a tarball would do to a consumer", () => {
     }
   })
 
+  /**
+   * npm 12 logs a rewritten command entry as removed, and 0.3.0 went out
+   * with that line in its release log. Written the way npm publishes it,
+   * the log says nothing.
+   */
   test("a command entry npm would rewrite at publish is caught", () => {
     const problems = problemsWith(
       shipped({ bin: { vbz: "./dist/cli/index.js" } }),

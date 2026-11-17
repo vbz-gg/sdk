@@ -302,7 +302,6 @@ async function frozen(folder: string): Promise<Held> {
   }
 }
 
-/** Every module the studio's bundles origin serves, by the name a page loads it with. */
 /** A subject built for the studio's bundles origin, under its own game id. */
 async function subjectHeld(name: SubjectName): Promise<Held> {
   return await held(
@@ -314,6 +313,7 @@ async function subjectHeld(name: SubjectName): Promise<Held> {
   )
 }
 
+/** Every module the studio's bundles origin serves, by the name a page loads it with. */
 const studioModules = {
   template: await subjectHeld("template"),
   paddle: await subjectHeld("paddle"),
