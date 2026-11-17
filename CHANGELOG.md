@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [0.6.0](https://github.com/vbz-gg/sdk/compare/v0.5.1...v0.6.0) (2026-11-17)
+
+
+### ⚠ BREAKING CHANGES
+
+* the controls subpath and the frame document are removed; a page loads a game with
+loadGame and plays it with playRun; a manifest declares inputs (engine 0.9.0); versions are
+semantic and a patch may not change its line's rules.
+
+Docs-Updated: sdk.md, the package README and the skill describe the page module and the commands
+
+### Features
+
+* games run on the studio's own page, draw their own controls, and ship in release lines ([#21](https://github.com/vbz-gg/sdk/issues/21)) ([5d998b1](https://github.com/vbz-gg/sdk/commit/5d998b1dd0efce68b350fe3fcefee71f5a10a747))
+* **guide:** the agent guides ship in the package, and vbz new and vbz guides install them ([#22](https://github.com/vbz-gg/sdk/issues/22)) ([8175d15](https://github.com/vbz-gg/sdk/commit/8175d15891511889ba7b13dc084df4c8daa1dba8))
+
 ## [0.5.1](https://github.com/vbz-gg/sdk/compare/v0.5.0...v0.5.1) (2026-11-12)
 
 
