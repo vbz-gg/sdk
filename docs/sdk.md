@@ -842,19 +842,20 @@ a matter of how fast it records inputs: the engine guide's
 listing the folder's limits allow, which the platform takes as the body of
 the route that asks which files it lacks.
 
-One replay has three more limits, which no constant here holds because only
-a replay measures them: 5 minutes of CPU, 7.5 minutes of wall time and
-128 MB of memory, the platform's figures for its replay service on
-Cloudflare. The rules code as loaded, the data packs the manifest declares
-and the game's state share the memory. Before a version publishes, the
-platform's checks replay the bot's log once more on that service, and a
-version whose replay runs out of its CPU time, its wall time or its memory
-ends in `E_REPLAY_OVER_BUDGET`, which is the game's to fix; a service that
-gives no answer is the platform's, and the check is tried again. A player's
-run can be longer than the bot's. At 60 steps a second an hour of play is
-216,000 steps, and 5 minutes of CPU leaves about 1.4 ms for each; a ranked
-run whose replay runs out of any of the three is a `log_fault` and never
-ranks.
+One replay has three more limits, which `/build` exports beside these and
+no build can check, because only a replay measures them: 5 minutes of CPU
+(`REPLAY_CPU_BUDGET_MS`), 7.5 minutes of wall time (`REPLAY_WALL_BUDGET_MS`)
+and 128 MB of memory (`REPLAY_MEMORY_MB`), the platform's figures for its
+replay service on Cloudflare, which the platform takes from here. The rules
+code as loaded, the data packs the manifest declares and the game's state
+share the memory. Before a version publishes, the platform's checks replay
+the bot's log once more on that service, and a version whose replay runs
+out of its CPU time, its wall time or its memory ends in
+`E_REPLAY_OVER_BUDGET`, which is the game's to fix; a service that gives no
+answer is the platform's, and the check is tried again. A player's run can
+be longer than the bot's. At 60 steps a second an hour of play is 216,000
+steps, and 5 minutes of CPU leaves about 1.4 ms for each; a ranked run whose
+replay runs out of any of the three is a `log_fault` and never ranks.
 
 ## Drawing with null3d
 
@@ -1260,15 +1261,19 @@ prints the release line the version joined, and then reads the version back
 at
 `GET /v1/studios/:studioId/versions/:versionId` every two seconds until the
 platform's checks decide. The upload's answer names the studio, so the
-command needs only the game's id. It waits up to 30 minutes,
-`CHECK_WAIT_MS`, which covers the ingest job's time in the platform's queue,
-the checks container running the game in three engines, and the
-replay-service check, whose one replay the platform lets spend 5 minutes of
-CPU and 7.5 minutes of wall time before it answers. A version still pending
-after that is reported in the platform's terms, still pending, with the
-address to read its state at later and a reminder that uploading it again
-is refused as `E_VERSION_EXISTS`, and the command exits 1, because only a
-published version exits 0.
+command needs only the game's id. It waits up to 29.5 minutes,
+`CHECK_WAIT_MS`, made of 10 minutes for the ingest job to wait in the
+platform's queue (`CHECK_QUEUE_ALLOWANCE_MS`), 12 minutes for the checks
+container running the game in three engines (`CHECK_CONTAINER_ALLOWANCE_MS`,
+the platform's own wait for one), and the 7.5 minutes of wall time the
+replay-service check's one replay may take before the replay service
+answers (`REPLAY_WALL_BUDGET_MS`). It covers one attempt: when the replay
+service gives no answer, the platform runs the version's job again, which
+the wait does not cover. A version still pending after that is reported in
+the platform's terms, still pending, with the address to read its state at
+later and a reminder that uploading it again is refused as
+`E_VERSION_EXISTS`, and the command exits 1, because only a published
+version exits 0.
 
 Each of the four goes as a file part carrying the file's bytes as they are
 on disk. A text part would not arrive that way: an encoder that follows the

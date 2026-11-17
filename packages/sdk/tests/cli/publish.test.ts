@@ -647,7 +647,7 @@ describe("waiting for the checks", () => {
       true,
     )
     expect(failureLines(refused)).toEqual([
-      `version 1.2.0 (${VERSION_ID}) is still pending after 30 minutes: the platform has it and its checks have not decided, so this exits 1 with no verdict (E_PUBLISH_STILL_CHECKING)`,
+      `version 1.2.0 (${VERSION_ID}) is still pending after ${CHECK_WAIT_MS / 60_000} minutes: the platform has it and its checks have not decided, so this exits 1 with no verdict (E_PUBLISH_STILL_CHECKING)`,
       `read its state later with the studio's secret key, GET ${read}: pending until the checks decide, then published or rejected`,
       "do not publish 1.2.0 again: the platform has it, and a second upload is refused as E_VERSION_EXISTS",
     ])

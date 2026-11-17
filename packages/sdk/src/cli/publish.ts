@@ -52,6 +52,7 @@ import { sha256Hex } from "../build/digest.js"
 import { DIST_DIR, DIST_FILES, DIST_FILES_DIR } from "../build/dist.js"
 import { BuildRefusal } from "../build/errors.js"
 import { assertListing, listingSha256 } from "../build/files.js"
+import { REPLAY_WALL_BUDGET_MS } from "../build/limits.js"
 import { SHA256 } from "../build/paths.js"
 
 /**
@@ -70,23 +71,43 @@ export const API_ORIGIN_VARIABLE = "VBZ_API_ORIGIN"
 export const CHECK_POLL_MS = 2_000
 
 /**
- * How long to wait for the checks' verdict before giving up on the answer:
- * 30 minutes from the upload's answer. It covers the version's ingest job
- * waiting in the platform's queue, the checks container running the
- * engine's checks, the sweep in three engines and the page module, and the
- * replay-service check, one replay of the bot's log, which the platform lets
- * spend up to 5 minutes of CPU, its `DEFAULT_CPU_BUDGET_MS`, and 7.5 minutes
- * of wall time, its `DEFAULT_WALL_BUDGET_MS`, half as much again, before the
- * replay service answers. That leaves 22.5 minutes for the queue and the
- * container. Those budgets are the platform's, per replay: a change to either
- * there is a change to this. It does not cover a patch's scores, which the
- * command prints only once the platform has measured them.
+ * What the wait for a verdict allows the version's ingest job to sit in the
+ * platform's queue before a worker claims it: 10 minutes. An allowance, not
+ * a measurement.
+ */
+export const CHECK_QUEUE_ALLOWANCE_MS = 10 * 60_000
+
+/**
+ * What it allows the checks container, which runs the engine's checks, the
+ * sweep in three engines and the page module: 12 minutes, the platform's own
+ * wait for one container, sized from the deadlines each of those has there,
+ * a cold start and two bundle builds.
+ */
+export const CHECK_CONTAINER_ALLOWANCE_MS = 12 * 60_000
+
+/**
+ * How long to wait for the checks' verdict before giving up on the answer,
+ * from the upload's answer: the queue's allowance, the container's, and the
+ * replay-service check's one replay of the bot's log, which may run for the
+ * whole of `REPLAY_WALL_BUDGET_MS` before the replay service answers. That
+ * budget is the platform's, from `/build`, so a change to it moves this.
+ *
+ * It covers one attempt. When the replay service gives no answer the
+ * platform holds the replay to its whole wall budget first and then runs
+ * the version's job again, half a minute later at the soonest, which this
+ * does not wait for; nor does it allow anything apart for copying a
+ * published version's files to the public store, which the platform does
+ * before it writes the verdict and has not measured, or for a patch's
+ * scores, which the command prints only once the platform has measured them.
  *
  * A version still pending after this is still being checked: the command
  * says so in the platform's terms, names where to read it later, and exits
  * 1, because only a published version exits 0.
  */
-export const CHECK_WAIT_MS = 30 * 60_000
+export const CHECK_WAIT_MS =
+  CHECK_QUEUE_ALLOWANCE_MS +
+  CHECK_CONTAINER_ALLOWANCE_MS +
+  REPLAY_WALL_BUDGET_MS
 
 /** How long one upload, of the version or of one file, may take to be answered. */
 export const UPLOAD_TIMEOUT_MS = 120_000

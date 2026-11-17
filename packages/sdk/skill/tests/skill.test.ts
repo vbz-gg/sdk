@@ -31,11 +31,19 @@ import {
   MAX_RUN_BYTES,
   MAX_SIM_BYTES,
   MAX_VERSION_PART,
+  REPLAY_CPU_BUDGET_MS,
+  REPLAY_MEMORY_MB,
+  REPLAY_WALL_BUDGET_MS,
   SIM_SPECIFIER,
 } from "../../src/build/index.js"
 import { CAPABILITY_RULES, LINE_RULES } from "../../src/build/line.js"
 import { COMMANDS } from "../../src/cli/index.js"
 import { TEMPLATE_DIR } from "../../src/cli/new.js"
+import {
+  CHECK_CONTAINER_ALLOWANCE_MS,
+  CHECK_QUEUE_ALLOWANCE_MS,
+  CHECK_WAIT_MS,
+} from "../../src/cli/publish.js"
 import { NEEDS, PACKAGE_KEY } from "../../src/cli/source.js"
 import {
   DEFAULT_BUNDLES_PORT,
@@ -385,6 +393,84 @@ describe("the platform's refusals of a version", () => {
     expect(Object.keys(ERROR_CODES)).toContain("E_RANK_UNDECLARED")
     expect(PUBLIC_REFUSALS).toContain("E_RANK_UNDECLARED")
     expect(REFUSAL_LIST).toContain("`E_RANK_UNDECLARED`")
+  })
+})
+
+describe("one replay's budget", () => {
+  /** A duration as the prose writes it in minutes. */
+  const minutes = (ms: number): string => `${ms / 60_000}`
+
+  /**
+   * An author sizes a step to the CPU the guide says a replay has, so each
+   * figure quoted for one replay, wherever it is quoted, is the constant the
+   * platform takes its replays' budget from, and so is what follows from it.
+   */
+  test("every figure quoted for one replay is the budget /build exports", async () => {
+    const texts: Readonly<Record<string, string>> = {
+      "SKILL.md": await read("SKILL.md"),
+      "references/ingest.md": await read("references", "ingest.md"),
+      "references/files.md": await read("references", "files.md"),
+      "docs/sdk.md": await readRepository("docs", "sdk.md"),
+    }
+    const seen = { cpu: 0, wall: 0, memory: 0, steps: 0 }
+    for (const [where, raw] of Object.entries(texts)) {
+      const text = raw.replace(/\s+/g, " ")
+      for (const match of text.matchAll(/([\d.]+) minutes of CPU/g)) {
+        seen.cpu += 1
+        expect(`${where}: ${match[1]}`).toBe(
+          `${where}: ${minutes(REPLAY_CPU_BUDGET_MS)}`,
+        )
+      }
+      for (const match of text.matchAll(/([\d.]+) minutes of wall time/g)) {
+        seen.wall += 1
+        expect(`${where}: ${match[1]}`).toBe(
+          `${where}: ${minutes(REPLAY_WALL_BUDGET_MS)}`,
+        )
+      }
+      for (const match of text.matchAll(/(\d+) MB of memory/g)) {
+        seen.memory += 1
+        expect(`${where}: ${match[1]}`).toBe(`${where}: ${REPLAY_MEMORY_MB}`)
+      }
+      for (const match of text.matchAll(
+        /At (\d+) steps a second an hour of play is ([\d,]+) steps, and [\d.]+ minutes of CPU leaves about ([\d.]+) ms for each/g,
+      )) {
+        seen.steps += 1
+        const rate = Number(match[1])
+        expect((TICK_RATES as readonly number[]).includes(rate)).toBe(true)
+        const perHour = rate * 60 * 60
+        expect(`${where}: ${match[2]}`).toBe(
+          `${where}: ${perHour.toLocaleString("en")}`,
+        )
+        expect(`${where}: ${match[3]}`).toBe(
+          `${where}: ${(REPLAY_CPU_BUDGET_MS / perHour).toFixed(1)}`,
+        )
+      }
+    }
+    expect(seen.cpu).toBeGreaterThanOrEqual(4)
+    expect(seen.wall).toBeGreaterThanOrEqual(3)
+    expect(seen.memory).toBeGreaterThanOrEqual(3)
+    expect(seen.steps).toBeGreaterThanOrEqual(2)
+  })
+
+  /**
+   * A build system's own timeout is set from the wait `vbz publish` states,
+   * so the figure docs/sdk.md gives, and each part it names, is the command's.
+   */
+  test("the publish wait docs/sdk.md states is the command's", async () => {
+    const text = (await readRepository("docs", "sdk.md")).replace(/\s+/g, " ")
+    const waits = [...text.matchAll(/It waits up to ([\d.]+) minutes/g)].map(
+      (match) => match[1],
+    )
+    expect(waits).toEqual([minutes(CHECK_WAIT_MS)])
+    expect(text).toContain(
+      `${minutes(CHECK_QUEUE_ALLOWANCE_MS)} minutes for the ingest job`,
+    )
+    expect(text).toContain(
+      `${minutes(CHECK_CONTAINER_ALLOWANCE_MS)} minutes for the checks container`,
+    )
+    expect(text).toContain(
+      `the ${minutes(REPLAY_WALL_BUDGET_MS)} minutes of wall time the replay-service check's one replay may take`,
+    )
   })
 })
 

@@ -336,6 +336,12 @@ the minor to publish instead, or the versions an upload had to be above), and
 once the checks pass, which runs the version serves and how many of its
 line's recent ranked runs end differently under it.
 
+**The wait for a verdict is derived, never written as a number.**
+`CHECK_WAIT_MS` is the queue's and the checks container's named allowances
+and `/build`'s `REPLAY_WALL_BUDGET_MS`, the replay budget the platform takes
+from this package, so a budget that moves moves the wait. It covers one
+attempt, not a retry after a replay service that gave no answer.
+
 **Its exit code is the verdict.** 0 means the version passed its checks and
 is published, and the command has printed which runs it serves. Anything
 else, including a version an operator took down, is 1. This sentence, the
@@ -399,8 +405,10 @@ exists is explained; every code the guide's refusal list and
 or the engine names, the two unions read from their declarations with
 TypeScript's parser, and every code `VersionCheckCode` names is explained
 in both; a manifest with no ranking goes by one name everywhere, the
-engine's `E_RANK_UNDECLARED`; `references/page.md` explains every client
-code and no other; every prose copy of what a release line fixes (in `SKILL.md`,
+engine's `E_RANK_UNDECLARED`; every figure the guide and `docs/sdk.md`
+quote for one replay, and what follows from it, is `/build`'s `REPLAY_`
+budget, and the publish wait `docs/sdk.md` states is `CHECK_WAIT_MS` and its
+parts; `references/page.md` explains every client code and no other; every prose copy of what a release line fixes (in `SKILL.md`,
 `references/ingest.md` and `docs/sdk.md`) names exactly the fields
 `LINE_RULES` fixes; every need the prose shows a `package.json` naming is
 one `vbz` takes; the policy the null3d recipe and `docs/sdk.md` print for a
