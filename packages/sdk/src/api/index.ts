@@ -465,8 +465,9 @@ export interface VersionServing {
  * runs. The platform holds its table of its checks' codes to this union.
  *
  * The platform's checks no longer play a version's inputs through it: they
- * run no cross-engine sweep, load the page module without playing it, and
- * run the rules code on the replay service with nothing pressed. A code only
+ * run no cross-engine sweep, watch the page module for a few steps with
+ * nothing pressed and compare nothing it reports, and run the rules code on
+ * the replay service with nothing pressed. A code only
  * that play could give says "No longer reached" and stays here, so a page or
  * a build system that switches on it keeps compiling.
  */
@@ -482,8 +483,8 @@ export type VersionCheckCode =
    * No longer reached: no check plays a version in more than one engine.
    */
   | "E_ENGINE_DIVERGED"
-  // The page module, loaded in the checks' browser and got ready, playing
-  // nothing.
+  // The page module, loaded in the checks' browser and mounted in watch mode
+  // on a recording with nothing pressed, for a few steps.
   /**
    * The browser could not import the page module, or the rules code it
    * imports: a syntax error, a throw at the top level, or an import the
@@ -495,12 +496,12 @@ export type VersionCheckCode =
    * it, or its `mount` refused the run before a tick.
    */
   | "E_PAGE_MODULE_INVALID"
-  /** The page module failed while it was mounted or got ready. */
+  /** The page module failed while it was mounted, got ready or stepped. */
   | "E_PAGE_MODULE_THREW"
   /**
    * The page module played the bot's log to another state than the
    * platform's own replay of the same log reached. No longer reached: the
-   * checks do not play the page module.
+   * checks compare nothing the page module reports.
    */
   | "E_PAGE_MODULE_DIVERGED"
   // The rules code on the replay service, the one every ranked and practice

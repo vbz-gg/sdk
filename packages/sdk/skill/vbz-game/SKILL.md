@@ -326,16 +326,22 @@ end a version in these:
   again rather than editing either by hand.
 - `E_PAGE_MODULE_UNLOADABLE`, `E_PAGE_MODULE_INVALID`,
   `E_PAGE_MODULE_THREW` - the page module would not load in the checks'
-  browser, was not one a page plays, or failed while it was mounted or got
-  ready. The checks get it ready and play nothing.
+  browser, was not one a page plays, or failed while it was mounted in
+  watch mode on a recording with nothing pressed, got ready or ran a few
+  steps. A game the checks' browser cannot draw, because it has no WebGL
+  and no WebGPU, is mounted with `draw: false` and gets ready without
+  drawing; that is reported, never refused.
 - `E_REPLAY_MODULE` - the rules code would not load on the platform's
   replay service, which loads it with its data packs and runs a few steps
   with nothing pressed, or the replay died while it loaded them. The first
   failure's message carries the service's own error text. The service is
-  Cloudflare Workers, whose documentation says "Asynchronous I/O (ex:
-  fetch() or connect()), setting a timeout, and generating random values are
-  not allowed within global scope", so the top level of the rules code, and
-  of every library it bundles, does none of those. The rules code, its data
+  Cloudflare Workers, whose runtime refuses some work at a module's top
+  level with an error of its own, which Cloudflare lists on its Hyperdrive
+  troubleshooting page: "Disallowed operation called within global scope.
+  Asynchronous I/O (ex: fetch() or connect()), setting a timeout, and
+  generating random values are not allowed within global scope." So the top
+  level of the rules code, and of every library it bundles, does none of
+  those. The rules code, its data
   packs and the game's state share 128 MB of memory there.
 - `E_REPLAY_OVER_BUDGET` - the same replay ran out of its CPU time, its wall
   time or its memory in those steps: 5 minutes of CPU, 7.5 minutes of wall
@@ -351,9 +357,10 @@ end a version in these:
   longer reached. They were JavaScriptCore, V8 and SpiderMonkey computing
   different states from the same bytes, the page module playing the bot's
   log to another state than its replay, and a log the replay service could
-  not take; the checks no longer play a version in three engines, play its
-  page module, or send the replay service a log. They stay in the SDK's
-  types so code that names them keeps compiling.
+  not take; the checks no longer play a version in three engines, compare
+  what its page module reports with a replay, or send the replay service a
+  log. They stay in the SDK's types so code that names them keeps
+  compiling.
 
 `references/ingest.md` has the whole path from an upload to a listing.
 

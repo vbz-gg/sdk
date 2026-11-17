@@ -115,13 +115,14 @@ async function signedIn() {
 
 /** How a sign-in ended, once it has: the player, or the client's code. */
 function outcome(signing: Promise<unknown>) {
-  const seen: { value?: unknown; code?: string } = {}
+  const seen: { value?: unknown; code?: string; message?: string } = {}
   signing.then(
     (value) => {
       seen.value = value
     },
     (error: unknown) => {
       seen.code = (error as PlatformClientError).code
+      seen.message = (error as PlatformClientError).message
     },
   )
   return seen
@@ -332,6 +333,11 @@ describe("signing a player in", () => {
     expect(seen.code).toBe("E_SIGNIN_UNREACHABLE")
     expect(page.box?.removed).toBe(true)
     expect(page.listening).toBe(0)
+    // The sentence sends a studio to its policy's frame-src, and this client
+    // was made with another sign-in than the platform's, so the sentence
+    // names the origin by what it is, never by an address.
+    expect(seen.message).toContain("frame-src naming the sign-in origin")
+    expect(seen.message).not.toMatch(/https?:\/\//)
   })
 
   test("once the sign-in is ready, the player may take as long as they need", async () => {

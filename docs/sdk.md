@@ -183,10 +183,12 @@ its inputs from the player's devices alone, so `playRun` always passes
 `"ignore"`. A watched run takes the recorded inputs and `maxTicks`, where the
 replay stops, which is `Math.max(endTick, 1)` of the run it replays; with
 `draw: false` it builds no presentation at all and reports its checkpoints,
-for a browser that cannot draw the game. `mount` refuses a run issued for
-another manifest (`E_WRONG_GAME`), a tick rate the game does not run at, a
-step limit on a played run, or a played run that does not say what to do
-with a scripted event, before
+for a browser that cannot draw the game, such as the platform's page-module
+check, whose Firefox has no WebGL and no WebGPU: a game drawn with them gets
+ready there without drawing, and the check reports that and does not refuse
+it. `mount` refuses a run issued for another manifest (`E_WRONG_GAME`), a
+tick rate the game does not run at, a step limit on a played run, or a
+played run that does not say what to do with a scripted event, before
 anything is built. The clock starts only once the game is ready, so no tick
 runs and nothing is recorded before it can be drawn, and a failure to get
 ready arrives at `onError` before tick 0. It hands back `recorded()`,
@@ -856,15 +858,16 @@ replay dies while it loads the rules code or its packs, ends in
 and one whose replay runs out of its CPU time, its wall time or its memory
 in those steps ends in `E_REPLAY_OVER_BUDGET`. Both are the game's to fix; a
 service that gives no answer is the platform's, and the check is tried
-again. The service is Cloudflare Workers, whose
-[documentation](https://developers.cloudflare.com/hyperdrive/observability/troubleshooting/)
-says "Asynchronous I/O (ex: fetch() or connect()), setting a timeout, and
-generating random values are not allowed within global scope", so the top
-level of the rules code, and of every library it bundles, does none of
-those. A player's run is longer than a few steps. At 60 steps a second an
-hour of play is 216,000 steps, and 5 minutes of CPU leaves about 1.4 ms for
-each; a ranked run whose replay runs out of any of the three is a
-`log_fault` and never ranks.
+again. The service is Cloudflare Workers, whose runtime refuses some work
+while a module loads with an error of its own, which Cloudflare lists on its
+[Hyperdrive troubleshooting page](https://developers.cloudflare.com/hyperdrive/observability/troubleshooting/):
+"Disallowed operation called within global scope. Asynchronous I/O (ex:
+fetch() or connect()), setting a timeout, and generating random values are
+not allowed within global scope." So the top level of the rules code, and
+of every library it bundles, does none of those. A player's run is longer
+than a few steps. At 60 steps a second an hour of play is 216,000 steps, and
+5 minutes of CPU leaves about 1.4 ms for each; a ranked run whose replay
+runs out of any of the three is a `log_fault` and never ranks.
 
 ## Drawing with null3d
 
@@ -1043,15 +1046,20 @@ no asynchronous work, the declared files and their budgets, the manifest,
 the served config and the ranking), `init` and 600 steps with nothing
 pressed, and the seed check. It does not run the engine's determinism,
 restore, counters, replay or performance checks, play the game in more than
-one engine, or play its page module, so nothing on an upload holds a
-version to replaying a recording to the state it recorded. A game that is not
+one engine, or compare what its page module reports with a replay, so
+nothing on an upload holds a version to replaying a recording to the state
+it recorded. A game that is not
 deterministic passes the upload and fails its players: their runs do not
 replay to what they saw, and never rank. The platform refuses an upload
 whose manifest declares no ranking under the same `E_RANK_UNDECLARED`,
 before it stores a byte. It also runs two checks `vbz check` cannot: it
-loads the page module in a browser and gets it ready, playing nothing, and
-it loads the rules code on its replay service and runs a few steps, which
-"The limits" describes.
+loads the page module in a browser with `loadGame` and mounts it in watch
+mode on a recording with nothing pressed for a few steps, where it has to
+get ready and not throw, and it loads the rules code on its replay service
+and runs a few steps, which "The limits" describes. A game the checks'
+browser cannot draw is mounted with `draw: false` and gets ready without
+drawing, and a page module of contract 1, which has no `draw: false`, is
+then loaded and not mounted.
 
 The engine's checks read the rules code with TypeScript's own parser, so
 `vbz check` needs `typescript` installed in the game, and the template's
@@ -1391,7 +1399,7 @@ it too, which is what keeps the guide's tests out of the tarball.
 itself: its rules code and its page module both import it, and `/game`, which
 the page module bundles, builds the engine's host from it. So the engine that
 plays a run on a studio's page is the one the game was built and checked
-with, and the platform's page-module check loads it too. A regular dependency
+with, and the platform's page-module check runs it too. A regular dependency
 would let a game hold two copies on two versions, with `/game` driving one
 engine's host while the rules code carries another's manifest types. A
 studio's page needs no engine at all: `/host` and `/platform` import its

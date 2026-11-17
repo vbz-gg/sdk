@@ -107,15 +107,24 @@ instead: their runs do not replay to what they saw, and never rank.
 
 ## 4. The page module
 
-The page module is loaded in a headless browser, Firefox, and mounted until
-it is ready, the way a studio's page readies it before a run. One that will
-not load (`E_PAGE_MODULE_UNLOADABLE`), is not one a page plays or refuses to
-be mounted (`E_PAGE_MODULE_INVALID`), or fails while it is mounted or
-getting ready (`E_PAGE_MODULE_THREW`) is refused before any player meets
-it. The checks' browser has no WebGL and no WebGPU, and a game it cannot
-draw is not refused for that.
+The page module is loaded in a headless browser, Firefox, with `loadGame`,
+as a studio's page loads it. Then it is mounted in watch mode on a recording
+with nothing pressed, for a few steps, and it has to get ready and not
+throw. One that will not load (`E_PAGE_MODULE_UNLOADABLE`), is not one a
+page plays or refuses the run it is mounted with (`E_PAGE_MODULE_INVALID`),
+or fails while it is mounted, gets ready or steps (`E_PAGE_MODULE_THREW`) is
+refused before any player meets it.
 
-The page module is not played: the checks press nothing and compare nothing.
+The checks' browser draws a 2d canvas and the DOM, and has no WebGL and no
+WebGPU. A game it cannot draw, one whose manifest names `pixi`, `three` or
+`null3d` as its renderer or asks for WebGPU, is mounted with `draw: false`
+instead. That builds no presentation, so the game gets ready without drawing
+anything and its steps run as they would on a page; the platform reports
+that it was not drawn and does not refuse it. A page module built by the
+first contract has no `draw: false`, so one of those that the browser
+cannot draw is loaded and not mounted.
+
+The checks compare nothing the page module reports.
 `E_PAGE_MODULE_DIVERGED`, a page module that played the bot's log to another
 state than the platform's replay of it, is no longer reached. A page module
 that plays a run to another state than its replay reaches is found in the
@@ -136,13 +145,17 @@ its data packs and the game's state share the memory.
 A version whose rules code will not load there, or whose replay dies while
 it loads the rules code or its data packs, is refused with
 `E_REPLAY_MODULE`, and the first failure's message carries the service's
-own error text. Cloudflare refuses some work while a module loads, which its
-documentation puts as "Asynchronous I/O (ex: fetch() or connect()), setting
-a timeout, and generating random values are not allowed within global
-scope." Global scope is a module's top-level code, which runs as it is
-imported, so the rules code's top level does none of those, and nor does the
-top level of any library it bundles. Keep the rules code and its data packs well inside the
-memory, since the game's state needs room beside them.
+own error text. The Workers runtime refuses some work while a module loads,
+with an error of its own, which Cloudflare lists on its Hyperdrive
+troubleshooting page
+(https://developers.cloudflare.com/hyperdrive/observability/troubleshooting/):
+"Disallowed operation called within global scope. Asynchronous I/O (ex:
+fetch() or connect()), setting a timeout, and generating random values are
+not allowed within global scope." Global scope is a module's top-level code,
+which runs as it is imported, so the rules code's top level does none of
+those, and nor does the top level of any library it bundles. Keep the rules
+code and its data packs well inside the memory, since the game's state
+needs room beside them.
 
 Once the replay is running, one that runs out of its CPU time, its wall
 time or its memory in those steps is refused with `E_REPLAY_OVER_BUDGET`,

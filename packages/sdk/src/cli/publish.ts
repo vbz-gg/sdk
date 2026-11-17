@@ -118,8 +118,11 @@ export function checkWaitOf(parts: readonly number[]): number {
  * The replays share that one allowance. The replay-service check runs the
  * rules code for a few steps, and beside it the platform replays a patch
  * against at most `PATCH_SCORE_RUNS` of its line's recent ranked runs, each
- * a replay held to the same budget. Both finish before the verdict, so a
- * patch's scores arrive with it and are printed with it.
+ * a replay held to the same budget. They count once only because every one
+ * of them runs at the same time as the others: a player's run is the
+ * longest replay there is, and replaying them one after another would need
+ * an allowance each. All finish before the verdict, so a patch's scores
+ * arrive with it and are printed with it.
  *
  * It covers one attempt. When the replay service gives no answer the
  * platform holds the replay to its whole wall budget and its margin, then
