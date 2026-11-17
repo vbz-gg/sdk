@@ -1,14 +1,14 @@
 # The harness
 
 `vbz dev ./my-game` is your game's page on a laptop. It builds the two real
-artifacts, serves them on one port at the paths and with the headers the
-platform's edge uses, and serves a page on another that loads the page module
-from there with `loadGame` and plays it with `playLocal`, through the
-module's own `mount`.
+artifacts and the files folder, serves them on one port at the paths and
+with the headers the platform's edge uses, and serves a page on another that
+loads the page module from there with `loadGame` and plays it with
+`playLocal`, through the module's own `mount`.
 
 ```
 http://127.0.0.1:4310   the page that loads the game
-http://127.0.0.1:4311   the game's two modules, under /g/<game id>/
+http://127.0.0.1:4311   the game's two modules and its files, under /g/<game id>/
 ```
 
 Two ports are two origins, which is the point: a studio's page imports the
@@ -16,14 +16,19 @@ page module from the platform's bundle origin, and meeting that import on a
 laptop is cheaper than meeting it on a studio's page. The page is served
 under the Content-Security-Policy a studio's page should send, with scripts
 from the page's own origin and the game's own path and nowhere else, and no
-`unsafe-eval`, so a page module that needs more is refused here first.
+`unsafe-eval`, plus what the game's `package.json` says it needs and the
+game's path in `connect-src` when its folder lists a file
+(`references/files.md`). A page module that needs more is refused here
+first.
 
 ## What the page gives you
 
 - **The checks a studio's page makes**, through the same `loadGame`: a module
   of another contract, another manifest, a mapping its manifest does not
   allow, or a page that replaced a built-in is refused, and the refusal is in
-  the status line.
+  the status line. So is a game this browser cannot draw: its presentation
+  fails to get ready, and the page says `E_PRESENTATION_FAILED` before a
+  tick runs.
 - **Start and End.** Start asks for tilt first when the game reads it, as a
   studio's Play button does, and without tilt starts no run, with the code
   and the player's sentence in the status line. On a laptop, give the page a

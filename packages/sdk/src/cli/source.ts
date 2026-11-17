@@ -64,7 +64,7 @@ async function settingsOf(root: string): Promise<{
 }
 
 /** Each need a game may name, as `DeclaredNeeds` names it. */
-const NEEDS = ["wasm", "workers"] as const satisfies ReadonlyArray<
+export const NEEDS = ["wasm", "workers"] as const satisfies ReadonlyArray<
   keyof DeclaredNeeds
 >
 

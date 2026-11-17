@@ -1,8 +1,10 @@
 # From an upload to a listing
 
-What the platform does with a submission, in order. Sections 0 to 2 run
-before the first storage write, so a submission they refuse leaves nothing
-behind and costs no quota: an upload is its own dry run.
+What the platform does with a submission, in order. Only a game opted in to
+ranked play is uploaded: a game played only on its own page never meets any
+of this. Sections 0 to 2 run before the first storage write, so a submission
+they refuse leaves nothing behind and costs no quota: an upload is its own
+dry run.
 
 `vbz publish <dir> --game <id>` is how a submission arrives. It sends the
 files folder's listing with the version's manifest and asks which files the
@@ -104,13 +106,18 @@ differ for `Math.hypot` between JavaScriptCore and V8, 10.3% for `Math.exp`,
 
 The page module is loaded in a headless browser and played for a short run
 with the bot's inputs, so one that will not load, will not mount or fails as
-it plays is refused before any player meets it.
+it plays is refused before any player meets it. The checks' browser has no
+WebGL and no WebGPU, so a game drawn with them cannot get ready there; a
+watched run's `draw: false` is the SDK's way to play a page module without
+its presentation, so its checkpoints can still be compared with the
+replay's.
 
 ## 6. Published
 
 Nobody reviews in between: a version that passes every check is published.
 Its two modules and its files folder are copied to
-`https://files.vbz.gg/g/<game id>/`, and
+`https://files.vbz.gg/g/<game id>/`, from where a studio's page loads them,
+and
 `vbz publish` prints which runs it serves. A patch of the day's release line
 reaches the next ranked start, because a ranked run plays the line's highest
 published patch. A new minor or major waits for the next day's seed. Practice

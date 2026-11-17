@@ -1,18 +1,18 @@
 ---
 name: vbz-game
-description: Build a game that runs on vbz.gg, the backend that replays every run on a server to check and rank a game studio's scores, on top of a Clockwork 2 simulation. Covers why a run is replayed and what that asks of a game - one seeded Prng and never Math.random, and a game that ignores its seed being refused at upload - drawing your own controls and hit-testing them in tick, mapping keys, fingers and tilt to declared inputs through the engine's device helpers, choosing what to record, the two artifacts an upload carries, the manifest the platform reads without running anything, and the page module a studio's page loads. Use when starting a game for vbz.gg, adding randomness, mapping inputs, writing the page module entry, testing against the harness, or working out why ingest refused an upload. For the simulation's full rules - fixed ticks, Prng streams, dmath, snapshots, the conformance checks - use the engine's guide, clockwork2.
+description: Build a game on a Clockwork 2 simulation with the vbz kit: played locally on any page, and opted in to ranked runs on vbz.gg, which replays each ranked run on a server to check and rank it. Covers the one build and its runs, playLocal and the game's own page, opting in to ranked play, why a run is replayed and what that asks of a game - one seeded Prng and never Math.random, and a game that ignores its seed refused at upload - drawing your own controls and hit-testing them in tick, mapping keys, fingers, tilt and a locked mouse to declared inputs through the engine's device helpers, choosing what to record, the page module, the manifest, the files folder, data packs, a page's policy, the limits, and drawing with null3d. Use when starting a game, playing it locally, publishing it, adding randomness or data, mapping inputs, testing against the harness, or reading a refused upload. For the simulation's full rules - fixed ticks, Prng streams, dmath, snapshots, the checks - use the engine's guide, clockwork2.
 ---
 
-# Building a game that runs on vbz.gg
+# Building a game with the vbz kit
 
 Two guides. The engine's, **clockwork2**, is how to write a simulation that
-replays to the same state on somebody else's server: fixed ticks, `Prng`,
-`dmath`, snapshots, the conformance checks. Read it first and keep it
-open. **This one** is everything between a conforming simulation and a game
-somebody can play on vbz: how it is laid out, how it is built, how a phone
-steers it, and what the platform checks before it will list it. It repeats
-the engine's guide in two places, briefly, because they are the two things an
-author gets wrong first: where randomness comes from, and what to record.
+replays to the same state anywhere: fixed ticks, `Prng`, `dmath`, snapshots,
+the conformance checks. Read it first and keep it open. **This one** is
+everything between a conforming simulation and a game somebody plays: how it
+is laid out and built, how a phone steers it, how a page plays it locally,
+and what vbz.gg checks before it will rank it. It repeats the engine's guide
+in two places, briefly, because they are the two things an author gets
+wrong first: where randomness comes from, and what to record.
 
 A game made with `vbz new` keeps both guides in `.claude/skills/`, this one
 at `.claude/skills/vbz-game/` and the engine's at `.claude/skills/clockwork2/`,
@@ -21,12 +21,43 @@ them at `node_modules/@vbz-gg/sdk/skill/vbz-game/` and
 `node_modules/@clockwork2/engine/skill/clockwork2/`. A path that starts
 `clockwork2/` is a file in the engine's guide.
 
+## One build, and the runs it plays
+
+A game is one build, and it plays wherever its author puts it.
+
+- **Played locally**, on the game's own page, it is whatever the author
+  intends: a story, free play, an endless session, a page that is never
+  online. `playLocal` plays it, and nothing is uploaded, signed in or sent.
+  A new game's page does exactly this.
+- **A ranked run** is a kind of run vbz.gg serves: the platform issues the
+  seed and serves the config, the same build plays it on a studio's page and
+  records the player's inputs, and the platform replays them on a server and
+  ranks what its replay computed. **A practice run** is the same, and never
+  on a board. A game opts in by naming the ranked mode in
+  `site/config.json` and publishing; the build does not change.
+- **No run has a step limit**, local, ranked or practice. A run goes until
+  the game ends it or the player leaves.
+
+Determinism binds every run. Four rules bind only ranked and practice runs,
+and a game played only locally may break them:
+
+- the seed changes the state (`E_SEED_IGNORED`), and the manifest says how
+  a run ranks (`E_RANK_UNDECLARED`);
+- a run holds at most 16 inputs a tick on average (`E_INPUT_BUDGET`);
+- inputs come only from the engine's device helpers, and an event a script
+  on the page made is ignored;
+- the platform's checks play the config a run is served: every declared
+  setting at its default.
+
+`vbz check --ranked` holds a game to them before its first upload.
+
 ## Start here
 
 ```bash
 bunx @vbz-gg/sdk new ./my-game
 cd ./my-game && bun install
-bun run dev                       # your game, loaded the way a studio's page loads it
+bun run dev                       # your game, with a replay of every run
+bun run site                      # your game's own page, played locally
 ```
 
 The copy builds and plays before a line of it is changed, so anything that
@@ -48,7 +79,9 @@ src/sim/manifest.ts  what the platform reads without running anything
 src/sim/game.ts      the rules
 src/present/         the renderer
 src/capture.ts       which keys, fingers and tilt drive which inputs
-src/present.ts       the page module's entry, which a studio's page loads
+src/present.ts       the page module's entry, which a page loads
+site/                the game's own page
+site/config.json     the page's mode: { "mode": "local" } or ranked
 ```
 
 Two entries, and they become two files:
@@ -56,7 +89,7 @@ Two entries, and they become two files:
 | Entry | Becomes | Loaded by |
 |---|---|---|
 | `src/sim/index.ts` | the **simulation**, the rules code | the browser **and** the server that replays you |
-| `src/present.ts` | the **page module** | a studio's page, in the browser |
+| `src/present.ts` | the **page module** | a page, in the browser: the game's own, or a studio's |
 
 `src/sim/index.ts` must never reach `src/present/`. The import graph is
 scanned transitively, and a simulation that can reach a canvas is a simulation
@@ -65,10 +98,11 @@ of the simulation either: it imports `cw2:sim`, which the platform rewrites to
 the simulation's content address at upload. One object, fetched by the browser
 and loaded by the validator, same bytes and same hash.
 
-`bun run build` writes everything a submission carries: `dist/sim.js`,
-`dist/present.js`, `dist/manifest.json`, and the files folder the game's
-`package.json` names, copied to `dist/files/` and listed in
-`dist/files.json` (`references/artifacts.md`).
+`bun run build` writes everything a page plays and an upload carries:
+`dist/sim.js`, `dist/present.js`, `dist/manifest.json`, the files folder the
+game's `package.json` names, copied to `dist/files/` and listed in
+`dist/files.json`, and `dist/game.json`, which a page playing locally reads
+(`references/artifacts.md`).
 
 ## Replays and randomness
 
@@ -168,10 +202,59 @@ export default definePageModule({ createGame, manifest: MANIFEST, createPresenta
 ```
 
 That bundles the engine's host with your game, so the engine that plays a run
-on a studio's page is the one you built and checked with. A studio's page
-loads the module and calls its `mount`; it never builds a host of its own.
-The renderer must fill the element it is mounted in, because a pointer's
-position is measured across that element.
+on any page is the one you built and checked with. A page loads the module
+and calls its `mount`; it never builds a host of its own. The renderer must
+fill the element it is mounted in, because a pointer's position is measured
+across that element.
+
+A renderer that has to get ready, because it compiles WebAssembly, starts
+workers or waits for a GPU, has a `prepare` that resolves once it can draw.
+The run's clock starts only then, so no tick runs and no input is recorded
+before the game can be drawn, and a device that cannot draw it fails with
+`E_PRESENTATION_FAILED` before tick 0, and before a ranked page asks the
+platform for a run.
+
+## The files folder and data packs
+
+A game may carry a folder of files its own tools built: a renderer's engine,
+art, and the data packs the rules code reads. Name it, and what a page's
+policy has to allow for it, in `package.json`:
+
+```json
+{ "vbz": { "files": "files", "needs": { "wasm": true, "workers": true } } }
+```
+
+The page module imports a file of it as `cw2:files/<path>`. A data pack is a
+file of it at the path the manifest's `assets` declares, with its size and
+SHA-256, read by the rules code from `init` (a start pack) or once
+`packsNeeded()` names it (a demand pack). `references/files.md` has the
+folder, data packs, the needs and every limit.
+
+## Playing locally
+
+The game's own page, `site/`, plays the build beside it with `playLocal`
+while `site/config.json` says `{ "mode": "local" }`, which a new game ships
+with. It loads `game/game.json`, which `vbz build` writes, with
+`localAddress`, maps the page module's `cw2:sim` and `cw2:files/` with an
+import map, and talks to nobody. `playLocal` takes a seed and a config of
+the page's own or plays a fresh seed and every setting at its default, and
+hands `onEnded` the run's recording, which replays to the same counters. Its
+seed always starts `local:`, which no seed the platform issues does, so a
+local run can never be submitted as a ranked one. `references/page.md` has
+it whole.
+
+## Opting in to ranked play
+
+1. Keep the four rules above. `vbz check --ranked` runs the set the
+   platform runs on an upload.
+2. Name the ranked mode, the platform's addresses and the game's page key in
+   `site/config.json`, and try the page against the stand-in for the
+   platform with `bun run site`.
+3. Publish with `vbz publish`, from a build system holding the studio's
+   secret key. The build is the same one the page played locally.
+
+`references/page.md` has the client, the sign-in's box and a run from start
+to result, and `references/ingest.md` what the platform checks.
 
 ## Testing it
 
@@ -182,11 +265,12 @@ exits 0 only when all of that passes. `vbz check --ranked` runs the set the
 platform runs on an upload instead, which adds the seed check and that the
 manifest says how a run ranks.
 
-`bun run dev` is your game's page on your laptop: the game's two modules on
-one origin, and a page on another that loads the page module the way a
-studio's page does, under the Content-Security-Policy a studio's page sends.
-Two ports are two origins, so a module import that a studio's page would
-refuse is refused here first.
+`bun run dev` is your game's page on your laptop: the game's two modules and
+its files folder on one origin, and a page on another that loads the page
+module the way a studio's page does and plays it with `playLocal`, under the
+Content-Security-Policy a studio's page sends, with the game's needs. Two
+ports are two origins, so a module import that a studio's page would refuse
+is refused here first.
 
 When a run ends, the harness replays its recording against the built rules
 code and says three things under the game: whether the replay matches, how
@@ -200,8 +284,9 @@ the platform.
 
 ## When ingest refuses
 
-Every refusal carries a code. The ones that are about this guide rather than
-about determinism:
+Every refusal carries a code, and `vbz build` refuses most of the same
+things first, on the same bytes. The ones that are about this guide rather
+than about determinism:
 
 - `E_SIM_NOT_SELF_CONTAINED` - the simulation imports something. It runs with
   no network at all, so an import is a fault on every session.
@@ -209,15 +294,29 @@ about determinism:
   simulation instead of importing `cw2:sim`. Two copies is the thing the
   whole split exists to prevent.
 - `E_PRESENT_IMPORT_UNEXPECTED` - the page module imports something besides
-  the simulation. Bundle it in.
-- `E_PRESENT_SPECIFIER_AMBIGUOUS` - `"cw2:sim"` also appears as data, so
-  rewriting the specifier would change something the game reads.
+  the simulation and files of its folder. Bundle it in, or build it into the
+  folder.
+- `E_PRESENT_DYNAMIC_IMPORT` - the page module loads code by `import()`. Code
+  that loads by an address worked out as it runs goes in the files folder.
+- `E_PRESENT_SPECIFIER_AMBIGUOUS` - `"cw2:sim"` or `cw2:files/` also appears
+  as data, so rewriting the specifier would change something the game reads.
+- `E_FILE_UNLISTED` - the page module imports a file the folder does not
+  hold.
+- `E_PACK_UNLISTED`, `E_PACK_MISMATCH` - a data pack the manifest declares
+  is not in the folder, or is not the size and SHA-256 it declares.
 - `E_VERSION_INVALID` - the version is not plain `MAJOR.MINOR.PATCH`.
 - `E_MANIFEST_INVALID` - the manifest's shape is wrong.
 - `E_RANKBY_UNDECLARED` - `rankBy` names a counter you did not declare. The
   game would list and never rank anybody.
 
 `references/ingest.md` has the whole path from an upload to a listing.
+
+## Drawing with null3d
+
+null3d draws from workers with a WebAssembly core. It goes in the files
+folder, built by its own Vite plugin, and its input stays off;
+`references/null3d.md` is the recipe, mouse look-around and isolation
+included.
 
 ## Versions
 
@@ -269,14 +368,18 @@ newer patch passes, and practice carries on.
 
 ## References
 
-- `references/artifacts.md` - the two entries, `cw2:sim`, the rewrite, the
-  content addressing and the size caps.
+- `references/artifacts.md` - the two entries, `cw2:sim`, the rewrite and
+  the content addressing.
+- `references/files.md` - the files folder, data packs, what a page's
+  policy needs, and every limit.
 - `references/harness.md` - what `vbz dev` serves, the report on each run,
   the flags for a phone and for the game's own page, and what it does not
   reproduce.
 - `references/ingest.md` - what the platform checks, in the order it checks it.
-- `references/page.md` - the studio's page: signing a player in, a run from
-  start to result, and the client's codes.
+- `references/page.md` - a page: playing locally, signing a player in, a
+  ranked run from start to result, and the client's codes.
+- `references/null3d.md` - drawing with null3d: the files folder, the
+  readiness gate, input off, mouse look-around, its maths and isolation.
 
 ## Commands
 

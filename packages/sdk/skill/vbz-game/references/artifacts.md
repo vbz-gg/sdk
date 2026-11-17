@@ -6,7 +6,7 @@ bytes, and a folder of files, named by the SHA-256 of its listing.
 | Part | Built from | Imports | Loaded by |
 |---|---|---|---|
 | the simulation | `src/sim/index.ts` | **nothing** | the browser and the validator |
-| the page module | `src/present.ts` | `cw2:sim`, and files of the folder as `cw2:files/<path>` | a studio's page |
+| the page module | `src/present.ts` | `cw2:sim`, and files of the folder as `cw2:files/<path>` | a page: a studio's, or the game's own played locally |
 | the files folder | the game's own tools, into the folder `package.json` names | whatever its code imports, inside the folder | the page module, and the validator for data packs |
 
 ## Why the page module imports rather than embeds
@@ -62,7 +62,8 @@ them. Nothing in the page module entry sets it.
    than corrupted (`E_PRESENT_SPECIFIER_AMBIGUOUS`). A file the game reads at
    run time, art or data, is found through the folder's address instead.
 4. Size: 4 MiB for the simulation, 16 MiB for the page module
-   (`E_ARTIFACT_TOO_LARGE`).
+   (`E_ARTIFACT_TOO_LARGE`), and the folder's limits in
+   `references/files.md`.
 
 The page module loads nothing at run time by an address it decides then.
 Any `import()`, literal or computed, is refused with
@@ -76,31 +77,11 @@ stops and says to.
 
 ## The files folder
 
-A game names its folder in `package.json`, and every command reads it from
-there:
-
-```json
-{ "vbz": { "files": "files" } }
-```
-
-The game's own tools build it, a renderer's engine, art and data packs, and
-`vbz build` lists every file by path, size and SHA-256. A game whose
-`package.json` names no folder has an empty one; one that names a folder that
-is not there stops the build, and so does one inside `dist/`.
-
-- A path is relative and POSIX, made of letters, digits, `.`, `_`, `-` and
-  `/`, with no `.` or `..` segment, listed once whatever its case
-  (`E_FILE_PATH_INVALID`). A link is not followed.
-- Each file holds at most 64 MiB (`E_FILE_TOO_LARGE`), all of them 512 MiB
-  together (`E_FILES_TOO_LARGE`), in at most 10,000 files
-  (`E_FILES_TOO_MANY`).
-- Every data pack the manifest declares, a file the rules code reads, is a
-  file of the folder at its declared path, of its declared size and SHA-256
-  (`E_PACK_UNLISTED`, `E_PACK_MISMATCH`). One pack holds at most 16 MiB and
-  all of them 48 MiB together (`E_PACKS_TOO_LARGE`), so the rules code and
-  every pack fit one replay.
-- A listing the platform is sent that is not paths, sizes and SHA-256s is
-  `E_FILES_INVALID`.
+A game names its folder in `package.json`, as `"vbz": { "files": "files" }`,
+and `vbz build` lists every file by path, size and SHA-256 and names the
+folder by the SHA-256 of that listing. `references/files.md` has the folder
+whole: naming it, reaching it from the page module, data packs, what a
+page's policy needs for it, and every limit.
 
 ## The rewritten paths are root-relative
 

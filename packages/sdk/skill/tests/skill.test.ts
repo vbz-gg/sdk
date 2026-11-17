@@ -15,16 +15,19 @@ import { existsSync } from "node:fs"
 import { readdir, readFile } from "node:fs/promises"
 import { basename, dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
-import { INPUT_BUDGET_PER_TICK, Prng } from "@clockwork2/engine"
+import { ERROR_CODES, INPUT_BUDGET_PER_TICK, Prng } from "@clockwork2/engine"
 import { TICK_RATES } from "@clockwork2/engine/manifest"
+import * as build from "../../src/build/index.js"
 import {
   BUILD_REFUSAL,
+  MAX_CHUNK_BYTES,
   MAX_FILE_BYTES,
   MAX_FILES,
   MAX_FILES_BYTES,
   MAX_PACK_BYTES,
   MAX_PACKS_BYTES,
   MAX_PRESENT_BYTES,
+  MAX_RUN_BYTES,
   MAX_SIM_BYTES,
   MAX_VERSION_PART,
   SIM_SPECIFIER,
@@ -32,9 +35,11 @@ import {
 import { CAPABILITY_RULES, LINE_RULES } from "../../src/build/line.js"
 import { COMMANDS } from "../../src/cli/index.js"
 import { TEMPLATE_DIR } from "../../src/cli/new.js"
+import { NEEDS, PACKAGE_KEY } from "../../src/cli/source.js"
 import {
   DEFAULT_BUNDLES_PORT,
   DEFAULT_HOST_PORT,
+  pageCsp,
 } from "../../src/harness/index.js"
 import { CLIENT_ERROR } from "../../src/platform/errors.js"
 import { CHUNK_SECONDS } from "../../src/platform/run.js"
@@ -59,6 +64,11 @@ const ENGINE_GUIDE = join(
 
 async function read(...parts: string[]): Promise<string> {
   return await readFile(join(SKILL, ...parts), "utf8")
+}
+
+/** A file of this repository, outside the guide, such as `docs/sdk.md`. */
+async function readRepository(...parts: string[]): Promise<string> {
+  return await readFile(join(REPOSITORY, ...parts), "utf8")
 }
 
 /** Every Markdown file the guide ships, as a path inside the guide. */
@@ -127,17 +137,65 @@ describe("what the prose restates from the code", () => {
     }
   })
 
-  test("the size caps are the caps", async () => {
-    // Prose wraps, so a sentence is read with its line breaks as spaces.
-    const text = (await read("references", "artifacts.md")).replace(/\s+/g, " ")
-    const mib = (bytes: number) => `${bytes / 1024 / 1024} MiB`
-    expect(text).toContain(`${mib(MAX_SIM_BYTES)} for the simulation`)
-    expect(text).toContain(`${mib(MAX_PRESENT_BYTES)} for the page module`)
-    expect(text).toContain(`Each file holds at most ${mib(MAX_FILE_BYTES)}`)
-    expect(text).toContain(`${mib(MAX_FILES_BYTES)} together`)
-    expect(text).toContain(`in at most ${MAX_FILES.toLocaleString("en")} files`)
-    expect(text).toContain(`One pack holds at most ${mib(MAX_PACK_BYTES)}`)
-    expect(text).toContain(`all of them ${mib(MAX_PACKS_BYTES)} together`)
+  /**
+   * Every limit `/build` exports, with the value it is written as. A table
+   * that names a limit the code does not have, or leaves one out, or quotes
+   * a value the code moved, is an author sizing a build to a number that is
+   * not the one `vbz build` holds it to.
+   */
+  const LIMITS: Readonly<Record<string, number>> = Object.fromEntries(
+    Object.entries(build).filter(
+      (entry): entry is [string, number] =>
+        entry[0].startsWith("MAX_") && typeof entry[1] === "number",
+    ),
+  )
+  const written = (name: string, value: number): string =>
+    name.endsWith("_BYTES") && value % (1024 * 1024) === 0
+      ? `${value / 1024 / 1024} MiB`
+      : name.endsWith("_BYTES")
+        ? `${value.toLocaleString("en")} bytes`
+        : value.toLocaleString("en")
+
+  test("every limit table names every limit the code has, at its value", async () => {
+    expect(Object.keys(LIMITS).length).toBeGreaterThan(10)
+    for (const [where, text] of [
+      ["references/files.md", await read("references", "files.md")],
+      ["docs/sdk.md", await readRepository("docs", "sdk.md")],
+    ] as const) {
+      const rows = new Map(
+        [...text.matchAll(/^\| `(MAX_[A-Z_]+)` \| ([^|]+) \|/gm)].map(
+          (match) => [match[1] as string, (match[2] as string).trim()],
+        ),
+      )
+      expect(`${where}: ${[...rows.keys()].sort().join(", ")}`).toBe(
+        `${where}: ${Object.keys(LIMITS).sort().join(", ")}`,
+      )
+      for (const [name, value] of Object.entries(LIMITS)) {
+        expect(`${where} ${name}: ${rows.get(name)}`).toBe(
+          `${where} ${name}: ${written(name, value)}`,
+        )
+      }
+    }
+  })
+
+  /** The package README's short table, which names what each limit holds. */
+  test("the package README's limits are the code's", async () => {
+    const text = await readFile(join(PACKAGE, "README.md"), "utf8")
+    const rows: ReadonlyArray<readonly [string, string]> = [
+      ["the rules code", written("MAX_SIM_BYTES", MAX_SIM_BYTES)],
+      ["the page module", written("MAX_PRESENT_BYTES", MAX_PRESENT_BYTES)],
+      ["one file of the folder", written("MAX_FILE_BYTES", MAX_FILE_BYTES)],
+      [
+        "the whole folder",
+        `${written("MAX_FILES_BYTES", MAX_FILES_BYTES)}, in at most ${MAX_FILES.toLocaleString("en")} files`,
+      ],
+      ["one data pack", written("MAX_PACK_BYTES", MAX_PACK_BYTES)],
+      ["every data pack together", written("MAX_PACKS_BYTES", MAX_PACKS_BYTES)],
+      ["a run's recording", written("MAX_RUN_BYTES", MAX_RUN_BYTES)],
+    ]
+    for (const [what, value] of rows) {
+      expect(text).toContain(`| ${what} | ${value} |`)
+    }
   })
 
   /**
@@ -173,8 +231,17 @@ describe("what the prose restates from the code", () => {
    * imported from this repository.
    */
   test("every artifact refusal named is one that exists", async () => {
-    const owned = new Set<string>(Object.values(BUILD_REFUSAL))
-    const text = `${await read("SKILL.md")}\n${await read("references", "ingest.md")}`
+    // The engine's own codes share prefixes with the build's, such as
+    // E_PRESENTATION_FAILED beside E_PRESENT_WORKER, and are the engine's.
+    const owned = new Set<string>([
+      ...Object.values(BUILD_REFUSAL),
+      ...Object.keys(ERROR_CODES),
+    ])
+    const text = [
+      await everything(),
+      await readRepository("docs", "sdk.md"),
+      await readFile(join(PACKAGE, "README.md"), "utf8"),
+    ].join("\n")
     const named = text.match(/E_[A-Z0-9_]+/g) ?? []
     const artifactCodes = named.filter(
       (code) =>
@@ -299,6 +366,7 @@ describe("what the guide tells an author to run", () => {
       "src/sim/manifest.ts",
       "src/capture.ts",
       "src/present.ts",
+      "site/config.json",
     ]) {
       expect(text).toContain(file)
       expect(
@@ -314,7 +382,7 @@ describe("the references", () => {
     const text = await read("SKILL.md")
     // `clockwork2/references/...` is the engine's guide, not this one.
     const linked = new Set(
-      (text.match(/(?<!clockwork2\/)references\/[a-z-]+\.md/g) ?? []).map(
+      (text.match(/(?<!clockwork2\/)references\/[a-z0-9-]+\.md/g) ?? []).map(
         (path) => path.replace("references/", ""),
       ),
     )
@@ -391,6 +459,106 @@ describe("the engine's guide", () => {
     expect(quoted.size).toBeGreaterThan(3)
     const methods = Object.getOwnPropertyNames(Prng.prototype)
     for (const method of quoted) expect(methods).toContain(method)
+  })
+})
+
+describe("what a page's policy needs", () => {
+  /** Every `"vbz": { ... "needs": { ... } }` the prose shows, as parsed JSON. */
+  async function shownNeeds(): Promise<Array<Record<string, unknown>>> {
+    const text = `${await everything()}\n${await readRepository("docs", "sdk.md")}\n${await readFile(join(PACKAGE, "README.md"), "utf8")}`
+    return [...text.matchAll(/\{ "vbz": (\{[^\n]*\}) \}/g)].map(
+      (match) => JSON.parse(match[1] as string) as Record<string, unknown>,
+    )
+  }
+
+  /**
+   * A need the prose tells an author to name that `vbz` does not take
+   * stops their build; one the code takes that no page explains is a policy
+   * nobody knows to ask for.
+   */
+  test("every need the prose names is one a game's package.json may name", async () => {
+    const shown = await shownNeeds()
+    expect(shown.length).toBeGreaterThan(2)
+    expect(PACKAGE_KEY).toBe("vbz")
+    for (const settings of shown) {
+      const needs = (settings.needs ?? {}) as Record<string, unknown>
+      for (const need of Object.keys(needs)) {
+        expect(NEEDS as readonly string[]).toContain(need)
+      }
+    }
+    const table = (await read("references", "files.md")).replace(/\s+/g, " ")
+    for (const need of NEEDS) expect(table).toContain(`| \`${need}\` |`)
+    // And the one the build shows, which a game never names.
+    expect(table).toContain("| files |")
+  })
+
+  /**
+   * The policy the null3d recipe and docs/sdk.md print for a game that
+   * needs everything is `pageCsp`'s, directive for directive, so a page
+   * that copies it is the page the browser suite measured.
+   */
+  test("the policy printed for a game that needs everything is pageCsp's", async () => {
+    const policy = pageCsp({
+      bundlesOrigin: "https://files.vbz.gg",
+      gameId: "<game id>",
+      connect: ["https://api.vbz.gg"],
+      signInOrigin: "https://signin.vbz.gg",
+      needs: { wasm: true, workers: true, files: true },
+    })
+    const directives = policy.split("; ").sort()
+    const block = (text: string): string[] => {
+      const found = /```\n(default-src 'none';[^`]*)```/.exec(
+        text.slice(text.indexOf("'wasm-unsafe-eval';") - 200),
+      )?.[1]
+      return (found ?? "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .split(/; ?/)
+        .map((directive) => directive.trim())
+        .filter((directive) => directive !== "")
+        .sort()
+    }
+    expect(block(await read("references", "null3d.md"))).toEqual(directives)
+    expect(block(await readRepository("docs", "sdk.md"))).toEqual(directives)
+  })
+})
+
+describe("the null3d recipe", () => {
+  /**
+   * The recipe quotes the engine guide's measured cost of a mouse under
+   * lock, and works out how long a run can move one before its recording
+   * fills. Both drift with the engine's measurement and the run's limits.
+   */
+  test("its mouse figures are the engine guide's, and its run lengths follow from the limits", async () => {
+    const recipe = await read("references", "null3d.md")
+    const measured = (
+      await readFile(join(ENGINE_GUIDE, "references", "inputs.md"), "utf8")
+    )
+      .split("\n")
+      .filter((line) => line.startsWith("| Mouse under lock |"))
+    expect(measured).toHaveLength(2)
+    const rows = [
+      ...recipe.matchAll(
+        /^\| (\d) pixels? a step[^|]*\| (\d+) \| ([\d.]+) \| (\d+) bytes \|$/gm,
+      ),
+    ]
+    expect(rows).toHaveLength(2)
+    const room = MAX_RUN_BYTES - MAX_CHUNK_BYTES
+    for (const row of rows) {
+      const [, , inputs, perTick, bytes] = row as unknown as string[]
+      const line = measured.find((one) =>
+        one.includes(`| ${inputs} | ${perTick} |`),
+      )
+      expect(
+        `${inputs} inputs: ${line === undefined ? "not" : ""} measured`,
+      ).toBe(`${inputs} inputs:  measured`)
+      expect(line).toContain(`| ${bytes} |`)
+      // Five minutes of it, scaled to what a run records before it ends.
+      const minutes = Math.floor(((room / Number(bytes)) * 300) / 60)
+      expect(recipe).toContain(
+        `${Math.floor(minutes / 60)} h ${minutes % 60} min`,
+      )
+    }
   })
 })
 
