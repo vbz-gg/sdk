@@ -821,8 +821,10 @@ export interface WatchedRun {
  * What a route needs. `page-key`: the page key in `x-vbz-key`, from one of the
  * game's allowed pages, and a player token in `Authorization: Bearer` where
  * the route reads one. `player`: both, the token required. `secret-key`: a
- * studio's secret key in `Authorization: Bearer`, never from a browser.
- * `public`: neither header.
+ * studio's secret key in `Authorization: Bearer`, never from a browser, which
+ * is what a build system sends; the platform takes a member's access token
+ * there too, from its dashboard, when the member's role holds the
+ * permission the route names. `public`: neither header.
  */
 export type RouteAuth = "page-key" | "player" | "secret-key" | "public"
 
@@ -836,6 +838,10 @@ export interface PlatformRoutes {
     readonly body: never
     readonly response: PageGame
   }
+  /**
+   * The studio's secret key, or a member whose role may upload versions
+   * (`versions.upload`), as for the version's own upload.
+   */
   readonly "POST /v1/games/:gameId/files/missing": {
     readonly auth: "secret-key"
     /**
@@ -847,12 +853,20 @@ export interface PlatformRoutes {
     readonly body: MissingFilesRequest
     readonly response: MissingFiles
   }
+  /**
+   * The studio's secret key, or a member whose role may upload versions
+   * (`versions.upload`), as for the version's own upload.
+   */
   readonly "PUT /v1/games/:gameId/files/:sha256": {
     readonly auth: "secret-key"
     /** The file's bytes, as `application/octet-stream`, at most `MAX_FILE_BYTES`. */
     readonly body: "bytes"
     readonly response: StoredFile
   }
+  /**
+   * The studio's secret key, or a member whose role may upload versions
+   * (`versions.upload`).
+   */
   readonly "POST /v1/games/:gameId/versions": {
     readonly auth: "secret-key"
     /**
@@ -864,11 +878,19 @@ export interface PlatformRoutes {
     readonly body: "multipart"
     readonly response: UploadedVersion
   }
+  /**
+   * The studio's secret key, or a member whose role may read versions
+   * (`versions.read`), as for one version.
+   */
   readonly "GET /v1/studios/:studioId/games/:gameId/versions": {
     readonly auth: "secret-key"
     readonly body: never
     readonly response: VersionStatusList
   }
+  /**
+   * The studio's secret key, or a member whose role may read versions
+   * (`versions.read`).
+   */
   readonly "GET /v1/studios/:studioId/versions/:versionId": {
     readonly auth: "secret-key"
     readonly body: never

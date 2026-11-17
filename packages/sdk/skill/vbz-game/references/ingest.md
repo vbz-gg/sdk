@@ -14,13 +14,13 @@ goes up, so a version it would refuse stores nothing. Then the command
 uploads each missing file on its own, sends the version with the listing
 beside it, then
 reads the version back until the checks below decide, and prints the code
-and the first failed check of a rejection. A file is stored under the hash
-of its bytes (`E_FILE_HASH_MISMATCH` when they are not), so a file an
-earlier version sent is not sent again, and a version whose listing names a
-file the platform does not hold is refused with `E_FILES_MISSING`. Files
-stored for a version that never arrives, because the publish stopped
-between them or another version arrived first, are named by nothing and
-removed a day later.
+and the first failed check of a rejection. The platform keeps a file once
+per game, in its private store under the hash of its bytes
+(`E_FILE_HASH_MISMATCH` when they are not), so a file an earlier version
+sent is not sent again, and a version whose listing names a file the
+platform does not hold is refused with `E_FILES_MISSING`. Files stored for a
+version that never arrives, because the publish stopped between them or
+another version arrived first, are named by nothing and removed a day later.
 
 ## 0. The version
 
@@ -143,9 +143,9 @@ declares, and plays every step the run took, so:
 ## 7. Published
 
 Nobody reviews in between: a version that passes every check is published.
-Its two modules and its files folder are copied to
-`https://files.vbz.gg/g/<game id>/`, from where a studio's page loads them,
-and
+Its two modules are copied to `https://files.vbz.gg/g/<game id>/`, and its
+files folder to `https://files.vbz.gg/g/<game id>/t/<listing sha256>/`,
+each file under its path, from where a studio's page loads them, and
 `vbz publish` prints which runs it serves. A patch of the day's release line
 reaches the next ranked start, because a ranked run plays the line's highest
 published patch. A new minor or major waits for the next day's seed. Practice
@@ -168,6 +168,12 @@ that is the patch today's ranked runs play, nothing falls back to an older
 one: a ranked start answers `E_RANKED_PAUSED` and `GET /v1/game` says the day
 is paused until a newer patch in the line passes or the next day's seed.
 Practice carries on.
+
+A takedown removes the version's two modules from `files.vbz.gg`, and its
+files folder too, unless another version that is served, or still being
+checked, names the same folder. Two versions with an identical listing share
+one folder, so a patch that changed only code keeps the folder up when the
+version before it is taken down.
 
 ## What is not checked, and cannot be
 

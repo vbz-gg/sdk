@@ -111,9 +111,12 @@ keyed by method and path in `PlatformRoutes`, with its credential, its body
 and its answer, and `PublicRefusalCode`, every refusal those routes answer by
 name. One code in it is never a refusal's body: `E_REPLAY_OVER_BUDGET` is
 what a version's checks end in when its replay is over a limit of the
-replay service, read back as the version's `rejectedCode`. `/api` compiles
-to an empty module, so importing it adds nothing to a bundle, and a test
-holds it to exporting no value.
+replay service, read back as the version's `rejectedCode`. A route whose
+credential is `secret-key` takes what a build system sends, the studio's
+secret key, and the platform also takes a member's access token there, from
+its dashboard, when the member's role holds the permission the route's
+comment names. `/api` compiles to an empty module, so importing it adds
+nothing to a bundle, and a test holds it to exporting no value.
 
 The types live here and not in the platform so the dependency runs one way.
 The platform depends on this package and this package on nothing of the
@@ -723,13 +726,13 @@ that does not arrive spends no run, and a demand pack when the game names
 it, with the engine's pack loader. The engine holds the loop while a named
 pack is missing, so the tick that first reads it is the same on every
 machine however long the download took, and it checks each pack's size and
-SHA-256 before the game may read it. The platform stores each pack with the
-version and hands the server's replay the same bytes, as `vbz dev` hands its
-replay the packs in the folder. The browser suite's folder fixture reads a
-demand pack from tick 180: the page fetched it only once the rules code
-named it, and the recording replays to its counters with the pack and fails
-without it. The engine's guide, `clockwork2`, has the rules for reading one
-in `references/assets.md`.
+SHA-256 before the game may read it. The platform keeps each pack as it
+keeps every file of the folder and hands the server's replay the same bytes,
+as `vbz dev` hands its replay the packs in the folder. The browser suite's
+folder fixture reads a demand pack from tick 180: the page fetched it only
+once the rules code named it, and the recording replays to its counters
+with the pack and fails without it. The engine's guide, `clockwork2`, has
+the rules for reading one in `references/assets.md`.
 
 What the contract checks, on the bytes rather than on the source:
 
@@ -775,7 +778,10 @@ The platform also imports what it does with a file upload from here:
 listing names a file the store lacks (`E_FILES_MISSING`).
 
 Then the addressing. Each module is stored under the SHA-256 of its own
-bytes, and each file under the folder's name and its path.
+bytes. The platform keeps each file of the folder once per game, in its
+private store under the SHA-256 of the file's bytes, however many versions
+or paths name it, and publishes a version's folder on the public store
+under the listing's name and each file's path, as "Serving" below describes.
 `rewritePresentImports` replaces the page module's `cw2:sim` with
 `/g/<game id>/sim/<64 hex>.js` and its `cw2:files/` with
 `/g/<game id>/t/<listing sha256>/`, root-relative, so the bytes carry no
@@ -893,7 +899,11 @@ In production the two modules of a published version sit at
 `https://files.vbz.gg/g/<game id>/present/<sha256>.js`, and its files under
 `https://files.vbz.gg/g/<game id>/t/<listing sha256>/<path>`, copied there
 when the version passes its checks, so a pending or rejected upload is never
-public. A takedown deletes the copies and purges them from the cache.
+public. Two versions with an identical listing share one folder there, such
+as a patch that changed only code. A takedown deletes the version's two
+modules, and its folder unless another version that is served, or still
+being checked, names the same folder, and purges what it deleted from the
+cache.
 `/serve`'s `createBlobServer` answers the same paths with the same headers,
 for the harness and for the platform's development bundles server, so a page
 meets one answer from a laptop and from the edge:
@@ -1234,12 +1244,12 @@ no file, where before up to 512 MiB of files went up for a version that was
 then refused. Otherwise it answers with the SHA-256 of each listed file the
 game's store lacks, and the command uploads each of those from
 `dist/files/` as its own `PUT /v1/games/:gameId/files/:sha256`, its bytes
-the body. A file is stored once per game under the hash of its bytes, so a
-file a version shares with an earlier one is not sent again, two paths
-holding the same bytes are sent once, and the store is the game's own, so a
-studio learns nothing of another's files. The command checks each file
-against the listing before it sends it, and checks that the platform names
-the folder as `vbz build` did.
+the body. The platform keeps a file once per game, in its private store under
+the hash of its bytes, so a file a version shares with an earlier one is not
+sent again, two paths holding the same bytes are sent once, and the store is
+the game's own, so a studio learns nothing of another's files. The command
+checks each file against the listing before it sends it, and checks that the
+platform names the folder as `vbz build` did.
 
 Then it uploads the version, `manifest`, `sim`, `present` and the listing as
 `files`, as one multipart `POST /v1/games/:gameId/versions`, which the
@@ -1278,13 +1288,16 @@ this version`. A line's first version has no runs of its line to replay, and
 the command says so. While the platform has not measured a version,
 `patchScores` is null and nothing is printed.
 
-The studio's secret key comes from `VBZ_STUDIO_KEY` and nowhere else. A flag
-would put it in shell history and in the process list. The request carries
-no `Origin` header, which is how the platform tells a build system from a
-browser: a secret key sent with one is refused. The platform's origin is
-`--api`, else `VBZ_API_ORIGIN`, else `https://api.vbz.gg`, and it has to
-be https, or http to the same machine, because the key travels with the
-request.
+The two files routes and the version's upload each take the studio's secret
+key, or the access token of a member whose role may upload versions
+(`versions.upload`), and reading a version back takes the key or a member
+who may read versions (`versions.read`). The command sends the key, from
+`VBZ_STUDIO_KEY` and nowhere else: a flag would put it in shell history and
+in the process list. The request carries no `Origin` header, which is how
+the platform tells a build system from a browser: a secret key sent with one
+is refused. The platform's origin is `--api`, else `VBZ_API_ORIGIN`, else
+`https://api.vbz.gg`, and it has to be https, or http to the same machine,
+because the key travels with the request.
 
 The version is sent once. A retry of an upload that did arrive is refused
 as `E_VERSION_EXISTS`, so a slow answer would turn into a confusing one.
