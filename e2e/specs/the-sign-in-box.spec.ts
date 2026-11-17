@@ -223,7 +223,6 @@ test("under COOP and COEP, a player signs in through the sign-in from another si
 test("a page whose policy has no frame-src gets E_SIGNIN_UNREACHABLE, and asks the sign-in nothing", async ({
   page,
 }) => {
-  test.setTimeout(60_000)
   const asked: string[] = []
   page.on("request", (request) => {
     if (new URL(request.url()).pathname === "/authorize")
@@ -253,7 +252,6 @@ test("a page whose policy has no frame-src gets E_SIGNIN_UNREACHABLE, and asks t
   await expect(page.locator("body")).toHaveAttribute(
     "data-signin",
     "E_SIGNIN_UNREACHABLE",
-    { timeout: 20_000 },
   )
   test.info().annotations.push({
     type: "a frame the policy refused fired",
@@ -288,7 +286,6 @@ test("a page whose policy has no frame-src gets E_SIGNIN_UNREACHABLE, and asks t
 test("a later page of the sign-in the browser will not show gets E_SIGNIN_UNREACHABLE", async ({
   page,
 }) => {
-  test.setTimeout(60_000)
   await openRuns(page, "template")
   await page.getByRole("button", { name: "Sign in", exact: true }).click()
   const frame = signInFrame(page)
@@ -302,7 +299,6 @@ test("a later page of the sign-in the browser will not show gets E_SIGNIN_UNREAC
   await expect(page.locator("body")).toHaveAttribute(
     "data-signin",
     "E_SIGNIN_UNREACHABLE",
-    { timeout: 20_000 },
   )
   await expect(page.getByRole("dialog")).toHaveCount(0)
   await expect(page.locator("body")).toHaveAttribute("data-player", "")
@@ -321,7 +317,6 @@ test("a later page of the sign-in the browser will not show gets E_SIGNIN_UNREAC
 test("a studio's page shown inside a page of another origin cannot show the sign-in, and says so", async ({
   page,
 }) => {
-  test.setTimeout(60_000)
   const asked: string[] = []
   page.on("request", (request) => {
     if (new URL(request.url()).pathname === "/authorize")
@@ -334,7 +329,6 @@ test("a studio's page shown inside a page of another origin cannot show the sign
   await expect(studio.locator("body")).toHaveAttribute(
     "data-signin",
     "E_SIGNIN_UNREACHABLE",
-    { timeout: 20_000 },
   )
   // Asked for, and refused by the browser: the portal is not the origin the
   // sign-in frames for.

@@ -36,7 +36,7 @@ import {
   storagePlayerStore,
 } from "./kept.js"
 import { createRequester, type Requester } from "./request.js"
-import { openSignIn } from "./signin.js"
+import { openSignIn, SIGN_IN_READY_MS } from "./signin.js"
 
 /**
  * A platform run's recording, as `Run` hands it to `submit`. The brand
@@ -65,6 +65,13 @@ export interface PlatformClientOptions {
   readonly onSignedOut?: () => void
   /** The browser, or a test's stand-in for it. */
   readonly environment?: PageEnvironment
+  /**
+   * How long, in milliseconds, each page of the sign-in has to say it
+   * loaded in its box before `signIn()` gives up with
+   * `E_SIGNIN_UNREACHABLE`: `SIGN_IN_READY_MS`, 15 seconds, by default. A
+   * whole number above zero.
+   */
+  readonly signInReadyMs?: number
 }
 
 export interface BoardOptions {
@@ -155,6 +162,12 @@ export function isFinalResult(result: RunResult): boolean {
 export function createPlatformClient(
   options: PlatformClientOptions,
 ): PlatformClient {
+  const readyMs = options.signInReadyMs ?? SIGN_IN_READY_MS
+  if (!Number.isInteger(readyMs) || readyMs <= 0) {
+    throw new Error(
+      `signInReadyMs is how long, in milliseconds, a page of the sign-in has to say it is ready, a whole number above zero, and ${String(readyMs)} is not one`,
+    )
+  }
   const environment = options.environment ?? browserEnvironment()
   const store =
     options.store ??
@@ -275,6 +288,7 @@ export function createPlatformClient(
         environment,
         signInOrigin: options.signInOrigin,
         pageKey: options.pageKey,
+        readyMs,
       })
       // Closed by the page while the code is traded: what the trade
       // answers is nobody's, and the sign-in ends now rather than then.

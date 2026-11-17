@@ -76,6 +76,7 @@ import {
   STUDIO_ORIGIN,
   STUDIO_PORT,
   SUBJECTS,
+  SUITE_SIGN_IN_READY_MS,
   type SubjectName,
 } from "./env"
 import { hold, startRegistry } from "./registry"
@@ -482,6 +483,7 @@ Bun.serve({
           apiOrigin: standIn.apiOrigin,
           signInOrigin: standIn.signInOrigin,
           pageKey: standIn.pageKey,
+          signInReadyMs: SUITE_SIGN_IN_READY_MS,
           seed: HARNESS_SEED,
           modules,
         },

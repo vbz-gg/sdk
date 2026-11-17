@@ -58,6 +58,14 @@ export const PORTAL_PORT = 4326
  */
 export const SIGN_IN_HOST = "localhost"
 
+/**
+ * How long the studio page's client gives each page of the sign-in to say
+ * it is ready: 3 seconds, against the 15 a studio's page gets by default, so
+ * a spec about a box nothing fills waits seconds rather than a quarter of a
+ * minute per engine. Every sign-in here is on this machine.
+ */
+export const SUITE_SIGN_IN_READY_MS = 3_000
+
 export const CONTROL_ORIGIN = `http://127.0.0.1:${CONTROL_PORT}`
 export const STUDIO_ORIGIN = `http://127.0.0.1:${STUDIO_PORT}`
 export const PORTAL_ORIGIN = `http://127.0.0.1:${PORTAL_PORT}`

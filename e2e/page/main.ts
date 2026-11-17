@@ -42,7 +42,7 @@ interface Module extends GameAddress {
 interface StudioConfig
   extends Pick<
     PlatformClientOptions,
-    "apiOrigin" | "signInOrigin" | "pageKey"
+    "apiOrigin" | "signInOrigin" | "pageKey" | "signInReadyMs"
   > {
   readonly seed: string
   readonly modules: Readonly<Record<string, Module>>

@@ -21,7 +21,8 @@
  * the box as empty as a refused first page does. Each page of the sign-in
  * posts one ready as it loads, and the box counts both: while fewer readies
  * have come than pages have loaded, or none at all, the page waits
- * `SIGN_IN_READY_MS` from the last load for the one still owed. A page's
+ * the ready time, `SIGN_IN_READY_MS` unless the page names another, from
+ * the last load for the one still owed. A page's
  * ready and its `load` reach the page in either order, which counting
  * leaves alone.
  */
@@ -38,10 +39,10 @@ import { type ClientErrorCode, PlatformClientError } from "./errors.js"
 import { makePkce } from "./pkce.js"
 
 /**
- * How long the sign-in has to say it loaded in its box before the page says
- * it cannot be reached. An estimate: the ready message arrives as soon as
- * the sign-in's first page renders, and nothing here measured how long that
- * takes on a slow network.
+ * How long a page of the sign-in has to say it loaded in its box before the
+ * page says it cannot be reached, unless the client is given another. An
+ * estimate: the ready message arrives as soon as a page of the sign-in
+ * renders, and nothing here measured how long that takes on a slow network.
  */
 export const SIGN_IN_READY_MS = 15_000
 
@@ -77,13 +78,15 @@ export interface OpenSignIn {
  * `E_SIGNIN_CANCELLED` when the player closes the box, from the page or
  * from inside the frame, or the page cancels it, and with
  * `E_SIGNIN_UNREACHABLE` when a page the frame loaded, the first or any
- * after it, says no `vbz.signin.ready` within `SIGN_IN_READY_MS`. The box
- * is taken down either way.
+ * after it, says no `vbz.signin.ready` within `readyMs`. The box is taken
+ * down either way.
  */
 export function openSignIn(options: {
   readonly environment: PageEnvironment
   readonly signInOrigin: string
   readonly pageKey: PageKey
+  /** How long a page of the sign-in has to say it is ready. */
+  readonly readyMs: number
 }): OpenSignIn {
   const { environment, signInOrigin } = options
   // Assigned by the executor, which runs before the constructor returns.
@@ -110,7 +113,7 @@ export function openSignIn(options: {
     stopWaiting()
     waiting = environment.setTimeout(
       () => failWith("E_SIGNIN_UNREACHABLE"),
-      SIGN_IN_READY_MS,
+      options.readyMs,
     )
   }
   /** Whether a page has loaded, or is loading, that has not said it is ready. */

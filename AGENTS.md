@@ -78,8 +78,8 @@ keyboard only from a gesture. A message is taken only from the frame the box
 holds, on the sign-in origin, carrying the state sent. **The sign-in's ready
 message is the only sign the box works**, for every page the frame shows: a
 frame the browser refused still fires `load`, so each page the frame loads
-owes one `vbz.signin.ready`, and one still owed `SIGN_IN_READY_MS` after its
-load is `E_SIGNIN_UNREACHABLE`, never a fallback to a window. Nothing calls
+owes one `vbz.signin.ready`, and one still owed the ready time after its
+load, `signInReadyMs` or `SIGN_IN_READY_MS`, is `E_SIGNIN_UNREACHABLE`, never a fallback to a window. Nothing calls
 `requestStorageAccess`.
 
 **Every read and write of the kept player goes through `kept`, `keep` and

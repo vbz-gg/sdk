@@ -345,6 +345,40 @@ describe("signing a player in", () => {
     expect(page.pendingTimers).toBe(0)
   })
 
+  /**
+   * A page may give the sign-in more time, or less, as the browser suite
+   * does so that a box nothing will fill gives up in seconds.
+   */
+  test("a page names its own ready time, a whole number of milliseconds above zero", async () => {
+    const page = new FakePage()
+    const platform = createPlatformClient({
+      apiOrigin: API,
+      signInOrigin: SIGN_IN,
+      pageKey: KEY,
+      environment: page,
+      signInReadyMs: 2_000,
+    })
+    const seen = outcome(platform.signIn())
+    await settle()
+    page.advance(1_999)
+    await settle()
+    expect(seen).toEqual({})
+    page.advance(1)
+    await settle()
+    expect(seen.code).toBe("E_SIGNIN_UNREACHABLE")
+    for (const readyMs of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(() =>
+        createPlatformClient({
+          apiOrigin: API,
+          signInOrigin: SIGN_IN,
+          pageKey: KEY,
+          environment: page,
+          signInReadyMs: readyMs,
+        }),
+      ).toThrow("signInReadyMs is how long")
+    }
+  })
+
   /** A second click while the box is up opens no second box. */
   test("a second signIn while one is open answers the first's promise, and opens nothing", async () => {
     const { page, client: platform } = client()
