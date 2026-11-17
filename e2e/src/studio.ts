@@ -73,7 +73,7 @@ export async function openModule(
 
 /** The sign-in's frame, in the box `signIn()` puts over the page. */
 export function signInFrame(page: Page): FrameLocator {
-  return page.frameLocator('[role="dialog"] iframe')
+  return page.frameLocator("dialog.gb-signin-box iframe")
 }
 
 /**

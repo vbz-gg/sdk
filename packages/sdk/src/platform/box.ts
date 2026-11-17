@@ -1,6 +1,8 @@
 /**
- * The sign-in's box over the page: a backdrop, a box holding the platform's
- * sign-in in a frame, and a Cancel button.
+ * The sign-in's box over the page: a modal `<dialog>` as the backdrop, a
+ * box holding the platform's sign-in in a frame, and a Cancel button. The
+ * browser makes the page behind a modal dialog inert, so nothing on it can
+ * be clicked or reached with Tab while the box is up.
  *
  * Plain DOM, styled through CSSOM properties, which a policy of
  * `style-src 'self'` allows, so a page needs no stylesheet from this package
@@ -45,12 +47,19 @@ function holdsBlank(frame: HTMLIFrameElement): boolean {
 
 /**
  * Puts the box over `document`'s page, its frame holding nothing yet, and
- * moves focus into the frame, all in the calling turn. `onCancel` hears the
- * Cancel button, and Escape while focus is in the page rather than in the
- * frame; the sign-in tells the page about an Escape inside the frame
- * itself, with `vbz.signin.cancel`. `onFrameLoad` hears each page the frame
- * finishes loading once it is pointed at the sign-in, and never the blank
- * document it starts with, whose `load` may come after it is pointed.
+ * moves focus into the frame, all in the calling turn.
+ *
+ * The box is a native `<dialog>` shown with `showModal()`: the browser puts
+ * it in the top layer and makes the rest of the page inert, so neither a
+ * click nor Tab reaches a control behind it, such as the page's Play
+ * button, while it is up. `onCancel` hears the Cancel button and the
+ * dialog's own `cancel`, which is Escape while focus is in the page rather
+ * than in the frame; the sign-in tells the page about an Escape inside the
+ * frame itself, with `vbz.signin.cancel`. A browser that closes the dialog
+ * on Escape whatever its `cancel` handler says is heard through `close`.
+ * `onFrameLoad` hears each page the frame finishes loading once it is
+ * pointed at the sign-in, and never the blank document it starts with,
+ * whose `load` may come after it is pointed.
  */
 export function mountSignInBox(
   document: Document,
@@ -59,23 +68,34 @@ export function mountSignInBox(
   const { onCancel } = handlers
   const before = document.activeElement
 
-  const backdrop = document.createElement("div")
-  backdrop.className = "gb-signin-box"
-  backdrop.style.position = "fixed"
-  backdrop.style.inset = "0"
-  backdrop.style.zIndex = "2147483647"
-  backdrop.style.display = "flex"
-  backdrop.style.alignItems = "center"
-  backdrop.style.justifyContent = "center"
-  backdrop.style.padding = "16px"
-  backdrop.style.boxSizing = "border-box"
-  backdrop.style.background =
-    "var(--gb-widget-backdrop, rgba(10, 11, 14, 0.72))"
+  // The dialog fills the viewport and is the backdrop: a `::backdrop` can
+  // only be styled from a stylesheet, which a policy of `style-src 'self'`
+  // would have to admit.
+  const dialog = document.createElement("dialog")
+  dialog.className = "gb-signin-box"
+  dialog.setAttribute("aria-label", SIGN_IN_LABEL)
+  dialog.style.position = "fixed"
+  dialog.style.inset = "0"
+  dialog.style.width = "100%"
+  dialog.style.height = "100%"
+  dialog.style.maxWidth = "none"
+  dialog.style.maxHeight = "none"
+  dialog.style.margin = "0"
+  dialog.style.padding = "0"
+  dialog.style.border = "0"
+  dialog.style.overflow = "hidden"
+  dialog.style.background = "var(--gb-widget-backdrop, rgba(10, 11, 14, 0.72))"
+
+  const centre = document.createElement("div")
+  centre.style.display = "flex"
+  centre.style.alignItems = "center"
+  centre.style.justifyContent = "center"
+  centre.style.width = "100%"
+  centre.style.height = "100%"
+  centre.style.padding = "16px"
+  centre.style.boxSizing = "border-box"
 
   const box = document.createElement("div")
-  box.setAttribute("role", "dialog")
-  box.setAttribute("aria-modal", "true")
-  box.setAttribute("aria-label", SIGN_IN_LABEL)
   box.style.display = "flex"
   box.style.flexDirection = "column"
   box.style.gap = "var(--gb-widget-gap, 8px)"
@@ -110,16 +130,21 @@ export function mountSignInBox(
   cancel.style.alignSelf = "flex-end"
   cancel.addEventListener("click", () => onCancel())
 
-  const onKey = (event: KeyboardEvent) => {
-    if (event.key !== "Escape") return
+  let removed = false
+  // Escape in the page: the box closes through the sign-in, not on its own.
+  dialog.addEventListener("cancel", (event) => {
     event.preventDefault()
-    onCancel()
-  }
-  document.addEventListener("keydown", onKey, true)
+    if (!removed) onCancel()
+  })
+  dialog.addEventListener("close", () => {
+    if (!removed) onCancel()
+  })
 
   box.append(frame, cancel)
-  backdrop.append(box)
-  ;(document.body ?? document.documentElement).append(backdrop)
+  centre.append(box)
+  dialog.append(centre)
+  ;(document.body ?? document.documentElement).append(dialog)
+  dialog.showModal()
   // Into the frame in the click's own turn: a phone opens its keyboard for a
   // field only from a gesture, and the sign-in focuses its first field.
   frame.focus()
@@ -133,8 +158,10 @@ export function mountSignInBox(
       frame.src = url
     },
     remove() {
-      document.removeEventListener("keydown", onKey, true)
-      backdrop.remove()
+      if (removed) return
+      removed = true
+      if (dialog.open) dialog.close()
+      dialog.remove()
       const back = before as { readonly isConnected?: boolean; focus?(): void }
       if (back?.isConnected === true) back.focus?.()
     },

@@ -69,8 +69,9 @@ subpath while rendering on a server, and `check:publishable` imports it under
 plain node.
 
 **The sign-in's box is made before anything is awaited.** `signIn()` puts
-the backdrop, the box, its empty frame and Cancel on the page, with focus in
-the frame, in the click's own turn; only then is the challenge made and the
+the box, a native `<dialog>` shown modal so the page behind it is inert,
+its empty frame and Cancel on the page, with focus in the frame, in the
+click's own turn; only then is the challenge made and the
 frame pointed at the sign-in. Anything awaited first, even a resolved
 promise, moves the focus out of the click's turn, and a phone opens its
 keyboard only from a gesture. A message is taken only from the frame the box
@@ -407,8 +408,9 @@ What only a browser can settle, and what each spec found:
   renders it and its ready reaches the page, but Playwright 1.56.1 cannot
   reach into that frame there, so signing in through it is measured in the
   other engines.
-  Cancel, and Escape pressed inside the frame, close the box with
-  `E_SIGNIN_CANCELLED`. A page whose policy has no `frame-src` never asks
+  Cancel, and Escape pressed inside the frame or in the page, close the box
+  with `E_SIGNIN_CANCELLED`, and while it is up Tab never reaches the
+  page's controls, because the box is a modal dialog and the page is inert. A page whose policy has no `frame-src` never asks
   for the frame, reports a `frame-src` violation and gets
   `E_SIGNIN_UNREACHABLE` once the ready time runs out; the refused frame
   fired `load` in Chromium and `error` in Firefox. A later page the browser

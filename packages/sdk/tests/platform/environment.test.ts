@@ -109,17 +109,34 @@ describe("in a page", () => {
     })
 
     /**
-     * A dialog over the whole page, holding a frame with nothing in it yet
-     * and a Cancel button, and focus already in the frame: all of it before
-     * the call returns, in the click's own turn.
+     * A modal dialog over the whole page, holding a frame with nothing in it
+     * yet and a Cancel button, and focus already in the frame: all of it
+     * before the call returns, in the click's own turn. Shown with
+     * `showModal`, which is what makes the page behind it inert in a
+     * browser; that Tab cannot reach the page is the browser suite's to
+     * measure.
      */
-    test("is over the page with its frame focused, when the call returns", () => {
+    test("is a modal dialog over the page with its frame focused, when the call returns", () => {
       const before = document.createElement("button")
       document.body.append(before)
       before.focus()
-      const box = mount()
-      const dialog = document.querySelector('[role="dialog"]')
-      expect(dialog?.getAttribute("aria-modal")).toBe("true")
+      const shown: string[] = []
+      const showModal = HTMLDialogElement.prototype.showModal
+      HTMLDialogElement.prototype.showModal = function (
+        this: HTMLDialogElement,
+      ) {
+        shown.push(this.className)
+        showModal.call(this)
+      }
+      let box: ReturnType<typeof mount>
+      try {
+        box = mount()
+      } finally {
+        HTMLDialogElement.prototype.showModal = showModal
+      }
+      expect(shown).toEqual(["gb-signin-box"])
+      const dialog = document.querySelector("dialog")
+      expect(dialog?.open).toBe(true)
       expect(dialog?.getAttribute("aria-label")).toBe("Sign in")
       const frame = dialog?.querySelector("iframe") as HTMLIFrameElement
       expect(frame.title).toBe("Sign in")
@@ -134,13 +151,15 @@ describe("in a page", () => {
     /** A page restyles it by setting the custom properties, and needs no stylesheet. */
     test("takes every colour from a --gb-widget-* custom property, set through CSSOM", () => {
       const box = mount()
-      const dialog = document.querySelector('[role="dialog"]') as HTMLElement
+      const dialog = document.querySelector("dialog") as HTMLElement
       const frame = dialog.querySelector("iframe") as HTMLIFrameElement
       const cancel = dialog.querySelector("button") as HTMLButtonElement
+      // The box: what holds the frame and Cancel, inside the backdrop.
+      const held = frame.parentElement as HTMLElement
       for (const value of [
         backdrop()?.style.background,
-        dialog.style.background,
-        dialog.style.color,
+        held.style.background,
+        held.style.color,
         frame.style.background,
         cancel.style.background,
         cancel.style.color,
@@ -190,20 +209,25 @@ describe("in a page", () => {
       box.remove()
     })
 
-    test("Cancel and Escape are the player closing it; another key is not", () => {
+    /**
+     * Escape in the page is the dialog's `cancel`, which the box turns into
+     * the player closing it rather than letting the dialog close itself. A
+     * browser that closes it anyway is heard through `close`.
+     */
+    test("Cancel, the dialog's cancel and a close the browser made are the player closing it", () => {
       const box = mount()
-      ;(document.querySelector('[role="dialog"] button') as HTMLElement).click()
+      const dialog = document.querySelector("dialog") as HTMLDialogElement
+      ;(dialog.querySelector("button") as HTMLElement).click()
       expect(cancelled).toBe(1)
-      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }))
-      expect(cancelled).toBe(1)
-      const pressed = new KeyboardEvent("keydown", {
-        key: "Escape",
-        cancelable: true,
-      })
-      document.dispatchEvent(pressed)
+      const escaped = new Event("cancel", { cancelable: true })
+      dialog.dispatchEvent(escaped)
       expect(cancelled).toBe(2)
-      expect(pressed.defaultPrevented).toBe(true)
+      expect(escaped.defaultPrevented).toBe(true)
+      expect(dialog.open).toBe(true)
+      dialog.close()
+      expect(cancelled).toBe(3)
       box.remove()
+      expect(cancelled).toBe(3)
     })
 
     test("taken down, it leaves nothing behind, and focus goes back where it was", () => {
@@ -211,11 +235,16 @@ describe("in a page", () => {
       document.body.append(before)
       before.focus()
       const box = mount()
+      const dialog = document.querySelector("dialog") as HTMLDialogElement
       box.remove()
+      // Closed and gone, which is no player closing it.
+      expect(dialog.open).toBe(false)
       expect(backdrop()).toBeNull()
+      expect(cancelled).toBe(0)
       expect(document.activeElement).toBe(before)
-      // Escape no longer reaches it.
-      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }))
+      // Nothing it heard reaches anybody, and taking it down again is nothing.
+      dialog.dispatchEvent(new Event("cancel", { cancelable: true }))
+      box.remove()
       expect(cancelled).toBe(0)
       // A frame off the page has no window, so no message can be its.
       expect(box.frame).toBeNull()

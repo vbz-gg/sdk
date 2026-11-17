@@ -368,10 +368,14 @@ dashboard. It reads the browser only when it is made, never when the module
 loads, so a page's bundle may import it during server-side rendering, and a
 test hands it a page of its own through `environment`.
 
-**Signing in** happens in a box over the page: a backdrop, a box holding the
-platform's sign-in in an iframe, and a Cancel button, plain DOM with every
-colour a `--gb-widget-*` custom property, set through CSSOM so a policy of
-`style-src 'self'` admits it. `signIn()` puts the box up before anything is
+**Signing in** happens in a box over the page: a native `<dialog>` shown
+with `showModal()` as the backdrop, a box in it holding the platform's
+sign-in in an iframe, and a Cancel button, plain DOM with every colour a
+`--gb-widget-*` custom property, set through CSSOM so a policy of
+`style-src 'self'` admits it. A modal dialog makes the page behind it
+inert, so while the box is up Tab moves among its controls and the
+sign-in's and never reaches the page's own, measured in the browser suite,
+and Escape with focus in the page is the dialog's `cancel`. `signIn()` puts the box up before anything is
 awaited, in the click's own turn, with focus in the frame, so a phone opens
 its keyboard when the sign-in focuses its first field. Then it makes a PKCE
 challenge and a state and points the frame at `/authorize`, naming the page's

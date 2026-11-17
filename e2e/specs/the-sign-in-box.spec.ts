@@ -102,6 +102,49 @@ test("the player closes the box with Cancel, or with Escape inside the sign-in, 
 })
 
 /**
+ * The box is a modal dialog: the page behind it is inert, so Tab moves
+ * among the box's own controls and the sign-in's and never reaches the
+ * page's Play button, and Escape with focus in the page is the dialog's
+ * cancel, which closes the box with E_SIGNIN_CANCELLED.
+ */
+test("while the box is up Tab never reaches the page, and Escape in the page closes it", async ({
+  page,
+}) => {
+  await openRuns(page, "template")
+  await page.getByRole("button", { name: "Sign in", exact: true }).click()
+  const dialog = page.getByRole("dialog", { name: "Sign in" })
+  await expect(
+    signInFrame(page).getByRole("button", { name: /Sign in as/ }),
+  ).toBeVisible()
+  const cancel = dialog.getByRole("button", { name: "Cancel" })
+  await cancel.focus()
+  const reached: string[] = []
+  for (let press = 0; press < 8; press += 1) {
+    await page.keyboard.press("Tab")
+    reached.push(
+      await page.evaluate(() => {
+        const at = document.activeElement
+        return at === null ? "nothing" : at.id || at.tagName
+      }),
+    )
+  }
+  test.info().annotations.push({
+    type: "Tab reached, in the page",
+    description: JSON.stringify(reached),
+  })
+  for (const control of ["signin", "play", "end", "watch", "retry", "stage"]) {
+    expect(reached).not.toContain(control)
+  }
+  await cancel.focus()
+  await page.keyboard.press("Escape")
+  await expect(dialog).toHaveCount(0)
+  await expect(page.locator("body")).toHaveAttribute(
+    "data-signin",
+    "E_SIGNIN_CANCELLED",
+  )
+})
+
+/**
  * A page whose game needs threads is sent with COOP same-origin and COEP.
  * The sign-in sends COEP and CORP on every page it lets be framed, so the
  * box renders and the page stays cross-origin isolated. The sign-in is on

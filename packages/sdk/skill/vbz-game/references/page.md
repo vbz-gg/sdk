@@ -26,7 +26,9 @@ signInButton.onclick = () => platform.signIn() // from the click, nothing awaite
 - `signIn()` puts a box over the page holding the platform's sign-in in a
   frame, before it awaits anything, so focus moves into the frame from the
   click, which is when a phone opens its keyboard. Call it straight from the
-  handler. A second call while the box is up answers the same promise.
+  handler. The box is a modal `<dialog>`, so the page behind it is inert
+  while it is up: Tab never reaches your Play button. A second call while
+  the box is up answers the same promise.
   The player closes the box with its Cancel button or Escape, and
   `closeSignIn()` closes it from the page, even while the code is being
   traded, when the page then keeps nobody; each rejects with
