@@ -163,6 +163,11 @@ describe("a site played locally", () => {
     root = await mkdtemp(join(tmpdir(), "sdk-site-local-"))
     await writeGame(root, true, "local")
     await writeFile(join(root, "dist", "game.json"), `{"present":"present.js"}`)
+    await writeFile(
+      join(root, "dist", "present.js"),
+      `import { MANIFEST } from "cw2:sim"\nexport default MANIFEST\n`,
+    )
+    await writeFile(join(root, "dist", "files.json"), `{"files":[]}`)
     await mkdir(join(root, "dist", "files", "art"), { recursive: true })
     await writeFile(join(root, "dist", "files", "art", "a.png"), "png")
     site = await startSite({

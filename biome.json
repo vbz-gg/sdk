@@ -12,7 +12,8 @@
       "!**/dist",
       "!**/node_modules",
       "!**/*.tsbuildinfo",
-      "!e2e/frozen"
+      "!e2e/frozen",
+      "!packages/sdk/tests/build/fixtures"
     ]
   },
   "formatter": {

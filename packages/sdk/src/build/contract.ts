@@ -118,6 +118,12 @@ export interface PresentImports {
   readonly sim: number
   /** The folder's files it imports, by path, one per import statement. */
   readonly files: readonly string[]
+  /**
+   * How many times it starts a worker with `new Worker`. A page's policy
+   * admits one only with `worker-src blob:` and the game's path, so a game
+   * whose page module starts one has to say it needs workers.
+   */
+  readonly workers: number
 }
 
 /**
@@ -129,9 +135,17 @@ export interface PresentImports {
  * also appear as data: the occurrence counts are what earn the host's text
  * rewrite, and a specifier the scanner did not find as an import is a string
  * the game reads, which a rewrite would change. That is a refusal rather
- * than a rewrite. Nor may it load code at run time, by `import()` with any
- * argument, `new Worker`, `new SharedWorker` or `importScripts`: what it
- * loads has to be decidable without running it.
+ * than a rewrite. Nor may it load code by an address decided at run time, by
+ * `import()` with any argument, `importScripts` or `new SharedWorker`: what
+ * it loads has to be decidable without running it.
+ *
+ * It may start a worker with `new Worker`, which is how a renderer such as
+ * pixi.js 8 runs its own code off the main thread: from a `blob:` URL made
+ * of a string the module carries, so the code is the module's own bytes,
+ * named by its hash like the rest. What a worker can be started from is the
+ * page's policy to bound, `worker-src blob:` and the game's own path, and a
+ * game whose page module starts one says it needs workers, which the build
+ * holds it to.
  *
  * Returns what it imports, which the host compares against its own count
  * after rewriting.
@@ -157,13 +171,16 @@ export function assertPresentImports(
       `the page module calls import() ${computed.length} time${computed.length === 1 ? "" : "s"}, first at character ${computed[0]?.at}; it may load only ${SIM_SPECIFIER} and files its static imports name`,
     )
   }
-  const workers = loads.filter((load) => load.kind !== "import()")
-  if (workers.length > 0) {
+  const byAddress = loads.filter(
+    (load) => load.kind !== "import()" && load.kind !== "new Worker",
+  )
+  if (byAddress.length > 0) {
     refuse(
       "E_PRESENT_WORKER",
-      `the page module calls ${[...new Set(workers.map((load) => load.kind))].join(", ")}; code a game runs that way goes in its files folder, which the page's policy names`,
+      `the page module calls ${[...new Set(byAddress.map((load) => load.kind))].join(", ")}, which loads code by an address decided when it runs; a worker a game starts is a new Worker, from its files folder or from a blob of its own code`,
     )
   }
+  const workers = loads.filter((load) => load.kind === "new Worker").length
 
   const sim = imports.filter((i) => i.path === SIM_SPECIFIER).length
   if (sim === 0) {
@@ -221,7 +238,7 @@ export function assertPresentImports(
     )
   }
 
-  return { sim, files }
+  return { sim, files, workers }
 }
 
 /** Counts the specifier as a quoted literal, in either quote style. */

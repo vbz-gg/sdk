@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test"
+import { readFile } from "node:fs/promises"
+import { join } from "node:path"
 import {
   assertPresentImports,
   assertRewritten,
@@ -157,14 +159,45 @@ describe("the page module imports the simulation and nothing else", () => {
     ).toBe("E_PRESENT_DYNAMIC_IMPORT")
   })
 
-  test("a worker or a script loaded into one is refused", () => {
+  test("a script loaded by its address is refused", () => {
     for (const text of [
-      `import a from "cw2:sim"\nnew Worker(url)`,
       `import a from "cw2:sim"\nnew globalThis.SharedWorker(url)`,
       `import a from "cw2:sim"\nself.importScripts(url)`,
     ]) {
       expect(code(() => onlySim(text))).toBe("E_PRESENT_WORKER")
     }
+  })
+
+  /**
+   * pixi.js 8 starts its workers from blob URLs made of strings it carries,
+   * so every game bundling it holds `new Worker`. The code is the module's
+   * own bytes, named by its hash; the page's policy bounds where a worker
+   * comes from. The fixture is pixi.js 8.21.0's own bundled form, published
+   * and minified.
+   */
+  test("a worker started from the module's own code passes, and is counted", async () => {
+    const published = await readFile(
+      join(import.meta.dir, "fixtures", "pixi-8.21.0-worker.mjs"),
+      "utf8",
+    )
+    const minified = await readFile(
+      join(import.meta.dir, "fixtures", "pixi-8.21.0-worker.min.js"),
+      "utf8",
+    )
+    for (const worker of [published, minified]) {
+      expect(
+        assertPresentImports(
+          `import a from "cw2:sim"\n${worker.replace(/^export .*$/m, "")}`,
+          EMPTY_LISTING,
+        ),
+      ).toEqual({ sim: 1, files: [], workers: 1 })
+    }
+    expect(
+      assertPresentImports(
+        `import a from "cw2:sim"\nnew Worker(a);new self.Worker(b, {type:"module"})`,
+        EMPTY_LISTING,
+      ).workers,
+    ).toBe(2)
   })
 
   test("a message mentioning a load is data, not a load", () => {
@@ -188,7 +221,7 @@ describe("files of the folder, imported as cw2:files/", () => {
         `import a from "cw2:sim"\nimport {e} from "cw2:files/entry.js"\nimport "cw2:files/chunks/a.js"`,
         LISTING,
       ),
-    ).toEqual({ sim: 1, files: ["entry.js", "chunks/a.js"] })
+    ).toEqual({ sim: 1, files: ["entry.js", "chunks/a.js"], workers: 0 })
   })
 
   test("a file the folder does not hold is refused", () => {
@@ -371,6 +404,7 @@ describe("verifying the rewrite", () => {
         assertRewritten(`import a from "${SIM_PATH}"`, SIM_PATH, FILES_BASE, {
           sim: 2,
           files: [],
+          workers: 0,
         }),
       ),
     ).toBe("E_REWRITE_FAILED")
@@ -382,6 +416,7 @@ describe("verifying the rewrite", () => {
         assertRewritten(`import a from "/sim/other.js"`, SIM_PATH, FILES_BASE, {
           sim: 1,
           files: [],
+          workers: 0,
         }),
       ),
     ).toBe("E_REWRITE_FAILED")
@@ -394,7 +429,7 @@ describe("verifying the rewrite", () => {
           `import a from "${SIM_PATH}";import "${FILES_BASE}chunks/a.js"`,
           SIM_PATH,
           FILES_BASE,
-          { sim: 1, files: ["entry.js"] },
+          { sim: 1, files: ["entry.js"], workers: 0 },
         ),
       ),
     ).toBe("E_REWRITE_FAILED")
@@ -408,7 +443,7 @@ describe("verifying the rewrite", () => {
           `import a from "/sim/${HASH}.js"`,
           `/sim/${HASH}.js`,
           FILES_BASE,
-          { sim: 1, files: [] },
+          { sim: 1, files: [], workers: 0 },
         ),
       ),
     ).toBe("E_REWRITE_FAILED")
@@ -421,7 +456,7 @@ describe("verifying the rewrite", () => {
           `const m = await import("${SIM_PATH}")`,
           SIM_PATH,
           FILES_BASE,
-          { sim: 1, files: [] },
+          { sim: 1, files: [], workers: 0 },
         ),
       ),
     ).toBe("E_REWRITE_FAILED")
@@ -433,6 +468,7 @@ describe("verifying the rewrite", () => {
         assertRewritten("export const a = 1", SIM_PATH, FILES_BASE, {
           sim: 1,
           files: [],
+          workers: 0,
         }),
       ),
     ).toBe("E_REWRITE_FAILED")
@@ -444,7 +480,7 @@ describe("verifying the rewrite", () => {
         `import a from "${SIM_PATH}";import "${FILES_BASE}entry.js"`,
         SIM_PATH,
         FILES_BASE,
-        { sim: 1, files: ["entry.js"] },
+        { sim: 1, files: ["entry.js"], workers: 0 },
       ),
     ).not.toThrow()
   })

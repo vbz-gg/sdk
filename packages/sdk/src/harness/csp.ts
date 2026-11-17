@@ -62,6 +62,24 @@ export interface PageCspOptions extends PolicyOptions {
   readonly signInOrigin: string | null
 }
 
+/**
+ * What a version needs of a page's policy: what its game says it needs, in
+ * its `package.json`, held to what its build shows. A page module that
+ * starts a worker cannot start one under a policy without `worker-src`, so a
+ * game whose page module does is refused until it says it needs workers.
+ */
+export function versionNeeds(
+  declared: GameNeeds,
+  build: { readonly workers: number },
+): GameNeeds {
+  if (build.workers > 0 && declared.workers !== true) {
+    throw new Error(
+      `the page module starts a worker with new Worker ${build.workers === 1 ? "once" : `${build.workers} times`}, which a page's policy admits only with worker-src blob: and the game's path; say the game needs workers in its package.json, as "vbz": { "needs": { "workers": true } }`,
+    )
+  }
+  return declared
+}
+
 /** The path every module and file of one game is served under. */
 export function gamePath(bundlesOrigin: string, gameId: string): string {
   return `${bundlesOrigin}/g/${gameId}/`

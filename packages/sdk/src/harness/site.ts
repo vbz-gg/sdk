@@ -32,8 +32,8 @@ import { DIST_DIR, DIST_FILES } from "../build/dist.js"
 import type { GameSource } from "../build/index.js"
 import { contentTypeFor } from "../serve/blobs.js"
 import { type BuiltGame, blobKeys, buildAndAddress } from "./artifacts.js"
-import { type GameNeeds, localPageCsp, pageCsp } from "./csp.js"
-import { readBuiltManifest } from "./dist-manifest.js"
+import { type GameNeeds, localPageCsp, pageCsp, versionNeeds } from "./csp.js"
+import { readBuiltManifest, readBuiltPresent } from "./dist-manifest.js"
 import {
   type Listen,
   LOOPBACK,
@@ -231,7 +231,11 @@ export async function startSite(options: SiteOptions): Promise<RunningSite> {
 
   if (mode === "local") {
     config = { mode: "local" }
-    csp = localPageCsp({ needs, inlineScripts })
+    const { imports } = await readBuiltPresent(root)
+    csp = localPageCsp({
+      needs: versionNeeds(needs, imports),
+      inlineScripts,
+    })
     return {
       mode,
       siteOrigin,
@@ -281,7 +285,7 @@ export async function startSite(options: SiteOptions): Promise<RunningSite> {
     gameId: options.gameId,
     connect: [standIn.apiOrigin],
     signInOrigin: standIn.signInOrigin,
-    needs,
+    needs: versionNeeds(needs, built),
     inlineScripts,
   })
 

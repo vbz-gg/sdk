@@ -64,12 +64,15 @@ them. Nothing in the page module entry sets it.
 4. Size: 4 MiB for the simulation, 16 MiB for the page module
    (`E_ARTIFACT_TOO_LARGE`).
 
-The page module loads nothing at run time by a name it decides then. Any
-`import()`, literal or computed, is refused with `E_PRESENT_DYNAMIC_IMPORT`,
-and `new Worker`, `new SharedWorker` and `importScripts` with
-`E_PRESENT_WORKER`. Code a game starts that way, such as a renderer's
-workers, belongs in the files folder, where the page's policy bounds it to
-the game's own path.
+The page module loads nothing at run time by an address it decides then.
+Any `import()`, literal or computed, is refused with
+`E_PRESENT_DYNAMIC_IMPORT`, and `new SharedWorker` and `importScripts` with
+`E_PRESENT_WORKER`. It may start a worker with `new Worker`, as pixi.js 8
+does from a `blob:` URL of code it carries, or from a script in the files
+folder; the page's policy, `worker-src blob:` and the game's own path, bounds
+where one comes from. A game whose page module starts one says so in its
+`package.json`, `"vbz": { "needs": { "workers": true } }`, or `vbz build`
+stops and says to.
 
 ## The files folder
 

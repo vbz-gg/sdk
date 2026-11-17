@@ -42,13 +42,15 @@ export interface BuiltGame {
   readonly filesSha256: string
   /** Where each listed file is on disk, by its path in the folder. */
   readonly filesOnDisk: ReadonlyMap<string, string>
+  /** How many times the page module starts a worker with `new Worker`. */
+  readonly workers: number
 }
 
 export async function buildAndAddress(
   source: GameSource,
   gameId: string,
 ): Promise<BuiltGame> {
-  const { sim, present, files } = await buildGameArtifacts(source)
+  const { sim, present, imports, files } = await buildGameArtifacts(source)
 
   const simSha256 = sha256Hex(sim)
   const presentSourceSha256 = sha256Hex(present)
@@ -72,6 +74,7 @@ export async function buildAndAddress(
     files: files.listing,
     filesSha256: listingSha256(files.listing),
     filesOnDisk: files.onDisk,
+    workers: imports.workers,
   }
 }
 

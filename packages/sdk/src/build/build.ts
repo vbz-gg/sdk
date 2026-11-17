@@ -15,6 +15,7 @@ import {
   assertSize,
   decodeArtifact,
   FILES_SPECIFIER,
+  type PresentImports,
   SIM_SPECIFIER,
 } from "./contract.js"
 import { EMPTY_LISTING, type ListedFolder, listFolder } from "./files.js"
@@ -46,6 +47,8 @@ export interface GameSource {
 export interface GameArtifacts {
   readonly sim: Uint8Array
   readonly present: Uint8Array
+  /** What the page module imports, and how many workers it starts. */
+  readonly imports: PresentImports
   /** The files folder, listed, and where each file is on disk. */
   readonly files: ListedFolder
 }
@@ -100,9 +103,9 @@ export async function buildGameArtifacts(
   ])
   const presentText = decodeArtifact(present, "page module")
   assertSize(present, MAX_PRESENT_BYTES, "page module")
-  assertPresentImports(presentText, files.listing)
+  const imports = assertPresentImports(presentText, files.listing)
 
-  return { sim, present, files }
+  return { sim, present, imports, files }
 }
 
 /**

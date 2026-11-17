@@ -456,7 +456,8 @@ A game may need more than its two modules, and `pageCsp` adds each need
 only when it is named, in `needs`. A renderer that compiles WebAssembly, such
 as null3d, needs `'wasm-unsafe-eval'` in `script-src`, which compiles
 WebAssembly and evaluates no JavaScript; one that starts workers needs
-`worker-src blob:` and the game's path; and a game that fetches files of its
+`worker-src blob:` and the game's path, and a game whose page module starts
+one does not build until it says so; and a game that fetches files of its
 folder, its data packs or its art, needs the game's path in `connect-src`.
 Nothing a game needs adds `unsafe-eval`. A page carrying an inline script,
 such as an import map, names it in `inlineScripts` and the policy admits it by
@@ -534,9 +535,16 @@ What the contract checks, on the bytes rather than on the source:
    count means the string is also data, so a text rewrite would change
    something the game reads: refuse rather than rewrite.
 4. The page module calls no `import()`, with a literal or a computed name,
-   and no `new Worker`, `new SharedWorker` or `importScripts`. Bun's scanner
-   sees only a literal `import()`, so these are found by reading the text as
-   tokens, stepping over strings, comments and regular expressions. Whether
+   and no `new SharedWorker` or `importScripts`, each of which loads code by
+   an address decided when it runs (`E_PRESENT_DYNAMIC_IMPORT`,
+   `E_PRESENT_WORKER`). It may call `new Worker`: pixi.js 8 starts its
+   workers from `blob:` URLs made of strings the page module carries, so the
+   worker runs the module's own bytes, and what a worker may be started from
+   is the page's policy to bound, `worker-src blob:` and the game's path. The
+   check counts them, `PresentImports.workers`, and `vbz build` refuses a
+   page module that starts one unless the game's `package.json` says it
+   needs workers. Bun's scanner sees only a literal `import()`, so these are
+   found by reading the text as tokens, stepping over strings, comments and regular expressions. Whether
    a `/` opens a pattern or divides is told by what came before it: an
    operand, a `)`, a `]` or a postfix `++` or `--` ends an expression, so it
    divides, and after a control keyword's head, `if (a)`, a statement starts,

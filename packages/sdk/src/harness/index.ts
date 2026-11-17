@@ -29,7 +29,7 @@ import { DIST_DIR, DIST_FILES } from "../build/dist.js"
 import type { GameSource } from "../build/index.js"
 import { type BuiltGame, blobKeys, buildAndAddress } from "./artifacts.js"
 import { givenConfig, servedOrRefused } from "./config.js"
-import { type GameNeeds, pageCsp } from "./csp.js"
+import { type GameNeeds, pageCsp, versionNeeds } from "./csp.js"
 import { readBuiltManifest } from "./dist-manifest.js"
 import { HARNESS_STYLE, harnessPage } from "./page/document.js"
 import { replayInChild } from "./replay.js"
@@ -147,7 +147,7 @@ export async function startHarness(options: HarnessOptions): Promise<Harness> {
     gameId: HARNESS_GAME_ID,
     // The harness page plays local runs, and signs nobody in.
     signInOrigin: null,
-    ...(options.needs === undefined ? {} : { needs: options.needs }),
+    needs: versionNeeds(options.needs ?? {}, built),
   })
 
   host.setPage(
@@ -290,6 +290,7 @@ export {
   localPageCsp,
   type PageCspOptions,
   pageCsp,
+  versionNeeds,
 } from "./csp.js"
 export { escapeHtml, HARNESS_STYLE, harnessPage } from "./page/document.js"
 export {

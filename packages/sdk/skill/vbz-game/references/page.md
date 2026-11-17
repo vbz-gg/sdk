@@ -118,12 +118,12 @@ frame-src https://signin.vbz.gg
 ```
 
 No `unsafe-eval` is needed, and none should be added. A game that compiles
-WebAssembly adds `'wasm-unsafe-eval'` to `script-src`, one that starts workers
-adds `worker-src blob:` and its path, and one that fetches files of its folder
-adds its path to `connect-src`; `pageCsp` in `@vbz-gg/sdk/harness` builds the
-policy from what the game names it needs. `vbz dev --site`
-serves a ranked page under that policy, against a stand-in for the
-platform; `references/harness.md` says what the stand-in does.
+WebAssembly adds `'wasm-unsafe-eval'` to `script-src`, one that starts
+workers, as pixi.js 8 does, adds `worker-src blob:` and its path, and one
+that fetches files of its folder adds its path to `connect-src`; `pageCsp` in
+`@vbz-gg/sdk/harness` builds the policy from what the game names it needs.
+`vbz dev --site` serves a ranked page under that policy, against a stand-in
+for the platform; `references/harness.md` says what the stand-in does.
 
 `playLocal(stage, { game, scripted: "ignore", onEnded })` plays the same
 module with no platform at all: no client, no page key, no sign-in and no

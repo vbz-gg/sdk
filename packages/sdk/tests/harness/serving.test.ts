@@ -25,6 +25,7 @@ import {
   inlineScriptSource,
   localPageCsp,
   pageCsp,
+  versionNeeds,
 } from "../../src/harness/csp"
 import {
   LOOPBACK,
@@ -404,6 +405,24 @@ describe("the policy and the origins", () => {
     const csp = pageCsp({ bundlesOrigin: "x", gameId: "y", signInOrigin: null })
     expect(csp).not.toContain("frame-src")
     expect(csp).not.toContain("child-src")
+  })
+
+  /**
+   * What the build shows holds what the game says: a page module that
+   * starts a worker cannot under a policy without worker-src.
+   */
+  test("a page module that starts a worker needs workers said", () => {
+    expect(versionNeeds({}, { workers: 0 })).toEqual({})
+    expect(versionNeeds({ wasm: true }, { workers: 0 })).toEqual({ wasm: true })
+    expect(versionNeeds({ workers: true }, { workers: 3 })).toEqual({
+      workers: true,
+    })
+    expect(() => versionNeeds({}, { workers: 2 })).toThrow(
+      "starts a worker with new Worker 2 times",
+    )
+    expect(() => versionNeeds({ workers: false }, { workers: 1 })).toThrow(
+      '"vbz": { "needs": { "workers": true } }',
+    )
   })
 
   /** It is written into a header, where a `;` would start a directive of its own. */

@@ -151,6 +151,29 @@ describe("building", () => {
     ])
   })
 
+  /**
+   * A renderer such as pixi.js 8 starts its workers from blobs of its own
+   * code, so a page module may start one. A page's policy admits it only
+   * with worker-src, so the game has to say it needs workers, or the build
+   * stops, before a studio's page meets a worker it refuses.
+   */
+  test("a page module that starts a worker builds only when the game says it needs workers", async () => {
+    await writeGame({ id: "probe", version: "1.0.0" })
+    await writeFile(
+      join(root, "src", "present.ts"),
+      `import { MANIFEST } from "cw2:sim"\nconst code = "postMessage(1)"\nexport const start = () => new Worker(URL.createObjectURL(new Blob([code])))\nexport default { name: MANIFEST.id }\n`,
+    )
+    await expect(buildGame({ root, ...SOURCE })).rejects.toThrow(
+      `the page module starts a worker with new Worker once, which a page's policy admits only with worker-src blob: and the game's path; say the game needs workers in its package.json, as "vbz": { "needs": { "workers": true } }`,
+    )
+    await writeFile(
+      join(root, "package.json"),
+      JSON.stringify({ vbz: { needs: { workers: true } } }),
+    )
+    const built = await buildGame({ root, ...SOURCE })
+    expect(built.needs).toEqual({ workers: true })
+  })
+
   test("a version no line can hold writes nothing", async () => {
     await writeGame({ id: "probe", version: "1.0.0-beta" })
     await expect(buildGame({ root, ...SOURCE })).rejects.toThrow(

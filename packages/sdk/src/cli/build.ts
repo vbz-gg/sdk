@@ -29,8 +29,10 @@ import {
   listingSha256,
 } from "../build/index.js"
 import { parseReleaseVersion, releaseLine } from "../build/version.js"
+import { type GameNeeds, versionNeeds } from "../harness/csp.js"
 import type { LocalBuild } from "../host/local.js"
 import { readManifestFromSim } from "./manifest.js"
+import { needsOf } from "./source.js"
 
 /** A game built in memory, before anything is written. */
 export interface BuiltGame {
@@ -43,6 +45,8 @@ export interface BuiltGame {
   readonly line: string
   /** The files folder, listed, and where each file is on disk. */
   readonly files: ListedFolder
+  /** What the version needs of a page's policy, as the game says and the build holds it to. */
+  readonly needs: GameNeeds
 }
 
 /**
@@ -82,14 +86,18 @@ function packsOf(manifest: unknown): Parameters<typeof assertPacksListed>[0] {
 
 /**
  * Builds both modules, lists the files folder, reads the manifest out of the
- * rules code, and holds the manifest's data packs to the folder.
+ * rules code, holds the manifest's data packs to the folder, and holds what
+ * the game's `package.json` says it needs of a page's policy to what the
+ * build does: a page module that starts a worker is refused unless the game
+ * says it needs workers.
  */
 export async function buildGame(source: GameSource): Promise<BuiltGame> {
-  const { sim, present, files } = await buildGameArtifacts(source)
+  const { sim, present, imports, files } = await buildGameArtifacts(source)
+  const needs = versionNeeds(await needsOf(source.root), imports)
   const manifest = await readManifestFromSim(sim)
   const release = releaseOf(manifest)
   assertPacksListed(packsOf(manifest), files.listing)
-  return { sim, present, manifest, ...release, files }
+  return { sim, present, manifest, ...release, files, needs }
 }
 
 /**
