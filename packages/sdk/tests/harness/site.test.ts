@@ -104,7 +104,7 @@ describe("the site, served with its stand-in", () => {
     expect(origins.size).toBe(4)
   })
 
-  test("the page is the site's own, under a policy naming the game's path and the API", async () => {
+  test("the page is the site's own, under a policy naming the game's path, the API and the sign-in", async () => {
     const response = await fetch(site.siteOrigin)
     expect(await response.text()).toContain("<title>Site</title>")
     const csp = response.headers.get("content-security-policy") ?? ""
@@ -113,6 +113,7 @@ describe("the site, served with its stand-in", () => {
       `script-src 'self' ${site.bundlesOrigin}/g/${HARNESS_GAME_ID}/`,
     )
     expect(csp).toContain(`connect-src 'self' ${site.apiOrigin}`)
+    expect(csp).toContain(`frame-src ${site.signInOrigin};`)
     expect(csp).toContain(inlineScriptSource(IMPORT_MAP))
     expect(csp).not.toContain("unsafe-eval")
     expect((await fetch(`${site.siteOrigin}/index.html`)).status).toBe(200)
@@ -214,6 +215,8 @@ describe("a site played locally", () => {
     )
     expect(csp).toContain("connect-src 'self';")
     expect(csp).not.toContain(" 'unsafe-eval'")
+    // Played locally, nobody signs in, so nothing is framed.
+    expect(csp).not.toContain("frame-src")
   })
 })
 

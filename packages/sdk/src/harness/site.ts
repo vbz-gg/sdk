@@ -280,6 +280,7 @@ export async function startSite(options: SiteOptions): Promise<RunningSite> {
     bundlesOrigin: bundles.origin,
     gameId: options.gameId,
     connect: [standIn.apiOrigin],
+    signInOrigin: standIn.signInOrigin,
     needs,
     inlineScripts,
   })

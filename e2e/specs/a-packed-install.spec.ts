@@ -150,7 +150,12 @@ for (const [name, bundle] of Object.entries(BUNDLERS)) {
 
     const server = await serve(
       out,
-      pageCsp({ bundlesOrigin, gameId: SUBJECTS.template.gameId }),
+      // It plays a run and signs nobody in.
+      pageCsp({
+        bundlesOrigin,
+        gameId: SUBJECTS.template.gameId,
+        signInOrigin: null,
+      }),
     )
     try {
       const { port } = server.address() as AddressInfo

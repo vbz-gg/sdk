@@ -429,6 +429,7 @@ Bun.serve({
             bundlesOrigin: studioBundlesOrigin,
             gameId: SUBJECTS[name].gameId,
             connect: [standIn.apiOrigin],
+            signInOrigin: standIn.signInOrigin,
           }),
         },
       })

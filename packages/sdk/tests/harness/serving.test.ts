@@ -300,11 +300,12 @@ describe("the page script the harness bundles at start", () => {
 })
 
 describe("the policy and the origins", () => {
-  test("the policy names one game's path, and the page's own connections", () => {
+  test("the policy names one game's path, the page's own connections and the sign-in", () => {
     const csp = pageCsp({
       bundlesOrigin: "https://bundles.example",
       gameId: "g-1",
       connect: ["https://api.example"],
+      signInOrigin: "https://signin.example",
     })
     expect(gamePath("https://bundles.example", "g-1")).toBe(
       "https://bundles.example/g/g-1/",
@@ -315,13 +316,40 @@ describe("the policy and the origins", () => {
       "style-src 'self'",
       "img-src 'self' data: blob:",
       "connect-src 'self' https://api.example",
+      "frame-src https://signin.example",
       "base-uri 'none'",
       "form-action 'none'",
       "frame-ancestors 'none'",
     ])
-    expect(pageCsp({ bundlesOrigin: "x", gameId: "y" })).toContain(
-      "connect-src 'self';",
-    )
+    expect(
+      pageCsp({ bundlesOrigin: "x", gameId: "y", signInOrigin: null }),
+    ).toContain("connect-src 'self';")
+  })
+
+  /**
+   * Measured in Chromium and Firefox: with no `frame-src` under
+   * `default-src 'none'`, the sign-in's frame is never requested. A page
+   * that signs nobody in frames nothing at all.
+   */
+  test("a page that signs nobody in frames nothing", () => {
+    const csp = pageCsp({ bundlesOrigin: "x", gameId: "y", signInOrigin: null })
+    expect(csp).not.toContain("frame-src")
+    expect(csp).not.toContain("child-src")
+  })
+
+  /** It is written into a header, where a `;` would start a directive of its own. */
+  test("a sign-in origin that is not exactly an origin is refused", () => {
+    for (const bad of [
+      "https://signin.example/",
+      "https://signin.example/authorize",
+      "https://signin.example; script-src *",
+      "signin.example",
+      "",
+    ]) {
+      expect(() =>
+        pageCsp({ bundlesOrigin: "x", gameId: "y", signInOrigin: bad }),
+      ).toThrow("has to be an origin")
+    }
   })
 
   /**
@@ -330,7 +358,11 @@ describe("the policy and the origins", () => {
    * says it needs it. Nothing a game needs adds `unsafe-eval`.
    */
   test("what a version needs is added, each when named, and unsafe-eval never", () => {
-    const base = { bundlesOrigin: "https://files.vbz.gg", gameId: "g-1" }
+    const base = {
+      bundlesOrigin: "https://files.vbz.gg",
+      gameId: "g-1",
+      signInOrigin: null,
+    }
     const path = "https://files.vbz.gg/g/g-1/"
     const all = pageCsp({
       ...base,
@@ -364,7 +396,12 @@ describe("the policy and the origins", () => {
     )
     expect(source).not.toBe(inlineScriptSource(`${map} `))
     expect(
-      pageCsp({ bundlesOrigin: "x", gameId: "y", inlineScripts: [map] }),
+      pageCsp({
+        bundlesOrigin: "x",
+        gameId: "y",
+        signInOrigin: null,
+        inlineScripts: [map],
+      }),
     ).toContain(`script-src 'self' x/g/y/ ${source}`)
   })
 
@@ -400,6 +437,7 @@ describe("the policy and the origins", () => {
         bundlesOrigin: "https://files.vbz.gg",
         gameId: "<game id>",
         connect: ["https://api.vbz.gg"],
+        signInOrigin: "https://signin.vbz.gg",
       }),
     )
   })

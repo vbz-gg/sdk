@@ -86,7 +86,8 @@ mode, and a file naming none is refused.
   `localPageCsp`.
 - **`{ "mode": "ranked", ... }`**: the game is built and served from a bundles
   origin as above, under the harness page's policy with the API's origin
-  added, and the page talks to a stand-in for the platform.
+  added and the sign-in's in `frame-src`, and the page talks to a stand-in
+  for the platform.
 
 What the game's `package.json` names under `"vbz": { "needs": { ... } }`
 (`wasm`, `workers`, `files`) is added to the policy in both modes, and to the

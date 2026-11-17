@@ -18,6 +18,12 @@
  * needs. One that starts workers needs `worker-src blob:` and the game's
  * path. One that fetches its own files, data packs or art needs the game's
  * path in `connect-src`.
+ *
+ * A page that signs a player in frames the platform's sign-in, so its
+ * policy names the sign-in origin in `frame-src`. Measured in Chromium and
+ * Firefox: under `default-src 'none'` with no `frame-src` the frame is never
+ * requested. A page that signs nobody in, such as the harness's, names none
+ * and frames nothing.
  */
 
 /** What a version needs of a page's policy, beyond its two modules. */
@@ -47,6 +53,13 @@ export interface PageCspOptions extends PolicyOptions {
   readonly bundlesOrigin: string
   /** The game whose path the page may load scripts from. */
   readonly gameId: string
+  /**
+   * Where the platform's sign-in is, `https://signin.vbz.gg`, which the page
+   * frames in its sign-in box; or null for a page that signs nobody in. Named
+   * either way, so a page that signs players in cannot leave it out by
+   * forgetting it.
+   */
+  readonly signInOrigin: string | null
 }
 
 /** The path every module and file of one game is served under. */
@@ -59,8 +72,31 @@ export function inlineScriptSource(text: string): string {
   return `'sha256-${new Bun.CryptoHasher("sha256").update(text).digest("base64")}'`
 }
 
+/**
+ * An origin, exactly: a scheme, a host and a port, with no path. It is
+ * written into a header, where a `;` would start a directive of its own.
+ */
+export function assertOrigin(value: string, what: string): string {
+  let origin: string | null = null
+  try {
+    origin = new URL(value).origin
+  } catch {
+    origin = null
+  }
+  if (origin !== value) {
+    throw new Error(
+      `${what} has to be an origin, such as https://signin.vbz.gg, and ${JSON.stringify(value)} is not one`,
+    )
+  }
+  return value
+}
+
 /** The policy for a page whose game is served from `game`: a path, or `'self'`. */
-function policy(game: string, options: PolicyOptions): string {
+function policy(
+  game: string,
+  options: PolicyOptions,
+  signInOrigin: string | null,
+): string {
   const needs = options.needs ?? {}
   const own = (sources: readonly string[]) =>
     [...new Set(["'self'", ...sources])].join(" ")
@@ -78,6 +114,9 @@ function policy(game: string, options: PolicyOptions): string {
       ...(needs.files === true ? [game] : []),
       ...(options.connect ?? []),
     ])}`,
+    ...(signInOrigin === null
+      ? []
+      : [`frame-src ${assertOrigin(signInOrigin, "the sign-in origin")}`]),
     "base-uri 'none'",
     "form-action 'none'",
     "frame-ancestors 'none'",
@@ -86,13 +125,18 @@ function policy(game: string, options: PolicyOptions): string {
 
 /** The policy for a studio's page playing a game served from the bundles origin. */
 export function pageCsp(options: PageCspOptions): string {
-  return policy(gamePath(options.bundlesOrigin, options.gameId), options)
+  return policy(
+    gamePath(options.bundlesOrigin, options.gameId),
+    options,
+    options.signInOrigin,
+  )
 }
 
 /**
  * The policy for a page that serves its game from its own origin, as a game
- * played only on its own page does: everything the game loads is `'self'`.
+ * played only on its own page does: everything the game loads is `'self'`,
+ * and nobody signs in.
  */
 export function localPageCsp(options: PolicyOptions = {}): string {
-  return policy("'self'", options)
+  return policy("'self'", options, null)
 }

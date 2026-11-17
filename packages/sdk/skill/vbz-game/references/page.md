@@ -109,10 +109,12 @@ ended the pause.
 
 The page's Content-Security-Policy has to let the game's code in and keep
 every other game's out. Name your game's own path on the platform's bundles
-origin, never the whole origin, and the API in `connect-src`:
+origin, never the whole origin, the API in `connect-src`, and the sign-in in
+`frame-src`:
 
 ```
-script-src 'self' https://files.vbz.gg/g/<game id>/; connect-src 'self' https://api.vbz.gg
+script-src 'self' https://files.vbz.gg/g/<game id>/; connect-src 'self' https://api.vbz.gg;
+frame-src https://signin.vbz.gg
 ```
 
 No `unsafe-eval` is needed, and none should be added. A game that compiles

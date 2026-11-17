@@ -136,6 +136,8 @@ export async function startHarness(options: HarnessOptions): Promise<Harness> {
   const csp = pageCsp({
     bundlesOrigin: bundles.origin,
     gameId: HARNESS_GAME_ID,
+    // The harness page plays local runs, and signs nobody in.
+    signInOrigin: null,
     ...(options.needs === undefined ? {} : { needs: options.needs }),
   })
 

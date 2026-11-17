@@ -209,11 +209,12 @@ run plays, and a resumed run plays its own, which `playRun` loads when
 it is not the one you did.
 
 Your page's Content-Security-Policy has to let the game in and keep every
-other game out. Name your game's own path on the platform's file origin and
-the API:
+other game out. Name your game's own path on the platform's file origin, the
+API, and the sign-in in `frame-src`:
 
 ```
-script-src 'self' https://files.vbz.gg/g/<game id>/; connect-src 'self' https://api.vbz.gg
+script-src 'self' https://files.vbz.gg/g/<game id>/; connect-src 'self' https://api.vbz.gg;
+frame-src https://signin.vbz.gg
 ```
 
 Any bundler that leaves `loadGame`'s import of a URL to the browser works:

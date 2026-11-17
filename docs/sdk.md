@@ -432,8 +432,8 @@ origin, since every studio's games are served from it:
 ```
 default-src 'none'; script-src 'self' https://files.vbz.gg/g/<game id>/;
 style-src 'self'; img-src 'self' data: blob:;
-connect-src 'self' https://api.vbz.gg; base-uri 'none'; form-action 'none';
-frame-ancestors 'none'
+connect-src 'self' https://api.vbz.gg; frame-src https://signin.vbz.gg;
+base-uri 'none'; form-action 'none'; frame-ancestors 'none'
 ```
 
 That is the policy the harness serves its own page under (`pageCsp` in
@@ -442,6 +442,12 @@ WebKit: it admits the page module's dynamic import and the module's own
 static import of its rules code, and refuses another game's path on the same
 origin before a request leaves. It needs no `unsafe-eval` and no inline
 script. A page with more of its own adds to it.
+
+`frame-src` names the platform's sign-in, so the page can frame it.
+Measured in Chromium and Firefox: under `default-src 'none'` with no
+`frame-src`, a frame on the sign-in origin is never requested. `pageCsp`
+takes the sign-in origin, `signInOrigin`, and a page that signs nobody in
+names `null` and frames nothing.
 
 A game may need more than its two modules, and `pageCsp` adds each need
 only when it is named, in `needs`. A renderer that compiles WebAssembly, such
@@ -767,12 +773,12 @@ builds, and so is `0.0.0.0`, which no page can name.
 the mode its `site/config.json` names, and refuses a file naming none.
 Played locally, the build is served beside the page as `/game/`, under
 `localPageCsp`, and nothing else runs. Ranked, the page is served under the
-harness page's policy with the API added, against a stand-in for the
-platform shipped in the package: the page routes and the sign-in window on
-origins of their own, as one local player, on the harness seed and the
-served config, at the platform's limits from `/build`, and the harness
-answers the page's `config.json` with the mode, the stand-in's origins and
-its page key. In either mode an inline script the page carries, such as its
+harness page's policy with the API added and the sign-in in `frame-src`,
+against a stand-in for the platform shipped in the package: the page routes
+and the sign-in window on origins of their own, as one local player, on the
+harness seed and the served config, at the platform's limits from `/build`,
+and the harness answers the page's `config.json` with the mode, the
+stand-in's origins and its page key. In either mode an inline script the page carries, such as its
 import map, is admitted by the SHA-256 of its text, and what the game's
 `package.json` says it needs of a page's policy,
 `"vbz": { "needs": { "wasm": true, "workers": true, "files": true } }`, is
