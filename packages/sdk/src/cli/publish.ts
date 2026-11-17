@@ -70,12 +70,23 @@ export const API_ORIGIN_VARIABLE = "VBZ_API_ORIGIN"
 export const CHECK_POLL_MS = 2_000
 
 /**
- * How long to wait for the checks before giving up on the answer. The checks
- * run the game in three engines, which takes minutes rather than seconds, and
- * a version still pending after this is still being checked: the command
- * says so and names the version, rather than claiming it failed.
+ * How long to wait for the checks' verdict before giving up on the answer:
+ * 30 minutes from the upload's answer. It covers the version's ingest job
+ * waiting in the platform's queue, the checks container running the
+ * engine's checks, the sweep in three engines and the page module, and the
+ * replay-service check, one replay of the bot's log, which the platform lets
+ * spend up to 5 minutes of CPU, its `DEFAULT_CPU_BUDGET_MS`, and 7.5 minutes
+ * of wall time, its `DEFAULT_WALL_BUDGET_MS`, half as much again, before the
+ * replay service answers. That leaves 22.5 minutes for the queue and the
+ * container. Those budgets are the platform's, per replay: a change to either
+ * there is a change to this. It does not cover a patch's scores, which the
+ * command prints only once the platform has measured them.
+ *
+ * A version still pending after this is still being checked: the command
+ * says so in the platform's terms, names where to read it later, and exits
+ * 1, because only a published version exits 0.
  */
-export const CHECK_WAIT_MS = 15 * 60_000
+export const CHECK_WAIT_MS = 30 * 60_000
 
 /** How long one upload, of the version or of one file, may take to be answered. */
 export const UPLOAD_TIMEOUT_MS = 120_000
@@ -141,6 +152,8 @@ export class PublishError extends Error {
     readonly status?: number,
     /** What the refusal was about, when the platform said. */
     readonly detail?: Readonly<Record<string, unknown>>,
+    /** What to do next, a line each, printed after the reason. */
+    readonly next: readonly string[] = [],
   ) {
     super(`${message} (${code}${refusal === undefined ? "" : `, ${refusal}`})`)
   }
@@ -407,13 +420,33 @@ export async function publish(
     const status = await readStatus(deps, settings, versionUrl)
     if (status !== undefined && status.state !== "pending") return status
     if (deps.now() - started >= CHECK_WAIT_MS) {
-      throw new PublishError(
-        PUBLISH_ERROR.STILL_CHECKING,
-        `version ${uploaded.gameVersionId} was still being checked after ${CHECK_WAIT_MS / 60_000} minutes; read it later at ${versionUrl}`,
-      )
+      throw stillChecking(uploaded, versionUrl)
     }
     await deps.sleep(CHECK_POLL_MS)
   }
+}
+
+/**
+ * A version the checks had not decided when the wait ran out, in the
+ * platform's terms: its state is `pending`, the platform has it, and its
+ * verdict is read from the route the command was polling. Publishing the
+ * same version again would be refused, so the log says not to.
+ */
+function stillChecking(
+  uploaded: UploadedVersion,
+  versionUrl: string,
+): PublishError {
+  return new PublishError(
+    PUBLISH_ERROR.STILL_CHECKING,
+    `version ${uploaded.version} (${uploaded.gameVersionId}) is still pending after ${CHECK_WAIT_MS / 60_000} minutes: the platform has it and its checks have not decided, so this exits 1 with no verdict`,
+    undefined,
+    undefined,
+    undefined,
+    [
+      `read its state later with the studio's secret key, GET ${versionUrl}: pending until the checks decide, then published or rejected`,
+      `do not publish ${uploaded.version} again: the platform has it, and a second upload is refused as E_VERSION_EXISTS`,
+    ],
+  )
 }
 
 function gameUrl(settings: PublishSettings): string {
@@ -923,7 +956,14 @@ function detailLines(
   return [`detail: ${JSON.stringify(detail)}`]
 }
 
-/** What a publish that stopped prints: why, and what the platform's detail says. */
+/**
+ * What a publish that stopped prints: why, what the platform's detail says,
+ * and what to do next.
+ */
 export function failureLines(error: PublishError): string[] {
-  return [error.message, ...detailLines(error.refusal, error.detail)]
+  return [
+    error.message,
+    ...detailLines(error.refusal, error.detail),
+    ...error.next,
+  ]
 }

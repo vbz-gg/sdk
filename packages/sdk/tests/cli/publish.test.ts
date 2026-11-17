@@ -625,7 +625,13 @@ describe("waiting for the checks", () => {
     expect(refused.code).toBe(PUBLISH_ERROR.ANSWER_UNREADABLE)
   })
 
-  test("still pending when the wait runs out names the version to read later", async () => {
+  /**
+   * A build log that stops at the wait has to say the version is not
+   * failed but undecided, where its verdict will be, and that sending it
+   * again cannot help: a second upload of a version the platform holds is
+   * refused. Anything less reads as a red build to retry.
+   */
+  test("still pending when the wait runs out says so in the platform's terms, and where to read it", async () => {
     await writeDist(dir)
     const answers = [() => json(uploaded(), 201)]
     const reads = CHECK_WAIT_MS / CHECK_POLL_MS + 1
@@ -634,8 +640,17 @@ describe("waiting for the checks", () => {
     const net = world(answers)
     const refused = await refusalOf(publish(settings(), net.deps))
     expect(refused.code).toBe(PUBLISH_ERROR.STILL_CHECKING)
-    expect(refused.message).toContain(VERSION_ID)
     expect(net.slept.reduce((a, b) => a + b, 0)).toBe(CHECK_WAIT_MS)
+    // Every read went to the version's own route, the one the log names.
+    const read = `https://studio.example/v1/studios/${STUDIO}/versions/${VERSION_ID}`
+    expect(net.sent.slice(1).every((request) => request.url === read)).toBe(
+      true,
+    )
+    expect(failureLines(refused)).toEqual([
+      `version 1.2.0 (${VERSION_ID}) is still pending after 30 minutes: the platform has it and its checks have not decided, so this exits 1 with no verdict (E_PUBLISH_STILL_CHECKING)`,
+      `read its state later with the studio's secret key, GET ${read}: pending until the checks decide, then published or rejected`,
+      "do not publish 1.2.0 again: the platform has it, and a second upload is refused as E_VERSION_EXISTS",
+    ])
   })
 })
 

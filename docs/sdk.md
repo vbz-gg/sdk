@@ -1258,9 +1258,15 @@ prints the release line the version joined, and then reads the version back
 at
 `GET /v1/studios/:studioId/versions/:versionId` every two seconds until the
 platform's checks decide. The upload's answer names the studio, so the
-command needs only the game's id. It waits up to 15 minutes, because the
-checks run the game in three engines, and a version still pending after that
-is reported as still being checked rather than as failed.
+command needs only the game's id. It waits up to 30 minutes,
+`CHECK_WAIT_MS`, which covers the ingest job's time in the platform's queue,
+the checks container running the game in three engines, and the
+replay-service check, whose one replay the platform lets spend 5 minutes of
+CPU and 7.5 minutes of wall time before it answers. A version still pending
+after that is reported in the platform's terms, still pending, with the
+address to read its state at later and a reminder that uploading it again
+is refused as `E_VERSION_EXISTS`, and the command exits 1, because only a
+published version exits 0.
 
 Each of the four goes as a file part carrying the file's bytes as they are
 on disk. A text part would not arrive that way: an encoder that follows the
@@ -1271,8 +1277,9 @@ It is built for a studio's build system, so its exit code is the verdict: 0
 when the version passed its checks and is published, with the release line
 it joined and which runs it serves printed. A version that serves no run yet,
 such as a new minor waiting for the next day's seed, still exits 0. A
-rejection, a version an operator has taken down, a refusal and a platform
-that does not answer all exit 1 with a code that names which, and a refusal
+rejection, a version an operator has taken down, a version still being
+checked when the wait runs out, a refusal and a platform that does not
+answer all exit 1 with a code that names which, and a refusal
 prints its `detail`: the fields a patch changed and the minor to publish
 instead, or the versions an upload had to be above.
 
