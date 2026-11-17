@@ -8,19 +8,20 @@ dry run.
 
 `vbz publish <dir> --game <id>` is how a submission arrives. It sends the
 files folder's listing with the version's manifest and asks which files the
-platform lacks; the platform answers the refusals of sections 0 and 2 that
-the manifest and the listing alone decide, and the quota, before any file
-goes up, so a version it would refuse stores nothing. Then the command
-uploads each missing file on its own, sends the version with the listing
-beside it, then
+platform lacks. The platform answers every refusal of sections 0 and 1,
+`E_RANK_UNDECLARED` included, those of section 2 that the listing and its
+data packs decide, and the quota, before any file goes up, so a version it
+would refuse stores nothing; only the two modules' own checks in section 2
+wait for the upload that carries them. Then the command uploads each
+missing file on its own, sends the version with the listing beside it, then
 reads the version back until the checks below decide, and prints the code
-and the first failed check of a rejection. A file is stored under the hash
-of its bytes (`E_FILE_HASH_MISMATCH` when they are not), so a file an
-earlier version sent is not sent again, and a version whose listing names a
-file the platform does not hold is refused with `E_FILES_MISSING`. Files
-stored for a version that never arrives, because the publish stopped
-between them or another version arrived first, are named by nothing and
-removed a day later.
+and the first failed check of a rejection. The platform keeps a file once
+per game, in its private store under the hash of its bytes
+(`E_FILE_HASH_MISMATCH` when they are not), so a file an earlier version
+sent is not sent again, and a version whose listing names a file the
+platform does not hold is refused with `E_FILES_MISSING`. Files stored for a
+version that never arrives, because the publish stopped between them or
+another version arrived first, are named by nothing and removed a day later.
 
 ## 0. The version
 
@@ -45,15 +46,16 @@ release lines" explains what a line means for the day's runs.
 
 ## 1. The manifest
 
-`assertManifest` on the shape, and then one thing it does not cover:
+`assertManifest` on the shape. A ranking, when the manifest declares one,
+has `rankBy` and `tiePolicy` together, `rankBy` not empty, and every name in
+it a declared counter (`E_MANIFEST_INVALID`). Then one thing
+`assertManifest` does not cover:
 
-- every name in `rankBy` is a declared counter, and `rankBy` is not empty
-  (`E_RANKBY_UNDECLARED`). Without this a game lists, plays fine all day and
-  can never rank anybody.
-
-The manifest is also compared against the one the built simulation exports.
-The code's copy wins: a submission whose JSON says something the simulation
-does not is refused rather than believed.
+- the manifest declares `rankBy` and `tiePolicy` at all
+  (`E_RANK_UNDECLARED`, the engine's own code, which `vbz check --ranked`
+  reports for the same manifest). A game played only on its own page may
+  leave both out, and one uploaded without them would give a ranked run
+  nothing to be ordered by.
 
 ## 2. The artifacts and the files folder
 
@@ -73,10 +75,15 @@ game's path, and the page module is hashed afterwards.
 
 ## 3. The conformance suite
 
-The engine's `ranked` set from `@clockwork2/engine/validate`, run against the
-built simulation laid out as a subject directory with its data packs beside
-it, playing the config a run is served: every declared setting at its
-default. The set is every check the engine runs on any game, the subject of
+First the manifest is compared with the one the built simulation exports.
+The code's copy wins: a simulation that exports no `MANIFEST` is refused
+(`E_SIM_NO_MANIFEST`), and so is a submission whose JSON says something the
+simulation does not (`E_MANIFEST_MISMATCH`), rather than believed.
+
+Then the engine's `ranked` set from `@clockwork2/engine/validate`, run
+against the built simulation laid out as a subject directory with its data
+packs beside it, playing the config a run is served: every declared setting
+at its default. The set is every check the engine runs on any game, the subject of
 the engine's guide, clockwork2 (determinism, banned APIs, no async, restore,
 counters, headless, assets and the rest), and two that only a ranked or
 practice run needs. Each check plays its logs to the game's own end or to a
@@ -88,13 +95,13 @@ fixed window; no run has a step limit.
   other, so a seed-blind generator is perfectly deterministic - and turns a
   daily board into an all-time board.
 - **Ranking**: the manifest declares `rankBy` and `tiePolicy`
-  (`E_RANK_UNDECLARED`), which a game played only on its own page may leave
-  out.
+  (`E_RANK_UNDECLARED`), which the upload already held it to in section 1.
 
 ## 4. The cross-engine sweep
 
 The candidate's own logs replayed under JavaScriptCore and SpiderMonkey as
-well as V8, once per version rather than per play.
+well as V8, once per version rather than per play. Engines that reach
+different states refuse the version with `E_ENGINE_DIVERGED`.
 
 This is the real admission boundary. `banned-apis` is a static scan and a
 static scan is evadable: `Math["si"+"n"]` walks past it and straight into
@@ -105,19 +112,57 @@ differ for `Math.hypot` between JavaScriptCore and V8, 10.3% for `Math.exp`,
 ## 5. The page module
 
 The page module is loaded in a headless browser and played for a short run
-with the bot's inputs, so one that will not load, will not mount or fails as
-it plays is refused before any player meets it. The checks' browser has no
+with the bot's inputs, so one that will not load (`E_PAGE_MODULE_UNLOADABLE`),
+is not one a page plays or will not mount (`E_PAGE_MODULE_INVALID`), fails as
+it plays (`E_PAGE_MODULE_THREW`), or plays the log to another state than the
+replay of it (`E_PAGE_MODULE_DIVERGED`) is refused before any player meets
+it. The checks' browser has no
 WebGL and no WebGPU, so a game drawn with them cannot get ready there; a
 watched run's `draw: false` is the SDK's way to play a page module without
 its presentation, so its checkpoints can still be compared with the
 replay's.
 
-## 6. Published
+## 6. One replay on the replay service
+
+The checks above run on a machine of their own, which is not where a run is
+replayed and has more memory than a replay gets. So before the version
+publishes, the platform replays the bot's log the checks play once more, on
+the replay service that replays every ranked and practice run. One replay
+there has 5 minutes of CPU, 7.5 minutes of wall time and 128 MB of memory,
+the platform's figures for its replay service on Cloudflare, and a version
+whose replay runs out of its CPU time, its wall time or its memory is
+refused with `E_REPLAY_OVER_BUDGET`, before any player's run fails the same
+way. A replay that fails for another reason is refused under the code the
+replay service gave, which every player's run would meet too: the rules code
+threw (`E_REPLAY_THREW`), reached for something the service's isolate does
+not have, such as the network (`E_REPLAY_REACHED_OUT`), or the service
+could not take the replay, a log that would not decode under the version's
+manifest or a request over the size it takes (`E_REPLAY_MALFORMED`). The
+replay holds the log to the manifest's inputs first, as every run's does, so
+the check can also refuse under the engine's own `E_INPUT_UNDECLARED`,
+`E_INPUT_RANGE` or `E_INPUT_BUDGET`, which the engine's guide explains in
+`clockwork2/references/failure-modes.md`. Each is the game's to fix. A
+replay service that gives no answer is the platform's: the check is tried
+again, and the version stays pending.
+
+Passing says the bot's run fits, and a player's run can be longer. Every
+run's replay starts the rules code afresh, holds the data packs the manifest
+declares, and plays every step the run took, so:
+
+- **Make a step cheaper.** At 60 steps a second an hour of play is 216,000
+  steps, and 5 minutes of CPU leaves about 1.4 ms for each. A ranked run
+  whose replay runs out of any of the three is a `log_fault` and never
+  ranks.
+- **Hold less at once.** The rules code as loaded, its data packs and the
+  game's state share the 128 MB of memory. Keep level data in packs rather
+  than in the rules code, and let the state drop what no later step reads.
+
+## 7. Published
 
 Nobody reviews in between: a version that passes every check is published.
-Its two modules and its files folder are copied to
-`https://files.vbz.gg/g/<game id>/`, from where a studio's page loads them,
-and
+Its two modules are copied to `https://files.vbz.gg/g/<game id>/`, and its
+files folder to `https://files.vbz.gg/g/<game id>/t/<listing sha256>/`,
+each file under its path, from where a studio's page loads them, and
 `vbz publish` prints which runs it serves. A patch of the day's release line
 reaches the next ranked start, because a ranked run plays the line's highest
 published patch. A new minor or major waits for the next day's seed. Practice
@@ -140,6 +185,12 @@ that is the patch today's ranked runs play, nothing falls back to an older
 one: a ranked start answers `E_RANKED_PAUSED` and `GET /v1/game` says the day
 is paused until a newer patch in the line passes or the next day's seed.
 Practice carries on.
+
+A takedown removes the version's two modules from `files.vbz.gg`, and its
+files folder too, unless another version that is served, or still being
+checked, names the same folder. Two versions with an identical listing share
+one folder, so a patch that changed only code keeps the folder up when the
+version before it is taken down.
 
 ## What is not checked, and cannot be
 

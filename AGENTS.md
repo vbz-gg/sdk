@@ -55,6 +55,9 @@ the platform's. Within `/v1` a change only adds, from the day vbz-gg/platform's
 `AGENTS.md` marks the platform deployed; until then a shape may change in
 place, here first. `packages/sdk/tests/api.test.ts`
 holds the subpath to exporting no value, because a studio's page bundles it.
+`PublicRefusalCode` is what a route answers; `VersionCheckCode` is what the
+platform's own checks end a version in, read back as its `rejectedCode` and
+never a refusal's body, and the platform holds its table of them to it.
 
 ## The page's client
 
@@ -333,6 +336,15 @@ the minor to publish instead, or the versions an upload had to be above), and
 once the checks pass, which runs the version serves and how many of its
 line's recent ranked runs end differently under it.
 
+**The wait for a verdict is derived, never written as a number.**
+`CHECK_WAIT_MS` is `checkWaitOf` over the queue's and the public-store
+copy's named allowances and `/build`'s `CHECKS_CONTAINER_WAIT_MS`,
+`REPLAY_WALL_BUDGET_MS` and `REPLAY_ANSWER_MARGIN_MS`, which the platform
+takes from this package, with a minute of headroom, rounded up to whole
+minutes, so it is never shorter than the platform's worst case for one
+attempt and a wait or budget that moves moves it. It does not cover a
+retry after a replay service that gave no answer.
+
 **Its exit code is the verdict.** 0 means the version passed its checks and
 is published, and the command has printed which runs it serves. Anything
 else, including a version an operator took down, is 1. This sentence, the
@@ -391,8 +403,17 @@ see: the limit tables in `references/files.md` and `docs/sdk.md` name every
 `MAX_` constant `/build` exports and no other, each at its value, and the
 package README's table matches too; every artifact refusal named anywhere in
 the guide, `docs/sdk.md` or the package README exists, and every one that
-exists is explained; `references/page.md` explains every client code and no
-other; every prose copy of what a release line fixes (in `SKILL.md`,
+exists is explained; every code the guide's refusal list and
+`references/ingest.md` name is one `PublicRefusalCode`, `VersionCheckCode`
+or the engine names, the two unions read from their declarations with
+TypeScript's parser and `VersionCheckCode`'s compared with a list the
+compiler holds exhaustive, and every code `VersionCheckCode` names is
+explained in both; a manifest with no ranking goes by one name everywhere, the
+engine's `E_RANK_UNDECLARED`; every figure the guide and `docs/sdk.md`
+quote for one replay, and what follows from it, is `/build`'s `REPLAY_`
+budget, and the publish wait `docs/sdk.md` states is `CHECK_WAIT_MS` and its
+parts; `references/page.md` explains every client code and no other; every
+prose copy of what a release line fixes (in `SKILL.md`,
 `references/ingest.md` and `docs/sdk.md`) names exactly the fields
 `LINE_RULES` fixes; every need the prose shows a `package.json` naming is
 one `vbz` takes; the policy the null3d recipe and `docs/sdk.md` print for a
@@ -404,8 +425,9 @@ other limit it quotes is the constant that decides it, every `Prng` method
 it quotes is on the engine's `Prng`, every file of the engine's guide it
 names is one the installed engine ships, and it calls that guide
 `clockwork2` and nothing older. Adding a client code fails it until
-`page.md` has a row, and adding a limit fails it until both tables have
-one.
+`page.md` has a row, adding a limit fails it until both tables have one,
+and adding a code to `VersionCheckCode` fails it until the refusal list
+and `references/ingest.md` explain it.
 
 ## Tests
 

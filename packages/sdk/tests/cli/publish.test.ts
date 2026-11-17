@@ -32,7 +32,9 @@ import { TEMPLATE_DIR } from "../../src/cli/new.js"
 import {
   API_ORIGIN_VARIABLE,
   CHECK_POLL_MS,
+  CHECK_WAIT_HEADROOM_MS,
   CHECK_WAIT_MS,
+  checkWaitOf,
   DEFAULT_API_ORIGIN,
   FILE_ATTEMPTS,
   FILE_RETRY_MS,
@@ -625,17 +627,52 @@ describe("waiting for the checks", () => {
     expect(refused.code).toBe(PUBLISH_ERROR.ANSWER_UNREADABLE)
   })
 
-  test("still pending when the wait runs out names the version to read later", async () => {
+  /**
+   * A build log that stops at the wait has to say the version is not
+   * failed but undecided, where its verdict will be, and that sending it
+   * again cannot help: a second upload of a version the platform holds is
+   * refused. Anything less reads as a red build to retry.
+   */
+  test("still pending when the wait runs out says so in the platform's terms, and where to read it", async () => {
     await writeDist(dir)
     const answers = [() => json(uploaded(), 201)]
-    const reads = CHECK_WAIT_MS / CHECK_POLL_MS + 1
-    for (let i = 0; i < reads; i += 1)
+    // A read, then a sleep, until the time slept reaches the wait: the
+    // reads it takes, and one more that finds the wait run out.
+    const sleeps = Math.ceil(CHECK_WAIT_MS / CHECK_POLL_MS)
+    for (let i = 0; i < sleeps + 1; i += 1)
       answers.push(() => json(status("pending")))
     const net = world(answers)
     const refused = await refusalOf(publish(settings(), net.deps))
     expect(refused.code).toBe(PUBLISH_ERROR.STILL_CHECKING)
-    expect(refused.message).toContain(VERSION_ID)
-    expect(net.slept.reduce((a, b) => a + b, 0)).toBe(CHECK_WAIT_MS)
+    expect(net.slept.reduce((a, b) => a + b, 0)).toBe(sleeps * CHECK_POLL_MS)
+    expect(net.sent).toHaveLength(1 + sleeps + 1)
+    // Every read went to the version's own route, the one the log names.
+    const read = `https://studio.example/v1/studios/${STUDIO}/versions/${VERSION_ID}`
+    expect(net.sent.slice(1).every((request) => request.url === read)).toBe(
+      true,
+    )
+    expect(failureLines(refused)).toEqual([
+      `version 1.2.0 (${VERSION_ID}) is still pending after ${CHECK_WAIT_MS / 60_000} minutes: the platform has it and its checks have not decided, so this exits 1 with no verdict (E_PUBLISH_STILL_CHECKING)`,
+      `read its state later with the studio's secret key, GET ${read}: pending until the checks decide, then published or rejected`,
+      "do not publish 1.2.0 again: the platform has it, and a second upload is refused as E_VERSION_EXISTS",
+    ])
+    expect(failureLines(refused)[0]).toMatch(/ after \d+ minutes: /)
+  })
+
+  /**
+   * The wait is made of budgets that are not whole minutes, such as a
+   * replay's 7.5 minutes and the 10 seconds past it. Summed as they are, it
+   * would print a fraction of a minute, and a part rounded down would make
+   * the wait shorter than the platform's worst case.
+   */
+  test("a wait made of parts that are not whole minutes is whole minutes, and never shorter than its parts", () => {
+    const parts = [7.5 * 60_000, 10_000]
+    const wait = checkWaitOf(parts)
+    const least = parts.reduce((a, b) => a + b, CHECK_WAIT_HEADROOM_MS)
+    expect(`${wait / 60_000}`).toMatch(/^\d+$/)
+    expect(wait).toBeGreaterThanOrEqual(least)
+    expect(wait - least).toBeLessThan(60_000)
+    expect(`${CHECK_WAIT_MS / 60_000}`).toMatch(/^\d+$/)
   })
 })
 
@@ -765,13 +802,11 @@ describe("what a refusal's detail says", () => {
     refusal: string,
     detail?: Readonly<Record<string, unknown>>,
   ): PublishError {
-    return new PublishError(
-      PUBLISH_ERROR.REFUSED,
-      "the platform refused: no",
+    return new PublishError(PUBLISH_ERROR.REFUSED, "the platform refused: no", {
       refusal,
-      409,
+      status: 409,
       detail,
-    )
+    })
   }
 
   test("a patch that changes its line's rules names the fields and the minor to use", () => {
@@ -835,9 +870,7 @@ describe("what a refusal's detail says", () => {
     const error = new PublishError(
       PUBLISH_ERROR.REFUSED,
       "the platform refused: files missing",
-      "E_FILES_MISSING",
-      409,
-      { missing },
+      { refusal: "E_FILES_MISSING", status: 409, detail: { missing } },
     )
     expect(failureLines(error)[1]).toBe(
       `the platform does not hold 2 of the folder's files: ${missing.join(", ")}; publish again to upload them`,
@@ -845,8 +878,10 @@ describe("what a refusal's detail says", () => {
     // Not a list of hashes: printed as sent.
     expect(
       failureLines(
-        new PublishError(PUBLISH_ERROR.REFUSED, "m", "E_FILES_MISSING", 409, {
-          missing: ["../x"],
+        new PublishError(PUBLISH_ERROR.REFUSED, "m", {
+          refusal: "E_FILES_MISSING",
+          status: 409,
+          detail: { missing: ["../x"] },
         }),
       )[1],
     ).toBe(`detail: {"missing":["../x"]}`)

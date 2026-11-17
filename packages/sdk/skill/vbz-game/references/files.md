@@ -89,9 +89,9 @@ assets: [
   packs over the limits below (`E_PACKS_TOO_LARGE`). Take the size and hash
   from the file: `wc -c` and `sha256sum` print them.
 - On a page, the start packs are fetched while the game gets ready, so a
-  pack that does not arrive spends no run. The platform stores every pack
-  with the version, and its replay reads the same bytes; `vbz dev` hands its
-  replay the packs in the folder.
+  pack that does not arrive spends no run. The platform keeps every pack as
+  it keeps any file of the folder, and its replay reads the same bytes;
+  `vbz dev` hands its replay the packs in the folder.
 - Art the rules code never reads is not declared. It is a file of the
   folder, and the presentation fetches it.
 - Split level data into one pack per area rather than one large pack, and
@@ -160,7 +160,12 @@ A file over its limit is `E_FILE_TOO_LARGE`, a folder over its limits
 `E_FILES_TOO_LARGE` or `E_FILES_TOO_MANY`, and `vbz build` holds each file
 to them by its size on disk before it reads a byte. The rules code and every
 pack together fit one replay, which is why level data goes in packs and not
-in the rules code: every replay starts the rules code afresh.
+in the rules code: every replay starts the rules code afresh. A replay also
+has a budget of CPU time, wall time and memory, which only a replay
+measures, so no build checks it: `@vbz-gg/sdk/build` exports it as
+`REPLAY_CPU_BUDGET_MS`, `REPLAY_WALL_BUDGET_MS` and `REPLAY_MEMORY_MB`, and
+`references/ingest.md` under "6. One replay on the replay service" has the
+figures and the check that holds a version to them.
 
 ## Where it goes
 
@@ -168,5 +173,15 @@ in the rules code: every replay starts the rules code afresh.
 `/g/<game id>/t/<listing sha256>/<path>`, the path `files.vbz.gg` uses.
 `vbz publish` sends the listing first, with the manifest, and uploads only
 the files the platform does not already hold for the game, one request
-each; a file a version shares with an earlier one is not sent again.
-`references/ingest.md` has what the platform checks.
+each. The platform keeps each file once per game, in its private store under
+the SHA-256 of its bytes, however many versions or paths name it, so a file
+a version shares with an earlier one is not sent again. Files uploaded for a
+version that never arrives are named by no version, and the platform removes
+them a day later.
+
+Only the public store holds a version's folder under its name. When a
+version passes its checks, each file of its listing is copied to
+`files.vbz.gg` under the listing's name and the file's path. Two versions
+with an identical listing share that folder, so a takedown removes a
+version's folder only when no other version that is served, or still being
+checked, names it. `references/ingest.md` has what the platform checks.

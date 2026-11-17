@@ -305,9 +305,38 @@ than about determinism:
 - `E_PACK_UNLISTED`, `E_PACK_MISMATCH` - a data pack the manifest declares
   is not in the folder, or is not the size and SHA-256 it declares.
 - `E_VERSION_INVALID` - the version is not plain `MAJOR.MINOR.PATCH`.
-- `E_MANIFEST_INVALID` - the manifest's shape is wrong.
-- `E_RANKBY_UNDECLARED` - `rankBy` names a counter you did not declare. The
-  game would list and never rank anybody.
+- `E_MANIFEST_INVALID` - the manifest's shape is wrong, or `rankBy` is
+  empty, names a counter you did not declare, or comes without `tiePolicy`.
+- `E_RANK_UNDECLARED` - the manifest declares neither `rankBy` nor
+  `tiePolicy`, so a ranked run has nothing to be ordered by. A game played
+  only on its own page may leave both out; `vbz check --ranked` reports the
+  same code before an upload does.
+
+After the upload, the checks decide, and `vbz publish` prints the code of the
+first one that failed. Besides the engine's own codes, the platform's checks
+end a version in these:
+
+- `E_SIM_NO_MANIFEST`, `E_MANIFEST_MISMATCH` - the built simulation exports
+  no `MANIFEST`, or one that is not the uploaded `dist/manifest.json`. Build
+  again rather than editing either by hand.
+- `E_ENGINE_DIVERGED` - JavaScriptCore, V8 and SpiderMonkey computed
+  different states from the same bytes: something the simulation calls is
+  not the same on every engine, which the engine's guide covers.
+- `E_PAGE_MODULE_UNLOADABLE`, `E_PAGE_MODULE_INVALID`,
+  `E_PAGE_MODULE_THREW`, `E_PAGE_MODULE_DIVERGED` - the page module would
+  not load in the checks' browser, was not one a page plays, failed while it
+  played, or played the bot's log to another state than the replay of it.
+- `E_REPLAY_OVER_BUDGET` - one replay of the bot's log on the platform's
+  replay service ran out of its CPU time, its wall time or its memory: 5
+  minutes of CPU, 7.5 minutes of wall time and 128 MB of memory, the
+  platform's figures for one replay on Cloudflare. Make a step cheaper, or
+  hold less at once in the rules code, its data packs and its state; every
+  ranked run's replay has the same budget.
+- `E_REPLAY_THREW`, `E_REPLAY_REACHED_OUT`, `E_REPLAY_MALFORMED` - the same
+  replay failed for another reason, and every player's run would too: the
+  rules code threw or reached for something the replay service does not
+  have, such as the network, or the service could not take the replay it
+  was sent. The first failure's message says where.
 
 `references/ingest.md` has the whole path from an upload to a listing.
 

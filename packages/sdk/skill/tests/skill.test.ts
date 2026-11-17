@@ -17,9 +17,12 @@ import { basename, dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { ERROR_CODES, INPUT_BUDGET_PER_TICK, Prng } from "@clockwork2/engine"
 import { TICK_RATES } from "@clockwork2/engine/manifest"
+import ts from "typescript"
+import type { VersionCheckCode } from "../../src/api/index.js"
 import * as build from "../../src/build/index.js"
 import {
   BUILD_REFUSAL,
+  CHECKS_CONTAINER_WAIT_MS,
   MAX_CHUNK_BYTES,
   MAX_FILE_BYTES,
   MAX_FILES,
@@ -30,11 +33,21 @@ import {
   MAX_RUN_BYTES,
   MAX_SIM_BYTES,
   MAX_VERSION_PART,
+  REPLAY_ANSWER_MARGIN_MS,
+  REPLAY_CPU_BUDGET_MS,
+  REPLAY_MEMORY_MB,
+  REPLAY_WALL_BUDGET_MS,
   SIM_SPECIFIER,
 } from "../../src/build/index.js"
 import { CAPABILITY_RULES, LINE_RULES } from "../../src/build/line.js"
 import { COMMANDS } from "../../src/cli/index.js"
 import { TEMPLATE_DIR } from "../../src/cli/new.js"
+import {
+  CHECK_PUBLISH_ALLOWANCE_MS,
+  CHECK_QUEUE_ALLOWANCE_MS,
+  CHECK_WAIT_HEADROOM_MS,
+  CHECK_WAIT_MS,
+} from "../../src/cli/publish.js"
 import { NEEDS, PACKAGE_KEY } from "../../src/cli/source.js"
 import {
   DEFAULT_BUNDLES_PORT,
@@ -94,6 +107,51 @@ function section(markdown: string, heading: string): string {
   const end = markdown.indexOf("\n## ", start + 1)
   return markdown.slice(start, end === -1 ? undefined : end)
 }
+
+/**
+ * The string literals of every union `/api` declares, by the union's name,
+ * read from its source with TypeScript's parser. `/api` is types only, so a
+ * union there has no value to import, and a copy of one here would drift
+ * from it with nothing failing.
+ */
+async function apiUnions(): Promise<ReadonlyMap<string, ReadonlySet<string>>> {
+  const path = join(PACKAGE, "src", "api", "index.ts")
+  const source = ts.createSourceFile(
+    path,
+    await readFile(path, "utf8"),
+    ts.ScriptTarget.Latest,
+  )
+  const unions = new Map<string, ReadonlySet<string>>()
+  for (const statement of source.statements) {
+    if (
+      ts.isTypeAliasDeclaration(statement) &&
+      ts.isUnionTypeNode(statement.type)
+    ) {
+      const literals = new Set<string>()
+      for (const member of statement.type.types) {
+        if (
+          ts.isLiteralTypeNode(member) &&
+          ts.isStringLiteral(member.literal)
+        ) {
+          literals.add(member.literal.text)
+        }
+      }
+      unions.set(statement.name.text, literals)
+    }
+  }
+  return unions
+}
+
+/** `/api`'s unions and the guide's refusal list, each read once a run. */
+const API_UNIONS = await apiUnions()
+function apiUnion(name: string): ReadonlySet<string> {
+  const literals = API_UNIONS.get(name)
+  if (literals === undefined) throw new Error(`/api declares no union ${name}`)
+  return literals
+}
+const PUBLIC_REFUSALS = apiUnion("PublicRefusalCode")
+const CHECK_CODES = apiUnion("VersionCheckCode")
+const REFUSAL_LIST = section(await read("SKILL.md"), "When ingest refuses")
 
 describe("the guide's front matter", () => {
   test("its name is its folder's, which is what a tool installs it under", async () => {
@@ -227,15 +285,17 @@ describe("what the prose restates from the code", () => {
   /**
    * A code in the prose that the code does not raise sends an author looking
    * for a failure that cannot happen. Only the artifact refusals are checked
-   * here: the manifest and rank codes belong to the platform and cannot be
-   * imported from this repository.
+   * here, by their prefixes; the next block holds the rest of what ingest
+   * refuses.
    */
   test("every artifact refusal named is one that exists", async () => {
     // The engine's own codes share prefixes with the build's, such as
-    // E_PRESENTATION_FAILED beside E_PRESENT_WORKER, and are the engine's.
+    // E_PRESENTATION_FAILED beside E_PRESENT_WORKER, and are the engine's;
+    // E_SIM_NO_MANIFEST is a check's.
     const owned = new Set<string>([
       ...Object.values(BUILD_REFUSAL),
       ...Object.keys(ERROR_CODES),
+      ...CHECK_CODES,
     ])
     const text = [
       await everything(),
@@ -265,6 +325,188 @@ describe("what the prose restates from the code", () => {
       if (code === BUILD_REFUSAL.REWRITE_FAILED) continue // the platform's, never an author's
       expect(text).toContain(code)
     }
+  })
+})
+
+/**
+ * Every code `VersionCheckCode` names, written out here and held to the
+ * union by the compiler: a code the union gains or loses fails to compile
+ * until this has its row, and the test below compares it with what the
+ * parser read from the declaration.
+ */
+const EVERY_CHECK_CODE = {
+  E_SIM_NO_MANIFEST: true,
+  E_MANIFEST_MISMATCH: true,
+  E_ENGINE_DIVERGED: true,
+  E_PAGE_MODULE_UNLOADABLE: true,
+  E_PAGE_MODULE_INVALID: true,
+  E_PAGE_MODULE_THREW: true,
+  E_PAGE_MODULE_DIVERGED: true,
+  E_REPLAY_OVER_BUDGET: true,
+  E_REPLAY_THREW: true,
+  E_REPLAY_REACHED_OUT: true,
+  E_REPLAY_MALFORMED: true,
+} as const satisfies Record<VersionCheckCode, true>
+
+describe("the platform's refusals of a version", () => {
+  test("the unions are read whole", () => {
+    // Every refusal the build makes is a public code, which `api.test.ts`
+    // holds at compile time, so a reading that misses one missed the union.
+    for (const code of Object.values(BUILD_REFUSAL)) {
+      expect(PUBLIC_REFUSALS).toContain(code)
+    }
+    expect(PUBLIC_REFUSALS).toContain("E_BAD_REQUEST")
+    // A member the parser skipped, such as one written in another form, is
+    // one the guide would never be held to explaining.
+    expect([...CHECK_CODES].sort()).toEqual(
+      Object.keys(EVERY_CHECK_CODE).sort(),
+    )
+  })
+
+  /**
+   * A code in the refusal list that the platform never gives sends an
+   * author looking for a failure that cannot happen, and leaves the one
+   * that does unexplained. `references/ingest.md` also names what the
+   * engine's checks end in, which reaches a build system as the version's
+   * `rejectedCode`.
+   */
+  test("every code the guide's refusal list and ingest.md name is one that exists", async () => {
+    const listed = REFUSAL_LIST.match(/E_[A-Z0-9_]+/g) ?? []
+    expect(listed.length).toBeGreaterThan(4)
+    for (const code of listed) {
+      expect(
+        `${code}: ${PUBLIC_REFUSALS.has(code) || CHECK_CODES.has(code)}`,
+      ).toBe(`${code}: true`)
+    }
+    const engine = new Set(Object.keys(ERROR_CODES))
+    const ingest = (await read("references", "ingest.md")).match(
+      /E_[A-Z0-9_]+/g,
+    )
+    for (const code of ingest ?? []) {
+      const known =
+        PUBLIC_REFUSALS.has(code) || CHECK_CODES.has(code) || engine.has(code)
+      expect(`${code}: ${known}`).toBe(`${code}: true`)
+    }
+  })
+
+  /**
+   * The platform's own checks refuse a version after the upload, where no
+   * `vbz build` can see it first, so the guide is the only place an author
+   * learns what each of their codes means and what to change.
+   */
+  test("every code a version's checks end in is in the refusal list and in ingest.md", async () => {
+    const ingest = await read("references", "ingest.md")
+    for (const code of CHECK_CODES) {
+      expect(`${code}: ${REFUSAL_LIST.includes(`\`${code}\``)}`).toBe(
+        `${code}: true`,
+      )
+      expect(`${code}: ${ingest.includes(`\`${code}\``)}`).toBe(`${code}: true`)
+    }
+  })
+
+  /**
+   * An upload with no ranking was once explained under two spellings, one
+   * the platform answers and one nothing raised. The platform answers the
+   * engine's own code, the one `vbz check --ranked` reports.
+   */
+  test("a manifest with no ranking is refused under one name, the engine's", async () => {
+    const text = [
+      await everything(),
+      await readRepository("docs", "sdk.md"),
+      await readFile(join(PACKAGE, "README.md"), "utf8"),
+    ].join("\n")
+    const spellings = new Set(text.match(/E_RANK[A-Z_]*UNDECLARED/g) ?? [])
+    expect([...spellings]).toEqual(["E_RANK_UNDECLARED"])
+    expect(Object.keys(ERROR_CODES)).toContain("E_RANK_UNDECLARED")
+    expect(PUBLIC_REFUSALS).toContain("E_RANK_UNDECLARED")
+    expect(REFUSAL_LIST).toContain("`E_RANK_UNDECLARED`")
+  })
+})
+
+describe("one replay's budget", () => {
+  /** A duration as the prose writes it in minutes. */
+  const minutes = (ms: number): string => `${ms / 60_000}`
+
+  /**
+   * An author sizes a step to the CPU the guide says a replay has, so each
+   * figure quoted for one replay, wherever it is quoted, is the constant the
+   * platform takes its replays' budget from, and so is what follows from it.
+   */
+  test("every figure quoted for one replay is the budget /build exports", async () => {
+    const texts: Readonly<Record<string, string>> = {
+      "SKILL.md": await read("SKILL.md"),
+      "references/ingest.md": await read("references", "ingest.md"),
+      "references/files.md": await read("references", "files.md"),
+      "docs/sdk.md": await readRepository("docs", "sdk.md"),
+    }
+    const seen = { cpu: 0, wall: 0, memory: 0, steps: 0 }
+    for (const [where, raw] of Object.entries(texts)) {
+      const text = raw.replace(/\s+/g, " ")
+      for (const match of text.matchAll(/([\d.]+) minutes of CPU/g)) {
+        seen.cpu += 1
+        expect(`${where}: ${match[1]}`).toBe(
+          `${where}: ${minutes(REPLAY_CPU_BUDGET_MS)}`,
+        )
+      }
+      for (const match of text.matchAll(/([\d.]+) minutes of wall time/g)) {
+        seen.wall += 1
+        expect(`${where}: ${match[1]}`).toBe(
+          `${where}: ${minutes(REPLAY_WALL_BUDGET_MS)}`,
+        )
+      }
+      for (const match of text.matchAll(/(\d+) MB of memory/g)) {
+        seen.memory += 1
+        expect(`${where}: ${match[1]}`).toBe(`${where}: ${REPLAY_MEMORY_MB}`)
+      }
+      for (const match of text.matchAll(
+        /At (\d+) steps a second an hour of play is ([\d,]+) steps, and [\d.]+ minutes of CPU leaves about ([\d.]+) ms for each/g,
+      )) {
+        seen.steps += 1
+        const rate = Number(match[1])
+        expect((TICK_RATES as readonly number[]).includes(rate)).toBe(true)
+        const perHour = rate * 60 * 60
+        expect(`${where}: ${match[2]}`).toBe(
+          `${where}: ${perHour.toLocaleString("en")}`,
+        )
+        expect(`${where}: ${match[3]}`).toBe(
+          `${where}: ${(REPLAY_CPU_BUDGET_MS / perHour).toFixed(1)}`,
+        )
+      }
+    }
+    expect(seen.cpu).toBeGreaterThanOrEqual(4)
+    expect(seen.wall).toBeGreaterThanOrEqual(3)
+    expect(seen.memory).toBeGreaterThanOrEqual(3)
+    expect(seen.steps).toBeGreaterThanOrEqual(2)
+  })
+
+  /**
+   * A build system's own timeout is set from the wait `vbz publish` states,
+   * so the figure docs/sdk.md gives, and each part it names, is the command's.
+   */
+  test("the publish wait docs/sdk.md states is the command's", async () => {
+    const text = (await readRepository("docs", "sdk.md")).replace(/\s+/g, " ")
+    const waits = [...text.matchAll(/It waits up to ([\d.]+) minutes/g)].map(
+      (match) => match[1],
+    )
+    expect(waits).toEqual([minutes(CHECK_WAIT_MS)])
+    expect(text).toContain(
+      `${minutes(CHECK_QUEUE_ALLOWANCE_MS)} minutes for the ingest job`,
+    )
+    expect(text).toContain(
+      `${minutes(CHECKS_CONTAINER_WAIT_MS)} minutes for the checks container`,
+    )
+    expect(text).toContain(
+      `the ${minutes(REPLAY_WALL_BUDGET_MS)} minutes of wall time the replay-service check's one replay may take`,
+    )
+    expect(text).toContain(
+      `${REPLAY_ANSWER_MARGIN_MS / 1000} seconds the platform waits past it for the answer`,
+    )
+    expect(text).toContain(
+      `${minutes(CHECK_PUBLISH_ALLOWANCE_MS)} minutes for copying a published version's files`,
+    )
+    expect(text).toContain(
+      `${minutes(CHECK_WAIT_HEADROOM_MS)} minute of headroom`,
+    )
   })
 })
 

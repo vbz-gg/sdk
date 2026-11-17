@@ -99,7 +99,19 @@ export type PublicRefusalCode =
   | "E_PLAYER_BARRED"
   /** The studio's uploads over the last 24 hours, all its games together. */
   | "E_QUOTA_EXCEEDED"
+  /**
+   * The manifest is not one: its shape, a `rankBy` that is empty or names a
+   * counter the manifest does not declare, or one of `rankBy` and
+   * `tiePolicy` declared without the other.
+   */
   | "E_MANIFEST_INVALID"
+  /**
+   * The manifest declares neither `rankBy` nor `tiePolicy`, which order a
+   * ranked run. The engine's own code, which `vbz check --ranked` reports
+   * for the same manifest; a game played only on its own page may leave both
+   * out.
+   */
+  | "E_RANK_UNDECLARED"
   | "E_ARTIFACT_NOT_UTF8"
   | "E_ARTIFACT_TOO_LARGE"
   | "E_SIM_NOT_SELF_CONTAINED"
@@ -356,14 +368,15 @@ export interface FilesListing {
  *
  * The platform answers first every refusal the version's upload would get
  * from these two alone, before a byte is stored: a manifest that is not one
- * (`E_MANIFEST_INVALID`), its version (`E_VERSION_INVALID`,
- * `E_VERSION_EXISTS`, `E_VERSION_NOT_NEWER`, `E_PATCH_CHANGES_RULES`), the
- * listing and the data packs the manifest declares in it (the `E_FILE*` and
- * `E_PACK*` codes), and the studio's uploads (`E_QUOTA_EXCEEDED`), which
- * asking does not count against. So a version the platform would refuse
- * uploads no file. The upload runs every check again, because another
- * version can arrive in between; files stored ahead of a version that never
- * arrives are removed a day later, as nothing names them.
+ * (`E_MANIFEST_INVALID`) or declares no ranking (`E_RANK_UNDECLARED`), its
+ * version (`E_VERSION_INVALID`, `E_VERSION_EXISTS`, `E_VERSION_NOT_NEWER`,
+ * `E_PATCH_CHANGES_RULES`), the listing and the data packs the manifest
+ * declares in it (the `E_FILE*` and `E_PACK*` codes), and the studio's
+ * uploads (`E_QUOTA_EXCEEDED`), which asking does not count against. So a
+ * version the platform would refuse uploads no file. The upload runs every
+ * check again, because another version can arrive in between; files stored
+ * ahead of a version that never arrives are removed a day later, as nothing
+ * names them.
  */
 export interface MissingFilesRequest extends FilesListing {
   /** The version's manifest, as `dist/manifest.json` holds it. */
@@ -443,6 +456,67 @@ export interface VersionServing {
   readonly practice: boolean
 }
 
+/**
+ * Every code the platform's own checks can end a version in, beyond the
+ * engine's: what `VersionStatus.rejectedCode` holds when one of them refused
+ * it. The engine's checks end a version in the engine's own codes, its
+ * `ERROR_CODES`, such as `E_SEED_IGNORED`. None of these is ever a refusal's
+ * body, because the upload has been answered before any check runs. The
+ * platform holds its table of its checks' codes to this union.
+ */
+export type VersionCheckCode =
+  // The manifest agreement, before the engine's checks.
+  /** The rules code exports no `MANIFEST` of its own. */
+  | "E_SIM_NO_MANIFEST"
+  /** The uploaded manifest is not the one the rules code carries. */
+  | "E_MANIFEST_MISMATCH"
+  // The cross-engine sweep.
+  /** Two JavaScript engines computed different states from the same bytes. */
+  | "E_ENGINE_DIVERGED"
+  // The page module, in the checks' browser.
+  /**
+   * The browser could not import the page module, or the rules code it
+   * imports: a syntax error, a throw at the top level, or an import the
+   * page's policy or the bundles origin would not serve.
+   */
+  | "E_PAGE_MODULE_UNLOADABLE"
+  /**
+   * The page module loaded and is not one a page plays: `loadGame` refused
+   * it, or its `mount` refused the run before a tick.
+   */
+  | "E_PAGE_MODULE_INVALID"
+  /** The page module failed while it was mounted or played. */
+  | "E_PAGE_MODULE_THREW"
+  /**
+   * The page module played the bot's log to another state than the
+   * platform's own replay of the same log reached.
+   */
+  | "E_PAGE_MODULE_DIVERGED"
+  // One replay on the replay service.
+  /**
+   * One replay of the bot's log on the platform's replay service, the one
+   * every ranked and practice run is replayed on, ran out of its CPU time,
+   * its wall time or its memory. The game's step is too heavy, or its rules
+   * code, data packs and state hold too much at once. A replay service that
+   * gave no answer is the platform's fault and is tried again, never this.
+   */
+  | "E_REPLAY_OVER_BUDGET"
+  // The same replay failing for a reason other than its budget, under the
+  // code the replay service gave, which a run's own replay would give too.
+  /** The rules code threw while the replay service played the bot's log. */
+  | "E_REPLAY_THREW"
+  /**
+   * The rules code reached for something the replay service's isolate does
+   * not have, such as the network.
+   */
+  | "E_REPLAY_REACHED_OUT"
+  /**
+   * The replay service could not take the replay it was sent: the bot's
+   * log would not decode under the version's manifest, or the request was
+   * over the size the service takes.
+   */
+  | "E_REPLAY_MALFORMED"
+
 /** A version as a studio's build system reads it back. */
 export interface VersionStatus {
   readonly gameVersionId: string
@@ -451,7 +525,11 @@ export interface VersionStatus {
   /** The release line, `MAJOR.MINOR`. */
   readonly line: string
   readonly state: VersionState
-  /** The code the checks refused it with, when they did. */
+  /**
+   * The code the checks refused it with, when they did: an engine code, one
+   * of its `ERROR_CODES`, or a `VersionCheckCode`. Typed as a string in this
+   * release, so a page built against it keeps compiling as either list grows.
+   */
   readonly rejectedCode: string | null
   /** The first check that failed, when one did. */
   readonly firstFailure: {
@@ -791,8 +869,10 @@ export interface WatchedRun {
  * What a route needs. `page-key`: the page key in `x-vbz-key`, from one of the
  * game's allowed pages, and a player token in `Authorization: Bearer` where
  * the route reads one. `player`: both, the token required. `secret-key`: a
- * studio's secret key in `Authorization: Bearer`, never from a browser.
- * `public`: neither header.
+ * studio's secret key in `Authorization: Bearer`, never from a browser, which
+ * is what a build system sends; the platform takes a member's access token
+ * there too, from its dashboard, when the member's role holds the
+ * permission the route names. `public`: neither header.
  */
 export type RouteAuth = "page-key" | "player" | "secret-key" | "public"
 
@@ -806,6 +886,10 @@ export interface PlatformRoutes {
     readonly body: never
     readonly response: PageGame
   }
+  /**
+   * The studio's secret key, or a member whose role may upload versions
+   * (`versions.upload`), as for the version's own upload.
+   */
   readonly "POST /v1/games/:gameId/files/missing": {
     readonly auth: "secret-key"
     /**
@@ -817,12 +901,20 @@ export interface PlatformRoutes {
     readonly body: MissingFilesRequest
     readonly response: MissingFiles
   }
+  /**
+   * The studio's secret key, or a member whose role may upload versions
+   * (`versions.upload`), as for the version's own upload.
+   */
   readonly "PUT /v1/games/:gameId/files/:sha256": {
     readonly auth: "secret-key"
     /** The file's bytes, as `application/octet-stream`, at most `MAX_FILE_BYTES`. */
     readonly body: "bytes"
     readonly response: StoredFile
   }
+  /**
+   * The studio's secret key, or a member whose role may upload versions
+   * (`versions.upload`).
+   */
   readonly "POST /v1/games/:gameId/versions": {
     readonly auth: "secret-key"
     /**
@@ -834,11 +926,19 @@ export interface PlatformRoutes {
     readonly body: "multipart"
     readonly response: UploadedVersion
   }
+  /**
+   * The studio's secret key, or a member whose role may read versions
+   * (`versions.read`), as for one version.
+   */
   readonly "GET /v1/studios/:studioId/games/:gameId/versions": {
     readonly auth: "secret-key"
     readonly body: never
     readonly response: VersionStatusList
   }
+  /**
+   * The studio's secret key, or a member whose role may read versions
+   * (`versions.read`).
+   */
   readonly "GET /v1/studios/:studioId/versions/:versionId": {
     readonly auth: "secret-key"
     readonly body: never

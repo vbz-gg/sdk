@@ -52,6 +52,11 @@ import { sha256Hex } from "../build/digest.js"
 import { DIST_DIR, DIST_FILES, DIST_FILES_DIR } from "../build/dist.js"
 import { BuildRefusal } from "../build/errors.js"
 import { assertListing, listingSha256 } from "../build/files.js"
+import {
+  CHECKS_CONTAINER_WAIT_MS,
+  REPLAY_ANSWER_MARGIN_MS,
+  REPLAY_WALL_BUDGET_MS,
+} from "../build/limits.js"
 import { SHA256 } from "../build/paths.js"
 
 /**
@@ -69,13 +74,64 @@ export const API_ORIGIN_VARIABLE = "VBZ_API_ORIGIN"
 /** How long between two reads of a version still being checked. */
 export const CHECK_POLL_MS = 2_000
 
+/** A minute, the unit the wait for a verdict is rounded up to and printed in. */
+const MINUTE_MS = 60_000
+
 /**
- * How long to wait for the checks before giving up on the answer. The checks
- * run the game in three engines, which takes minutes rather than seconds, and
- * a version still pending after this is still being checked: the command
- * says so and names the version, rather than claiming it failed.
+ * What the wait for a verdict allows the version's ingest job to sit in the
+ * platform's queue before a worker claims it: 10 minutes. An allowance, not
+ * a measurement.
  */
-export const CHECK_WAIT_MS = 15 * 60_000
+export const CHECK_QUEUE_ALLOWANCE_MS = 10 * MINUTE_MS
+
+/**
+ * What it allows for copying a published version's two modules and files
+ * folder to the public store, which the platform does before it writes the
+ * verdict: 5 minutes, for a folder of up to 10,000 files and 512 MiB. An
+ * allowance, not a measurement: the platform has not timed the copy.
+ */
+export const CHECK_PUBLISH_ALLOWANCE_MS = 5 * MINUTE_MS
+
+/** Headroom over every part of the wait, so it is never the worst case to the second. */
+export const CHECK_WAIT_HEADROOM_MS = MINUTE_MS
+
+/**
+ * A wait for a verdict made of `parts` and the headroom, rounded up to
+ * whole minutes, so it is never shorter than its parts and prints as a
+ * whole number of minutes.
+ */
+export function checkWaitOf(parts: readonly number[]): number {
+  const total = parts.reduce((sum, part) => sum + part, CHECK_WAIT_HEADROOM_MS)
+  return Math.ceil(total / MINUTE_MS) * MINUTE_MS
+}
+
+/**
+ * How long to wait for the checks' verdict before giving up on the answer,
+ * from the upload's answer: the queue's allowance; the checks container, for
+ * as long as the platform waits for one (`CHECKS_CONTAINER_WAIT_MS`); the
+ * replay-service check's one replay of the bot's log, for its whole
+ * `REPLAY_WALL_BUDGET_MS` and the `REPLAY_ANSWER_MARGIN_MS` the platform
+ * waits past it for the answer; the copy to the public store; and the
+ * headroom, rounded up to whole minutes. The platform takes those waits and
+ * that budget from `/build`, so a change to any of them moves this.
+ *
+ * It covers one attempt. When the replay service gives no answer the
+ * platform holds the replay to its whole wall budget and its margin, then
+ * runs the version's job again, half a minute later at the soonest, which
+ * this does not wait for. Nor does it wait for a patch's scores, which the
+ * command prints only once the platform has measured them.
+ *
+ * A version still pending after this is still being checked: the command
+ * says so in the platform's terms, names where to read it later, and exits
+ * 1, because only a published version exits 0.
+ */
+export const CHECK_WAIT_MS = checkWaitOf([
+  CHECK_QUEUE_ALLOWANCE_MS,
+  CHECKS_CONTAINER_WAIT_MS,
+  REPLAY_WALL_BUDGET_MS,
+  REPLAY_ANSWER_MARGIN_MS,
+  CHECK_PUBLISH_ALLOWANCE_MS,
+])
 
 /** How long one upload, of the version or of one file, may take to be answered. */
 export const UPLOAD_TIMEOUT_MS = 120_000
@@ -129,20 +185,36 @@ export const PUBLISH_ERROR = {
 export type PublishErrorCode =
   (typeof PUBLISH_ERROR)[keyof typeof PUBLISH_ERROR]
 
+/** What a `PublishError` says beyond its code and its sentence, each when there is one. */
+export interface PublishErrorOptions {
+  /** The platform's own code, when it refused. */
+  readonly refusal?: string | undefined
+  /** The HTTP status the platform answered with, when it answered. */
+  readonly status?: number | undefined
+  /** What the refusal was about, when the platform said. */
+  readonly detail?: Readonly<Record<string, unknown>> | undefined
+  /** What to do next, a line each, printed after the reason. */
+  readonly next?: readonly string[] | undefined
+}
+
 export class PublishError extends Error {
   override readonly name = "PublishError"
+  readonly refusal: string | undefined
+  readonly status: number | undefined
+  readonly detail: Readonly<Record<string, unknown>> | undefined
+  readonly next: readonly string[]
 
   constructor(
     readonly code: PublishErrorCode,
     message: string,
-    /** The platform's own code, when it refused. */
-    readonly refusal?: string,
-    /** The HTTP status the platform answered with, when it answered. */
-    readonly status?: number,
-    /** What the refusal was about, when the platform said. */
-    readonly detail?: Readonly<Record<string, unknown>>,
+    options: PublishErrorOptions = {},
   ) {
+    const { refusal } = options
     super(`${message} (${code}${refusal === undefined ? "" : `, ${refusal}`})`)
+    this.refusal = refusal
+    this.status = options.status
+    this.detail = options.detail
+    this.next = options.next ?? []
   }
 }
 
@@ -407,13 +479,32 @@ export async function publish(
     const status = await readStatus(deps, settings, versionUrl)
     if (status !== undefined && status.state !== "pending") return status
     if (deps.now() - started >= CHECK_WAIT_MS) {
-      throw new PublishError(
-        PUBLISH_ERROR.STILL_CHECKING,
-        `version ${uploaded.gameVersionId} was still being checked after ${CHECK_WAIT_MS / 60_000} minutes; read it later at ${versionUrl}`,
-      )
+      throw stillChecking(uploaded, versionUrl)
     }
     await deps.sleep(CHECK_POLL_MS)
   }
+}
+
+/**
+ * A version the checks had not decided when the wait ran out, in the
+ * platform's terms: its state is `pending`, the platform has it, and its
+ * verdict is read from the route the command was polling. Publishing the
+ * same version again would be refused, so the log says not to.
+ */
+function stillChecking(
+  uploaded: UploadedVersion,
+  versionUrl: string,
+): PublishError {
+  return new PublishError(
+    PUBLISH_ERROR.STILL_CHECKING,
+    `version ${uploaded.version} (${uploaded.gameVersionId}) is still pending after ${CHECK_WAIT_MS / MINUTE_MS} minutes: the platform has it and its checks have not decided, so this exits 1 with no verdict`,
+    {
+      next: [
+        `read its state later with the studio's secret key, GET ${versionUrl}: pending until the checks decide, then published or rejected`,
+        `do not publish ${uploaded.version} again: the platform has it, and a second upload is refused as E_VERSION_EXISTS`,
+      ],
+    },
+  )
 }
 
 function gameUrl(settings: PublishSettings): string {
@@ -652,8 +743,7 @@ async function call(
     throw new PublishError(
       PUBLISH_ERROR.ANSWER_UNREADABLE,
       `the platform answered ${response.status} with something that is not JSON`,
-      undefined,
-      response.status,
+      { status: response.status },
     )
   }
   if (!response.ok) {
@@ -661,16 +751,13 @@ async function call(
       throw new PublishError(
         PUBLISH_ERROR.REFUSED,
         `the platform refused: ${body.message}`,
-        body.error,
-        response.status,
-        body.detail,
+        { refusal: body.error, status: response.status, detail: body.detail },
       )
     }
     throw new PublishError(
       PUBLISH_ERROR.ANSWER_UNREADABLE,
       `the platform answered ${response.status} without saying why`,
-      undefined,
-      response.status,
+      { status: response.status },
     )
   }
   return body
@@ -923,7 +1010,14 @@ function detailLines(
   return [`detail: ${JSON.stringify(detail)}`]
 }
 
-/** What a publish that stopped prints: why, and what the platform's detail says. */
+/**
+ * What a publish that stopped prints: why, what the platform's detail says,
+ * and what to do next.
+ */
 export function failureLines(error: PublishError): string[] {
-  return [error.message, ...detailLines(error.refusal, error.detail)]
+  return [
+    error.message,
+    ...detailLines(error.refusal, error.detail),
+    ...error.next,
+  ]
 }

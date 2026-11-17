@@ -1,7 +1,9 @@
 import { MAX_FILE_PATH_LENGTH } from "../game/files.js"
 
 /**
- * Every size the platform holds a version and a run to, in one place.
+ * Every size the platform holds a version and a run to, the budget one
+ * replay of a run has, and how long the platform waits on its checks, in one
+ * place.
  *
  * The platform imports these, and so does everything here that checks one:
  * `vbz build`, the stand-in a studio's page runs against, and the agent
@@ -71,3 +73,43 @@ export const MAX_RUN_BYTES = 31 * 1024 * 1024
 
 /** The most one of a run's chunks may hold: 1 MiB. */
 export const MAX_CHUNK_BYTES = 1024 * 1024
+
+/**
+ * The CPU time one replay may spend on the platform's replay service, where
+ * every ranked and practice run is replayed and where the platform's checks
+ * replay a version's bot log once before it publishes: 5 minutes, the most
+ * Cloudflare lets a Worker spend on one request on its paid plan. The
+ * platform takes its replays' budget from here.
+ */
+export const REPLAY_CPU_BUDGET_MS = 5 * 60_000
+
+/**
+ * The wall time one replay may take there: the CPU time and half as much
+ * again, for the isolate starting and what the machine does beside it.
+ */
+export const REPLAY_WALL_BUDGET_MS = REPLAY_CPU_BUDGET_MS * 1.5
+
+/**
+ * The memory one replay has there, for the rules code as loaded, its data
+ * packs and the game's state together: 128, in megabytes as Cloudflare
+ * writes its per-isolate limit, which does not say whether it counts them
+ * in powers of ten or of two.
+ */
+export const REPLAY_MEMORY_MB = 128
+
+/**
+ * How long the platform waits past `REPLAY_WALL_BUDGET_MS` for the replay
+ * service's answer before it counts a replay as unanswered: 10 seconds, for
+ * the request and the answer on their way. The platform takes its margin
+ * from here.
+ */
+export const REPLAY_ANSWER_MARGIN_MS = 10_000
+
+/**
+ * How long the platform waits for one checks container to answer: 12
+ * minutes, which covers the checks child's two minutes, two for each of the
+ * sweep's three engines and two for the page-module check's browser running
+ * out, a cold start and two bundle builds. The platform takes its wait from
+ * here and keeps its container's own deadline under it.
+ */
+export const CHECKS_CONTAINER_WAIT_MS = 12 * 60_000

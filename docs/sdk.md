@@ -109,8 +109,14 @@ author runs `/harness`, whose page loads the game with `/host` too.
 `/api` is types only: every route a game's page or a build system calls,
 keyed by method and path in `PlatformRoutes`, with its credential, its body
 and its answer, and `PublicRefusalCode`, every refusal those routes answer by
-name. It compiles to an empty module, so importing it adds nothing to a
-bundle, and a test holds it to exporting no value.
+name, and `VersionCheckCode`, every code the platform's own checks can end
+a version in, read back as its `rejectedCode` beside the engine's codes and
+never a refusal's body. A route whose
+credential is `secret-key` takes what a build system sends, the studio's
+secret key, and the platform also takes a member's access token there, from
+its dashboard, when the member's role holds the permission the route's
+comment names. `/api` compiles to an empty module, so importing it adds
+nothing to a bundle, and a test holds it to exporting no value.
 
 The types live here and not in the platform so the dependency runs one way.
 The platform depends on this package and this package on nothing of the
@@ -720,13 +726,13 @@ that does not arrive spends no run, and a demand pack when the game names
 it, with the engine's pack loader. The engine holds the loop while a named
 pack is missing, so the tick that first reads it is the same on every
 machine however long the download took, and it checks each pack's size and
-SHA-256 before the game may read it. The platform stores each pack with the
-version and hands the server's replay the same bytes, as `vbz dev` hands its
-replay the packs in the folder. The browser suite's folder fixture reads a
-demand pack from tick 180: the page fetched it only once the rules code
-named it, and the recording replays to its counters with the pack and fails
-without it. The engine's guide, `clockwork2`, has the rules for reading one
-in `references/assets.md`.
+SHA-256 before the game may read it. The platform keeps each pack as it
+keeps every file of the folder and hands the server's replay the same bytes,
+as `vbz dev` hands its replay the packs in the folder. The browser suite's
+folder fixture reads a demand pack from tick 180: the page fetched it only
+once the rules code named it, and the recording replays to its counters
+with the pack and fails without it. The engine's guide, `clockwork2`, has
+the rules for reading one in `references/assets.md`.
 
 What the contract checks, on the bytes rather than on the source:
 
@@ -772,7 +778,10 @@ The platform also imports what it does with a file upload from here:
 listing names a file the store lacks (`E_FILES_MISSING`).
 
 Then the addressing. Each module is stored under the SHA-256 of its own
-bytes, and each file under the folder's name and its path.
+bytes. The platform keeps each file of the folder once per game, in its
+private store under the SHA-256 of the file's bytes, however many versions
+or paths name it, and publishes a version's folder on the public store
+under the listing's name and each file's path, as "Serving" below describes.
 `rewritePresentImports` replaces the page module's `cw2:sim` with
 `/g/<game id>/sim/<64 hex>.js` and its `cw2:files/` with
 `/g/<game id>/t/<listing sha256>/`, root-relative, so the bytes carry no
@@ -833,6 +842,21 @@ a matter of how fast it records inputs: the engine guide's
 listing the folder's limits allow, which the platform takes as the body of
 the route that asks which files it lacks.
 
+One replay has three more limits, which `/build` exports beside these and
+no build can check, because only a replay measures them: 5 minutes of CPU
+(`REPLAY_CPU_BUDGET_MS`), 7.5 minutes of wall time (`REPLAY_WALL_BUDGET_MS`)
+and 128 MB of memory (`REPLAY_MEMORY_MB`), the platform's figures for its
+replay service on Cloudflare, which the platform takes from here. The rules
+code as loaded, the data packs the manifest declares and the game's state
+share the memory. Before a version publishes, the platform's checks replay
+the bot's log once more on that service, and a version whose replay runs
+out of its CPU time, its wall time or its memory ends in
+`E_REPLAY_OVER_BUDGET`, which is the game's to fix; a service that gives no
+answer is the platform's, and the check is tried again. A player's run can
+be longer than the bot's. At 60 steps a second an hour of play is 216,000
+steps, and 5 minutes of CPU leaves about 1.4 ms for each; a ranked run whose
+replay runs out of any of the three is a `log_fault` and never ranks.
+
 ## Drawing with null3d
 
 [null3d](https://github.com/null3d-engine/null3d) draws from workers with a
@@ -878,7 +902,11 @@ In production the two modules of a published version sit at
 `https://files.vbz.gg/g/<game id>/present/<sha256>.js`, and its files under
 `https://files.vbz.gg/g/<game id>/t/<listing sha256>/<path>`, copied there
 when the version passes its checks, so a pending or rejected upload is never
-public. A takedown deletes the copies and purges them from the cache.
+public. Two versions with an identical listing share one folder there, such
+as a patch that changed only code. A takedown deletes the version's two
+modules, and its folder unless another version that is served, or still
+being checked, names the same folder, and purges what it deleted from the
+cache.
 `/serve`'s `createBlobServer` answers the same paths with the same headers,
 for the harness and for the platform's development bundles server, so a page
 meets one answer from a laptop and from the edge:
@@ -995,10 +1023,14 @@ runs the engine's `ranked` set instead, which adds what only a ranked or
 practice run needs and the platform runs on an upload: two seeds pass through
 different states on one input log (`E_SEED_IGNORED`), and the manifest says
 how a run ranks (`E_RANK_UNDECLARED`), which a game played only on its own
-page may leave out. It prints the version,
-its release line and the line's contract hash, `contractSha256`, so a patch
-can be compared with the line it joins before it is uploaded. It exits 0
-only when everything passes.
+page may leave out. `vbz check` prints the version, its release line and the
+line's contract hash, `contractSha256`, so a patch can be compared with the
+line it joins before it is uploaded. It exits 0 only when everything passes.
+
+The platform refuses an upload whose manifest declares no ranking under the
+same `E_RANK_UNDECLARED`, before it stores a byte. One check it runs that
+`vbz check` cannot is a replay on its replay service, which "The limits"
+describes.
 
 The engine's checks read the rules code with TypeScript's own parser, so
 `vbz check` needs `typescript` installed in the game, and the template's
@@ -1215,12 +1247,12 @@ no file, where before up to 512 MiB of files went up for a version that was
 then refused. Otherwise it answers with the SHA-256 of each listed file the
 game's store lacks, and the command uploads each of those from
 `dist/files/` as its own `PUT /v1/games/:gameId/files/:sha256`, its bytes
-the body. A file is stored once per game under the hash of its bytes, so a
-file a version shares with an earlier one is not sent again, two paths
-holding the same bytes are sent once, and the store is the game's own, so a
-studio learns nothing of another's files. The command checks each file
-against the listing before it sends it, and checks that the platform names
-the folder as `vbz build` did.
+the body. The platform keeps a file once per game, in its private store under
+the hash of its bytes, so a file a version shares with an earlier one is not
+sent again, two paths holding the same bytes are sent once, and the store is
+the game's own, so a studio learns nothing of another's files. The command
+checks each file against the listing before it sends it, and checks that the
+platform names the folder as `vbz build` did.
 
 Then it uploads the version, `manifest`, `sim`, `present` and the listing as
 `files`, as one multipart `POST /v1/games/:gameId/versions`, which the
@@ -1229,9 +1261,25 @@ prints the release line the version joined, and then reads the version back
 at
 `GET /v1/studios/:studioId/versions/:versionId` every two seconds until the
 platform's checks decide. The upload's answer names the studio, so the
-command needs only the game's id. It waits up to 15 minutes, because the
-checks run the game in three engines, and a version still pending after that
-is reported as still being checked rather than as failed.
+command needs only the game's id. It waits up to 36 minutes,
+`CHECK_WAIT_MS`, the platform's worst case for one attempt with headroom,
+rounded up to whole minutes: 10 minutes for the ingest job to wait in the
+platform's queue (`CHECK_QUEUE_ALLOWANCE_MS`); 12 minutes for the checks
+container running the game in three engines, as long as the platform waits
+for one (`CHECKS_CONTAINER_WAIT_MS`); the 7.5 minutes of wall time the
+replay-service check's one replay may take (`REPLAY_WALL_BUDGET_MS`) and the
+10 seconds the platform waits past it for the answer
+(`REPLAY_ANSWER_MARGIN_MS`); 5 minutes for copying a published version's
+files to the public store before the verdict is written
+(`CHECK_PUBLISH_ALLOWANCE_MS`), which nobody has timed; and 1 minute of
+headroom (`CHECK_WAIT_HEADROOM_MS`). The platform takes its own waits and
+the replay's budget from the same `/build` constants. The wait covers one
+attempt: when the replay service gives no answer, the platform runs the
+version's job again, which it does not cover. A version still pending after
+that is reported in the platform's terms, still pending, with the address
+to read its state at later and a reminder that uploading it again is
+refused as `E_VERSION_EXISTS`, and the command exits 1, because only a
+published version exits 0.
 
 Each of the four goes as a file part carrying the file's bytes as they are
 on disk. A text part would not arrive that way: an encoder that follows the
@@ -1242,8 +1290,9 @@ It is built for a studio's build system, so its exit code is the verdict: 0
 when the version passed its checks and is published, with the release line
 it joined and which runs it serves printed. A version that serves no run yet,
 such as a new minor waiting for the next day's seed, still exits 0. A
-rejection, a version an operator has taken down, a refusal and a platform
-that does not answer all exit 1 with a code that names which, and a refusal
+rejection, a version an operator has taken down, a version still being
+checked when the wait runs out, a refusal and a platform that does not
+answer all exit 1 with a code that names which, and a refusal
 prints its `detail`: the fields a patch changed and the minor to publish
 instead, or the versions an upload had to be above.
 
@@ -1259,13 +1308,16 @@ this version`. A line's first version has no runs of its line to replay, and
 the command says so. While the platform has not measured a version,
 `patchScores` is null and nothing is printed.
 
-The studio's secret key comes from `VBZ_STUDIO_KEY` and nowhere else. A flag
-would put it in shell history and in the process list. The request carries
-no `Origin` header, which is how the platform tells a build system from a
-browser: a secret key sent with one is refused. The platform's origin is
-`--api`, else `VBZ_API_ORIGIN`, else `https://api.vbz.gg`, and it has to
-be https, or http to the same machine, because the key travels with the
-request.
+The two files routes and the version's upload each take the studio's secret
+key, or the access token of a member whose role may upload versions
+(`versions.upload`), and reading a version back takes the key or a member
+who may read versions (`versions.read`). The command sends the key, from
+`VBZ_STUDIO_KEY` and nowhere else: a flag would put it in shell history and
+in the process list. The request carries no `Origin` header, which is how
+the platform tells a build system from a browser: a secret key sent with one
+is refused. The platform's origin is `--api`, else `VBZ_API_ORIGIN`, else
+`https://api.vbz.gg`, and it has to be https, or http to the same machine,
+because the key travels with the request.
 
 The version is sent once. A retry of an upload that did arrive is refused
 as `E_VERSION_EXISTS`, so a slow answer would turn into a confusing one.
