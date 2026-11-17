@@ -119,6 +119,51 @@ describe("checking the template", () => {
     expect(printed).toContain(`contract  ${checked.contractSha256}`)
   }, 120_000)
 
+  /**
+   * A file the manifest declares is checked by the engine beside the rules
+   * code, so the checks' subject holds each declared file of the folder, at
+   * its path. Art the folder lacks is the engine's to refuse, since the
+   * build holds only the packs the rules code reads.
+   */
+  test("a file the manifest declares is checked from the files folder", async () => {
+    await copyTemplate()
+    const logo = new TextEncoder().encode("a logo\n")
+    const sha256 = new Bun.CryptoHasher("sha256").update(logo).digest("hex")
+    const path = join(root, "src", "sim", "manifest.ts")
+    const text = await readFile(path, "utf8")
+    const declaring = text.replace(
+      '  name: "Lane Runner",\n',
+      `  name: "Lane Runner",\n  assets: [{ path: "art/logo.txt", sha256: "${sha256}", bytes: ${logo.byteLength}, requiredForSim: false, license: "CC0-1.0" }],\n`,
+    )
+    expect(declaring).not.toBe(text)
+    await writeFile(path, declaring)
+    const files = join(root, "files")
+    await mkdir(join(files, "art"), { recursive: true })
+    await writeFile(join(files, "art", "logo.txt"), logo)
+    await writeFile(join(files, "other.txt"), "not declared\n")
+
+    const budgetsOf = (checked: Awaited<ReturnType<typeof checkGame>>) =>
+      checked.conformance.outcomes.find((o) => o.check === "budgets")
+    const held = await checkGame(
+      { root, ...SOURCE, filesDir: files },
+      { ranked: false },
+    )
+    expect(held.ok).toBe(true)
+    expect(budgetsOf(held)?.note).toBe(
+      `1 declared assets, ${logo.byteLength} bytes`,
+    )
+
+    await rm(join(files, "art"), { recursive: true })
+    const lacking = await checkGame(
+      { root, ...SOURCE, filesDir: files },
+      { ranked: false },
+    )
+    expect(lacking.ok).toBe(false)
+    expect(budgetsOf(lacking)?.findings[0]?.detail).toBe(
+      "art/logo.txt is declared but not present",
+    )
+  }, 120_000)
+
   test("a mapping naming an input the manifest does not declare fails the check", async () => {
     await copyTemplate()
     await writeFile(
