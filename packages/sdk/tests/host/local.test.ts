@@ -355,15 +355,18 @@ describe("what a local run refuses", () => {
   })
 
   /**
-   * The player leaves while the tilt prompt is open: the page still hears
-   * back, from onEnded with a run of no ticks once the prompt is granted, or
-   * from onError when it is not.
+   * The player leaves while the tilt prompt is open, and the page starts the
+   * next run in the same element. Whatever the first prompt answers later,
+   * the first run mounts nothing there, takes no focus and reports nothing:
+   * it never started, and the element is the second run's.
    */
-  test("ended while its tilt prompt is open, the page still hears how it ended", async () => {
+  test("ended while its tilt prompt is open, it leaves the element to the next run", async () => {
     for (const answer of [
       { granted: true },
       { granted: false, code: MOTION_REFUSALS.DENIED, detail: "no" },
     ] as const) {
+      document.body.replaceChildren(stage)
+      stage.replaceChildren()
       const scheduler = new ManualScheduler()
       let grant: (access: MotionAccess) => void = () => {}
       const asking: PageModule = {
@@ -374,27 +377,42 @@ describe("what a local run refuses", () => {
           }),
       }
       const game = await loaded(asking, scheduler, devices())
-      const { seen, handlers } = listener()
-      const run = playLocal(stage, { game, scripted: "ignore", ...handlers })
+      const first = listener()
+      const run = playLocal(stage, {
+        game,
+        scripted: "ignore",
+        title: "First",
+        ...first.handlers,
+      })
       run.end()
       await settle()
-      expect(seen).toMatchObject({ ended: [], errors: [] })
+
+      // The next run, in the same element, on a game that asks for nothing.
+      const next = await loaded(moduleOf(), scheduler, devices())
+      const second = listener()
+      playLocal(stage, {
+        game: next,
+        scripted: "ignore",
+        title: "Second",
+        ...second.handlers,
+      })
+      await settle()
+      const drawn = stage.childElementCount
+      const elsewhere = document.createElement("button")
+      document.body.append(elsewhere)
+      elsewhere.focus()
+
       grant(answer)
       await settle()
       await settle()
       scheduler.run(10, FRAME_MS)
-      if (answer.granted) {
-        expect(seen.errors).toEqual([])
-        expect(seen.ended).toHaveLength(1)
-        expect(seen.ended[0]).toMatchObject({ tick: 0, reason: "abandoned" })
-        expect(seen.ended[0]?.recording.inputs).toEqual([])
-        expect(seen.frames).toBe(0)
-      } else {
-        expect(seen.ended).toEqual([])
-        expect(seen.errors.map((error) => error.code)).toEqual([
-          "E_MOTION_DENIED",
-        ])
-      }
+      expect(first.seen).toMatchObject({ ended: [], errors: [], frames: 0 })
+      // Nothing of the first run's reached the element or took focus.
+      expect(stage.childElementCount).toBe(drawn)
+      expect(stage.getAttribute("aria-label")).toBe("Second")
+      expect(document.activeElement).toBe(elsewhere)
+      expect(second.seen.errors).toEqual([])
+      expect(second.seen.frames).toBe(10)
     }
   })
 

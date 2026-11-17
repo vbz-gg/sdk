@@ -115,10 +115,11 @@ export interface LocalRun {
   recorded(): readonly InputEvent[]
   /**
    * The player leaving: the run ends where it stands, and `onEnded` follows.
-   * Before the game is mounted, while the tilt prompt is open, it ends at
-   * tick 0 once the prompt is answered: a grant mounts the game and stops it
-   * before a tick runs, so `onEnded` follows with a run of no ticks, and
-   * anything else reaches `onError` as it would have.
+   * Before the game is mounted, while the tilt prompt is open, no run has
+   * started, so there is none to end: whatever the prompt answers, nothing
+   * is mounted, nothing takes focus, and neither `onEnded` nor `onError`
+   * follows, as with `destroy()`. The element is the page's again at once,
+   * for the next run.
    */
   end(): void
   /** Takes everything down, and reports nothing more. */
@@ -244,11 +245,18 @@ export function playLocal(
   motion?.catch(() => {})
 
   let handle: MountHandle | null = null
+  /** Ended or taken down: nothing more is mounted or reported. */
   let stopped = false
   let destroyed = false
   const failed = (error: LocalError) => {
     if (!destroyed) options.onError?.(error)
   }
+  /**
+   * Whether the page ended the run while the tilt prompt was answered. Asked
+   * after every await, because the element may by then belong to the next
+   * run, and a run that never started has nothing to report.
+   */
+  const left = (): boolean => stopped
 
   const start = (): void => {
     focusGame(element, options.title)
@@ -291,7 +299,7 @@ export function playLocal(
   else {
     motion.then(
       (access) => {
-        if (destroyed) return
+        if (left()) return
         // A game steered by tilt is not played without it.
         const refused = motionRefusal(access)
         if (refused !== null) {
@@ -299,13 +307,9 @@ export function playLocal(
           return
         }
         start()
-        // Ended while the prompt was open: the module ends it at tick 0,
-        // before a tick runs, with its own recording, so the page hears
-        // back as it would from any end.
-        if (stopped) handle?.stop("abandoned")
       },
       (error: unknown) => {
-        if (destroyed) return
+        if (left()) return
         failed({
           code: "E_UNEXPECTED",
           message: error instanceof Error ? error.message : String(error),
