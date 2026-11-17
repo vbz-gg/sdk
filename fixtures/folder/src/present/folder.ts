@@ -19,16 +19,15 @@
  */
 
 import { type Started, start } from "cw2:files/entry.js"
-import type { Presentation, PresentationContext } from "@clockwork2/engine"
+import type { Presentation } from "@clockwork2/engine"
 import type { View } from "../sim"
 
 /** How long getting ready takes after everything has loaded. */
 export const READY_AFTER_MS = 600
 
-/** The engine's presentation with the `prepare` a renderer that starts late has. */
-export interface PreparedPresentation extends Presentation<View, HTMLElement> {
-  prepare(container: HTMLElement, context: PresentationContext): Promise<void>
-}
+/** The engine's presentation, with the `prepare` it has when it starts late. */
+export type PreparedPresentation = Presentation<View, HTMLElement> &
+  Required<Pick<Presentation<View, HTMLElement>, "prepare">>
 
 export function createFolderPresentation(): PreparedPresentation {
   let container: HTMLElement | null = null

@@ -5,11 +5,8 @@
  * this is what `files/entry.js` exports.
  */
 declare module "cw2:files/entry.js" {
-  interface View {
-    readonly lane: number
-    readonly score: number
-    readonly ticks: number
-  }
+  /** What the rules code's `view()` returns, which the drawing draws. */
+  type View = import("./sim").View
 
   export interface Started {
     /** What the WebAssembly core answered. */
