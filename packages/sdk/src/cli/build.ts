@@ -1,21 +1,30 @@
 /**
- * `vbz build`: a game's source to the three files an upload carries.
+ * `vbz build`: a game's source to what an upload carries: the rules code,
+ * the page module, the manifest, and the files folder with its listing.
  *
  * The version is read as a release before anything is written, through the
  * same `parseReleaseVersion` the platform runs on an upload, so a version no
  * release line can hold is refused here rather than after an upload.
  *
- * The page module is written unrewritten, with its `cw2:sim` specifier
- * intact. The platform rewrites it to the rules code's content address on the
- * way in, so a page module that arrived already pointing somewhere would be
- * one naming a module nobody checked.
+ * The page module is written unrewritten, with its `cw2:sim` and
+ * `cw2:files/` specifiers intact. The platform rewrites them to the rules
+ * code's and the folder's content addresses on the way in, so a page module
+ * that arrived already pointing somewhere would be one naming code nobody
+ * checked.
  */
 
-import { mkdir, rm, writeFile } from "node:fs/promises"
-import { join } from "node:path"
-import { DIST_DIR, DIST_FILES } from "../build/dist.js"
+import { copyFile, mkdir, rm, writeFile } from "node:fs/promises"
+import { dirname, join } from "node:path"
+import { DIST_DIR, DIST_FILES, DIST_FILES_DIR } from "../build/dist.js"
 import { refuse } from "../build/errors.js"
-import { buildGameArtifacts, type GameSource } from "../build/index.js"
+import {
+  assertPacksListed,
+  buildGameArtifacts,
+  canonicalListing,
+  type GameSource,
+  type ListedFolder,
+  listingSha256,
+} from "../build/index.js"
 import { parseReleaseVersion, releaseLine } from "../build/version.js"
 import { readManifestFromSim } from "./manifest.js"
 
@@ -28,6 +37,8 @@ export interface BuiltGame {
   readonly version: string
   /** The release line, `MAJOR.MINOR`. */
   readonly line: string
+  /** The files folder, listed, and where each file is on disk. */
+  readonly files: ListedFolder
 }
 
 /**
@@ -51,14 +62,37 @@ export function releaseOf(manifest: unknown): {
   return { version, line: releaseLine(parseReleaseVersion(version)) }
 }
 
-/** Builds both modules and reads the manifest out of the rules code. */
-export async function buildGame(source: GameSource): Promise<BuiltGame> {
-  const { sim, present } = await buildGameArtifacts(source)
-  const manifest = await readManifestFromSim(sim)
-  return { sim, present, manifest, ...releaseOf(manifest) }
+/**
+ * The data packs the manifest declares, each a file of the folder of the
+ * size and hash it declares, and within the packs' limits.
+ */
+function packsOf(manifest: unknown): Parameters<typeof assertPacksListed>[0] {
+  const assets =
+    typeof manifest === "object" && manifest !== null
+      ? (manifest as { readonly assets?: unknown }).assets
+      : undefined
+  return Array.isArray(assets)
+    ? (assets as Parameters<typeof assertPacksListed>[0])
+    : []
 }
 
-/** Replaces `dist/` with the three files. */
+/**
+ * Builds both modules, lists the files folder, reads the manifest out of the
+ * rules code, and holds the manifest's data packs to the folder.
+ */
+export async function buildGame(source: GameSource): Promise<BuiltGame> {
+  const { sim, present, files } = await buildGameArtifacts(source)
+  const manifest = await readManifestFromSim(sim)
+  const release = releaseOf(manifest)
+  assertPacksListed(packsOf(manifest), files.listing)
+  return { sim, present, manifest, ...release, files }
+}
+
+/**
+ * Replaces `dist/` with the build: the rules code, the page module, the
+ * manifest, the folder's listing, and a copy of the folder by its listed
+ * paths, so `dist/` is everything an upload carries.
+ */
 export async function writeBuild(
   root: string,
   built: BuiltGame,
@@ -72,12 +106,25 @@ export async function writeBuild(
     join(dist, DIST_FILES.manifest),
     `${JSON.stringify(built.manifest, null, 2)}\n`,
   )
+  await writeFile(
+    join(dist, DIST_FILES.listing),
+    canonicalListing(built.files.listing),
+  )
+  for (const file of built.files.listing.files) {
+    const from = built.files.onDisk.get(file.path) as string
+    const to = join(dist, DIST_FILES_DIR, ...file.path.split("/"))
+    await mkdir(dirname(to), { recursive: true })
+    await copyFile(from, to)
+  }
 }
 
 /** What `vbz build` prints. */
 export function buildLines(built: BuiltGame): string[] {
+  const { files } = built.files.listing
+  const bytes = files.reduce((total, file) => total + file.bytes, 0)
   return [
     `version ${built.version}, release line ${built.line}`,
     `rules code ${built.sim.byteLength} bytes, page module ${built.present.byteLength} bytes`,
+    `files ${files.length} in ${bytes} bytes, named ${listingSha256(built.files.listing)}`,
   ]
 }

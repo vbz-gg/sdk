@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { createBlobServer } from "../../src/serve/blobs"
+import { contentTypeFor, createBlobServer } from "../../src/serve/blobs"
 
 const GAME = "0b6f3c1e-2d4a-4e8b-9c7d-5a1f2e3b4c6d"
 const OTHER_GAME = "11111111-2222-4333-8444-555555555555"
@@ -126,6 +126,10 @@ describe("serving a module", () => {
       `/g/${GAME.toUpperCase()}/sim/${HASH}.js`,
       `/g/not-a-game/sim/${HASH}.js`,
       `/g/${GAME}/sim/${HASH.toUpperCase()}.js`,
+      `/g/${GAME}/t/${HASH}/`,
+      `/g/${GAME}/t/${HASH}/../sim/${HASH}.js`,
+      `/g/${GAME}/t/${HASH}/a%20b.js`,
+      `/g/${GAME}/t/short/a.js`,
       `/sim/${HASH}.js`,
       `/frame/${HASH}.js`,
       "/",
@@ -156,5 +160,49 @@ describe("serving a module", () => {
       `g/${GAME}/present/${HASH}.js`,
       `g/${OTHER_GAME}/sim/${HASH}.js`,
     ])
+  })
+})
+
+describe("serving a file of a version's folder", () => {
+  const FILE = `/g/${GAME}/t/${HASH}/core/null3d_bg.wasm`
+  const WASM = new Uint8Array([0, 97, 115, 109])
+  const files = createBlobServer(async (key) =>
+    key === FILE.slice(1) ? WASM : undefined,
+  )
+  const getFile = (path: string, headers: Record<string, string> = {}) =>
+    files(new Request(`http://bundle.invalid${path}`, { headers }))
+
+  test("comes back with its bytes, typed by its extension, for any page", async () => {
+    const response = await getFile(FILE)
+    expect(response.status).toBe(200)
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(WASM)
+    // Compiled by streaming only from this type.
+    expect(response.headers.get("content-type")).toBe("application/wasm")
+    expect(response.headers.get("access-control-allow-origin")).toBe("*")
+    expect(response.headers.get("cache-control")).toBe(
+      "public, max-age=31536000, immutable",
+    )
+  })
+
+  /** The listing names every file's bytes, so its name and the path name these. */
+  test("its entity tag is the folder's name and its path", async () => {
+    const response = await getFile(FILE)
+    const etag = `"${HASH}/core/null3d_bg.wasm"`
+    expect(response.headers.get("etag")).toBe(etag)
+    expect((await getFile(FILE, { "if-none-match": etag })).status).toBe(304)
+  })
+
+  test("a module script is JavaScript, and a page is never one", () => {
+    expect(contentTypeFor("entry.js")).toBe("text/javascript; charset=utf-8")
+    expect(contentTypeFor("chunks/a.MJS")).toBe(
+      "text/javascript; charset=utf-8",
+    )
+    expect(contentTypeFor("art/ship.png")).toBe("image/png")
+    for (const path of ["index.html", "page.htm", "README", "x.unknown"]) {
+      expect({ path, type: contentTypeFor(path) }).toEqual({
+        path,
+        type: "application/octet-stream",
+      })
+    }
   })
 })

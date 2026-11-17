@@ -9,6 +9,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { BuildRefusal } from "../../src/build/errors"
+import { canonicalListing, listingSha256 } from "../../src/build/files"
 import {
   buildGame,
   buildLines,
@@ -21,6 +22,7 @@ const SOURCE = {
   simEntry: "src/sim/index.ts",
   presentEntry: "src/present.ts",
   captureEntry: "src/capture.ts",
+  filesDir: null,
 }
 
 let root: string
@@ -143,6 +145,7 @@ describe("building", () => {
     expect(buildLines(built)).toEqual([
       "version 2.5.1, release line 2.5",
       `rules code ${built.sim.byteLength} bytes, page module ${built.present.byteLength} bytes`,
+      `files 0 in 0 bytes, named ${listingSha256({ files: [] })}`,
     ])
   })
 
@@ -168,6 +171,107 @@ describe("building", () => {
     expect(
       JSON.parse(await readFile(join(root, "dist", "manifest.json"), "utf8")),
     ).toEqual(built.manifest)
+    expect(await readFile(join(root, "dist", "files.json"), "utf8")).toBe(
+      `{"files":[]}`,
+    )
     await expect(readFile(join(root, "dist", "frame.js"))).rejects.toThrow()
+  })
+})
+
+describe("a game with a files folder", () => {
+  const PACK = new TextEncoder().encode(`{"level":1}`)
+  const packSha = new Bun.CryptoHasher("sha256").update(PACK).digest("hex")
+
+  /** A game whose page module imports its engine from the folder. */
+  async function writeFilesGame(manifest: Record<string, unknown>) {
+    await writeGame(manifest)
+    await writeFile(
+      join(root, "src", "present.ts"),
+      `import { MANIFEST } from "cw2:sim"\nimport { engine } from "cw2:files/engine/entry.js"\nexport default { name: MANIFEST.id, engine }\n`,
+    )
+    await mkdir(join(root, "files", "engine"), { recursive: true })
+    await mkdir(join(root, "files", "packs"), { recursive: true })
+    await writeFile(
+      join(root, "files", "engine", "entry.js"),
+      "export const engine = 1\n",
+    )
+    await writeFile(join(root, "files", "packs", "one.json"), PACK)
+  }
+
+  const withFiles = () => ({
+    root,
+    ...SOURCE,
+    filesDir: join(root, "files"),
+  })
+
+  test("lists the folder, and dist/ carries it and its listing", async () => {
+    await writeFilesGame({
+      id: "probe",
+      version: "1.0.0",
+      assets: [
+        {
+          path: "packs/one.json",
+          sha256: packSha,
+          bytes: PACK.byteLength,
+          requiredForSim: true,
+          license: "CC0",
+        },
+      ],
+    })
+    const built = await buildGame(withFiles())
+    expect(built.files.listing.files.map((file) => file.path).sort()).toEqual([
+      "engine/entry.js",
+      "packs/one.json",
+    ])
+    // The page module keeps its import as written, for the upload to rewrite.
+    expect(new TextDecoder().decode(built.present)).toContain(
+      "cw2:files/engine/entry.js",
+    )
+    await writeBuild(root, built)
+    const listing = await readFile(join(root, "dist", "files.json"), "utf8")
+    expect(listing).toBe(canonicalListing(built.files.listing))
+    expect(
+      new Uint8Array(
+        await readFile(join(root, "dist", "files", "packs", "one.json")),
+      ),
+    ).toEqual(PACK)
+    expect(buildLines(built)[2]).toBe(
+      `files 2 in ${PACK.byteLength + 24} bytes, named ${listingSha256(built.files.listing)}`,
+    )
+  })
+
+  test("a data pack the folder does not hold is refused", async () => {
+    await writeFilesGame({
+      id: "probe",
+      version: "1.0.0",
+      assets: [
+        {
+          path: "packs/two.json",
+          sha256: packSha,
+          bytes: PACK.byteLength,
+          requiredForSim: true,
+          license: "CC0",
+        },
+      ],
+    })
+    let thrown: unknown
+    try {
+      await buildGame(withFiles())
+    } catch (error) {
+      thrown = error
+    }
+    expect((thrown as BuildRefusal).code).toBe("E_PACK_UNLISTED")
+  })
+
+  test("a page module importing a file the folder does not hold is refused", async () => {
+    await writeFilesGame({ id: "probe", version: "1.0.0" })
+    await rm(join(root, "files", "engine", "entry.js"))
+    let thrown: unknown
+    try {
+      await buildGame(withFiles())
+    } catch (error) {
+      thrown = error
+    }
+    expect((thrown as BuildRefusal).code).toBe("E_FILE_UNLISTED")
   })
 })

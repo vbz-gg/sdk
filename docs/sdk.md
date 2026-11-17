@@ -38,8 +38,8 @@ So the SDK owns seven things, one per subpath export:
 | `/platform` | A game page's client for those routes: sign-in, runs, the board |
 | `/host` | The game on a page: loading its page module, a run through it, watching a run, and two widgets |
 | `/game` | What a page module is built from: `definePageModule` and the contract a page drives it through |
-| `/build` | A game's source to the two modules an upload carries, and what a version and a release line are |
-| `/serve` | The handler that serves a game's modules at the paths and with the headers `files.vbz.gg` uses |
+| `/build` | A game's source to the two modules and the files folder an upload carries, every limit the platform holds them to, and what a version and a release line are |
+| `/serve` | The handler that serves a game's modules and files at the paths and with the headers `files.vbz.gg` uses |
 | `/harness` | The build and the handler, wired into a local page that loads the game the way a studio's page does |
 
 Beside them the package ships a CLI
@@ -401,13 +401,15 @@ as the policy is concerned: all three engines refused one under the policy
 above, and loaded it once `script-src` carried its hash,
 `'sha256-<base64 of the map's exact text>'`.
 
-## The two artifacts
+## The two artifacts and the files folder
 
-`buildGameArtifacts` turns a source tree into two files:
+`buildGameArtifacts` turns a source tree into two files and lists a folder:
 
 - the **rules code**, built from `src/sim/index.ts`, with **zero** imports;
-- the **page module**, built from `src/present.ts`, importing exactly one
-  thing.
+- the **page module**, built from `src/present.ts`, importing the rules code
+  and, if it needs them, files of the folder;
+- the **files folder**, which the game's own tools build: a renderer's
+  engine, art, and the data packs the rules code reads.
 
 A page module refers to its rules code as the bare specifier `cw2:sim` and by
 no other name, for three measured reasons. Bun ignores `external` for a
@@ -415,53 +417,94 @@ relative import, so a relative import cannot be externalised under a name we
 choose. Two spellings of one module emit two imports, two URLs and two module
 instances, which is two `MANIFEST` objects in one page. And `cw2:` is not
 resolvable by a browser, so an unrewritten page module fails loudly at load
-rather than half-working.
+rather than half-working. It names a file of its folder the same way, as
+`cw2:files/<path>`, in a static import, and finds art and data at run time
+through the folder's address, which the page hands it.
+
+A game names its folder in its `package.json`, as
+`"vbz": { "files": "<dir>" }`, so every command reads the same one. A game
+that names none has an empty folder; one that names a folder that is not
+there, or one inside `dist/`, stops the command. The folder is listed by
+path, size and SHA-256, and named by the SHA-256 of that listing's canonical
+text, `canonicalListing`, so a page module naming the folder names every byte
+in it. A path is relative and POSIX, made of letters, digits, `.`, `_`, `-`
+and `/` with no `.` or `..` segment, the pattern the engine holds a data
+pack's path to, and a link in the folder is not followed.
 
 What the contract checks, on the bytes rather than on the source:
 
 1. One ES module, decodable as strict UTF-8.
-2. `scanImports` returns at least one entry for a page module and **zero** for
-   the rules code, every entry is an import statement, and the page module's
-   distinct path set is exactly `{"cw2:sim"}`.
-3. The quoted literal `"cw2:sim"` occurs exactly as many times as there are
-   import entries. A higher count means the string is also data, so a text
-   rewrite would change something the game reads: refuse rather than rewrite.
-4. Within `MAX_SIM_BYTES` (2 MiB) and `MAX_PRESENT_BYTES` (8 MiB).
+2. `scanImports` returns **zero** entries for the rules code. For the page
+   module every entry is an import statement, one or more name `cw2:sim`,
+   and every other one names a file of the folder as `cw2:files/<path>`,
+   whose path the listing holds.
+3. The quoted literal `"cw2:sim"` occurs exactly as many times as it is
+   imported, and `cw2:files/` exactly as many times as files are. A higher
+   count means the string is also data, so a text rewrite would change
+   something the game reads: refuse rather than rewrite.
+4. The page module calls no `import()`, with a literal or a computed name,
+   and no `new Worker`, `new SharedWorker` or `importScripts`. Bun's scanner
+   sees only a literal `import()`, so these are found by reading the text as
+   tokens, stepping over strings, comments and regular expressions. A load
+   hidden behind a computed property gets past that reading; the page's
+   policy, which names the game's own path and nothing else, is what bounds
+   it.
+5. Every limit in `limits.ts`: the rules code at most `MAX_SIM_BYTES`
+   (4 MiB) and the page module `MAX_PRESENT_BYTES` (16 MiB); each file of the
+   folder `MAX_FILE_BYTES` (64 MiB), all of them `MAX_FILES_BYTES` (512 MiB)
+   in at most `MAX_FILES` (10,000); and each data pack the manifest declares
+   is a file of the folder of its declared size and hash, at most
+   `MAX_PACK_BYTES` (16 MiB), all of them `MAX_PACKS_BYTES` (48 MiB)
+   together. `MAX_RUN_BYTES` (31 MiB) and `MAX_CHUNK_BYTES` (1 MiB) are a
+   run's, which the platform hands a page and the stand-in reads.
 
-Then the addressing. Each artifact is stored under the SHA-256 of its own
-bytes. `rewriteSimImport` replaces the page module's specifier with
-`/g/<game id>/sim/<64 hex>.js`, root-relative, so the bytes carry no domain,
-and re-scans to prove the result imports exactly that one path. The page
-module is hashed **after** the rewrite, so a stored page module's hash is
-taken over bytes that already name one game and one rules code. A page module
-can name exactly one rules code, forever, which is what makes "the browser
-and the validator ran the same code" checkable rather than asserted.
+Then the addressing. Each module is stored under the SHA-256 of its own
+bytes, and each file under the folder's name and its path.
+`rewritePresentImports` replaces the page module's `cw2:sim` with
+`/g/<game id>/sim/<64 hex>.js` and its `cw2:files/` with
+`/g/<game id>/t/<listing sha256>/`, root-relative, so the bytes carry no
+domain, and re-scans to prove the result imports exactly those paths. The
+page module is hashed **after** the rewrite, so a stored page module's hash is
+taken over bytes that already name one game, one rules code and one folder. A
+page module can name exactly one rules code and one set of files, forever,
+which is what makes "the browser and the validator ran the same code"
+checkable rather than asserted.
 
 `buildAndAddress` in `/harness` performs that whole sequence, which is the
 same one the platform performs on an upload. `vbz build` writes the page
-module **unrewritten**, with its `cw2:sim` intact, beside `dist/sim.js` and
-`dist/manifest.json`: a page module that arrived already pointing somewhere
-would be one naming a module nobody checked.
+module **unrewritten**, with its specifiers intact, beside `dist/sim.js`,
+`dist/manifest.json`, the listing as `dist/files.json`, exactly the text its
+name is the hash of, and a copy of the folder as `dist/files/`: a page module
+that arrived already pointing somewhere would be one naming code nobody
+checked.
 
 ## Serving
 
 In production the two modules of a published version sit at
 `https://files.vbz.gg/g/<game id>/sim/<sha256>.js` and
-`https://files.vbz.gg/g/<game id>/present/<sha256>.js`, copied there when the
-version passes its checks, so a pending or rejected upload is never public. A
-takedown deletes the copies and purges them from the cache. `/serve`'s
-`createBlobServer` answers the same paths with the same headers, for the
-harness and for the platform's development bundles server, so a page meets
-one answer from a laptop and from the edge:
+`https://files.vbz.gg/g/<game id>/present/<sha256>.js`, and its files under
+`https://files.vbz.gg/g/<game id>/t/<listing sha256>/<path>`, copied there
+when the version passes its checks, so a pending or rejected upload is never
+public. A takedown deletes the copies and purges them from the cache.
+`/serve`'s `createBlobServer` answers the same paths with the same headers,
+for the harness and for the platform's development bundles server, so a page
+meets one answer from a laptop and from the edge:
 
 - `Access-Control-Allow-Origin: *`, because a page module is imported by a
   studio's page from another origin and every module import is a CORS
   request. What these files hold is public, and which page may run a game is
   the studio's policy to say, by its game's path. The 404 carries the header
   too, or a miss reads to the page as a network failure.
-- `Cache-Control: public, max-age=31536000, immutable`, because each file is
-  named by the digest of its own bytes and never changes.
-- An `ETag` of the digest, and `304` for a request that names it.
+- `Cache-Control: public, max-age=31536000, immutable`, because each module
+  is named by the digest of its own bytes, and each file by the digest of a
+  listing that names its bytes, so neither ever changes.
+- An `ETag` of the digest, or for a file of the folder's name and its path,
+  and `304` for a request that names it.
+- A module as JavaScript, and a file as the type its extension names in
+  `FILE_CONTENT_TYPES`: JavaScript for a module script, `application/wasm`
+  for WebAssembly, which a browser compiles by streaming only from that type,
+  and `application/octet-stream` for anything it does not name, HTML among
+  it, so a file opened on the bundles origin is never a page there.
 
 ## Starting a game
 

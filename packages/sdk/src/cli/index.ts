@@ -10,7 +10,6 @@
  * decision in it lives beside this file rather than in it.
  */
 
-import type { GameSource } from "../build/index.js"
 import {
   DEFAULT_BUNDLES_PORT,
   DEFAULT_HOST_PORT,
@@ -36,6 +35,7 @@ import {
   STUDIO_KEY_VARIABLE,
   verdictOf,
 } from "./publish.js"
+import { sourceOf } from "./source.js"
 
 /** Everything the usage says after the commands: the flags, and publish's key. */
 const FLAGS = `  --sim <path>       the simulation's entry   (default src/sim/index.ts)
@@ -57,18 +57,9 @@ const FLAGS = `  --sim <path>       the simulation's entry   (default src/sim/in
   it serves; anything else, a version an operator took down included, is 1.
 `
 
-function sourceOf(options: Options): GameSource {
-  return {
-    root: options.dir,
-    simEntry: options.simEntry,
-    presentEntry: options.presentEntry,
-    captureEntry: options.captureEntry,
-  }
-}
-
-/** Writes the three files an upload carries, and says what it wrote. */
+/** Writes what an upload carries, and says what it wrote. */
 async function build(options: Options): Promise<void> {
-  const built = await buildGame(sourceOf(options))
+  const built = await buildGame(await sourceOf(options))
   await writeBuild(options.dir, built)
   for (const line of buildLines(built)) process.stdout.write(`${line}\n`)
 }
@@ -80,7 +71,7 @@ async function dev(options: Options): Promise<void> {
   await build(options)
   if (settings.site) {
     const site = await startSite({
-      source: sourceOf(options),
+      source: await sourceOf(options),
       gameId: HARNESS_GAME_ID,
       seed: HARNESS_SEED,
       hostPort: settings.hostPort,
@@ -98,7 +89,7 @@ async function dev(options: Options): Promise<void> {
     return
   }
   const harness = await startHarness({
-    source: sourceOf(options),
+    source: await sourceOf(options),
     hostPort: settings.hostPort,
     bundlesPort: settings.bundlesPort,
     listen: settings.listen,
@@ -139,7 +130,7 @@ async function check(options: Options): Promise<number> {
   // with TypeScript, which a game has only once its own install has run,
   // and `vbz new` runs before that.
   const { checkGame, checkLines } = await import("./check.js")
-  const checked = await checkGame(sourceOf(options))
+  const checked = await checkGame(await sourceOf(options))
   for (const line of checkLines(checked, options.captureEntry)) {
     process.stdout.write(`${line}\n`)
   }
@@ -202,7 +193,10 @@ export const COMMANDS: readonly Command[] = [
   {
     name: "build",
     args: "[dir]",
-    summary: ["write dist/sim.js, dist/present.js and dist/manifest.json"],
+    summary: [
+      "write dist/sim.js, dist/present.js, dist/manifest.json, and the",
+      "files folder package.json names as dist/files/, listed in dist/files.json",
+    ],
     run: async (options) => {
       await build(options)
       return 0

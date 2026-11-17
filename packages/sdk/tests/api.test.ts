@@ -14,6 +14,7 @@ import type {
   PublicRefusalCode,
   RefusalDetails,
 } from "../src/api/index.js"
+import type { BuildRefusalCode } from "../src/build/errors.js"
 
 const PACKAGE = join(import.meta.dir, "..")
 
@@ -43,6 +44,17 @@ describe("the shapes a page reads", () => {
   test("every refusal with a declared detail is a code a route answers", () => {
     type Stray = Exclude<keyof RefusalDetails, PublicRefusalCode>
     const none: [Stray] extends [never] ? true : Stray = true
+    expect(none).toBe(true)
+  })
+
+  /**
+   * The platform runs the build's checks again on an upload and answers
+   * each refusal with the build's own code, so every one is a code a route
+   * answers, by name.
+   */
+  test("every refusal the build makes is one an upload can answer", () => {
+    type Unnamed = Exclude<BuildRefusalCode, PublicRefusalCode>
+    const none: [Unnamed] extends [never] ? true : Unnamed = true
     expect(none).toBe(true)
   })
 

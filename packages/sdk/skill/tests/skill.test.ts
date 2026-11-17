@@ -19,6 +19,11 @@ import { INPUT_BUDGET_PER_TICK, Prng } from "@clockwork2/engine"
 import { TICK_RATES } from "@clockwork2/engine/manifest"
 import {
   BUILD_REFUSAL,
+  MAX_FILE_BYTES,
+  MAX_FILES,
+  MAX_FILES_BYTES,
+  MAX_PACK_BYTES,
+  MAX_PACKS_BYTES,
   MAX_PRESENT_BYTES,
   MAX_SIM_BYTES,
   MAX_VERSION_PART,
@@ -123,9 +128,16 @@ describe("what the prose restates from the code", () => {
   })
 
   test("the size caps are the caps", async () => {
-    const text = await read("references", "artifacts.md")
-    expect(text).toContain(`${MAX_SIM_BYTES / 1024 / 1024} MiB`)
-    expect(text).toContain(`${MAX_PRESENT_BYTES / 1024 / 1024} MiB`)
+    // Prose wraps, so a sentence is read with its line breaks as spaces.
+    const text = (await read("references", "artifacts.md")).replace(/\s+/g, " ")
+    const mib = (bytes: number) => `${bytes / 1024 / 1024} MiB`
+    expect(text).toContain(`${mib(MAX_SIM_BYTES)} for the simulation`)
+    expect(text).toContain(`${mib(MAX_PRESENT_BYTES)} for the page module`)
+    expect(text).toContain(`Each file holds at most ${mib(MAX_FILE_BYTES)}`)
+    expect(text).toContain(`${mib(MAX_FILES_BYTES)} together`)
+    expect(text).toContain(`in at most ${MAX_FILES.toLocaleString("en")} files`)
+    expect(text).toContain(`One pack holds at most ${mib(MAX_PACK_BYTES)}`)
+    expect(text).toContain(`all of them ${mib(MAX_PACKS_BYTES)} together`)
   })
 
   /**
@@ -169,6 +181,8 @@ describe("what the prose restates from the code", () => {
         code.startsWith("E_PRESENT") ||
         code.startsWith("E_ARTIFACT") ||
         code.startsWith("E_SIM") ||
+        code.startsWith("E_FILE") ||
+        code.startsWith("E_PACK") ||
         code.startsWith("E_REWRITE") ||
         code.startsWith("E_VERSION_INVALID"),
     )

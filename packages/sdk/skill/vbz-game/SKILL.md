@@ -65,8 +65,10 @@ of the simulation either: it imports `cw2:sim`, which the platform rewrites to
 the simulation's content address at upload. One object, fetched by the browser
 and loaded by the validator, same bytes and same hash.
 
-`bun run build` writes all three files a submission carries:
-`dist/sim.js`, `dist/present.js` and `dist/manifest.json`.
+`bun run build` writes everything a submission carries: `dist/sim.js`,
+`dist/present.js`, `dist/manifest.json`, and the files folder the game's
+`package.json` names, copied to `dist/files/` and listed in
+`dist/files.json` (`references/artifacts.md`).
 
 ## Replays and randomness
 
@@ -278,7 +280,8 @@ newer patch passes, and practice carries on.
 - `vbz guides <dir>` - replace the game's two guides with the ones its
   installed `@vbz-gg/sdk` and `@clockwork2/engine` ship. It stops, writing
   nothing, when either package or its guide is missing.
-- `vbz build <dir>` - the three files a submission carries.
+- `vbz build <dir>` - the two modules, the manifest and the files folder a
+  submission carries.
 - `vbz check <dir>` - the engine's checks and the input mapping, with the
   version, its release line and the line's contract hash.
 - `vbz dev <dir>` - your game's page, locally, on two origins, with a report

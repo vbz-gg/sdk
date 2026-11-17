@@ -41,16 +41,21 @@ The manifest is also compared against the one the built simulation exports.
 The code's copy wins: a submission whose JSON says something the simulation
 does not is refused rather than believed.
 
-## 2. The artifacts
+## 2. The artifacts and the files folder
 
 The contract in `references/artifacts.md`, on the uploaded bytes:
 `E_ARTIFACT_NOT_UTF8`, `E_ARTIFACT_TOO_LARGE`, `E_SIM_NOT_SELF_CONTAINED`,
 `E_PRESENT_IMPORT_MISSING`, `E_PRESENT_IMPORT_UNEXPECTED`,
-`E_PRESENT_DYNAMIC_IMPORT`, `E_PRESENT_SPECIFIER_AMBIGUOUS`.
+`E_PRESENT_DYNAMIC_IMPORT`, `E_PRESENT_WORKER`,
+`E_PRESENT_SPECIFIER_AMBIGUOUS`, and for the files folder's listing
+`E_FILES_INVALID`, `E_FILE_PATH_INVALID`, `E_FILE_TOO_LARGE`,
+`E_FILES_TOO_LARGE`, `E_FILES_TOO_MANY`, `E_FILE_UNLISTED`,
+`E_PACK_UNLISTED`, `E_PACK_MISMATCH` and `E_PACKS_TOO_LARGE`.
 
-Then the addressing: the simulation is hashed, the page module's specifier is
-rewritten to that address under the game's path, and the page module is
-hashed afterwards.
+Then the addressing: the simulation is hashed, the folder is named by the
+SHA-256 of its listing, the page module's `cw2:sim` is rewritten to the
+simulation's address and its `cw2:files/` to the folder's, both under the
+game's path, and the page module is hashed afterwards.
 
 ## 3. The conformance suite
 
@@ -85,7 +90,8 @@ it plays is refused before any player meets it.
 ## 6. Published
 
 Nobody reviews in between: a version that passes every check is published.
-Its two modules are copied to `https://files.vbz.gg/g/<game id>/`, and
+Its two modules and its files folder are copied to
+`https://files.vbz.gg/g/<game id>/`, and
 `vbz publish` prints which runs it serves. A patch of the day's release line
 reaches the next ranked start, because a ranked run plays the line's highest
 published patch. A new minor or major waits for the next day's seed. Practice

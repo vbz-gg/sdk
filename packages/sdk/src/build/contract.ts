@@ -15,8 +15,11 @@
  * it was uploaded, because it never trusts how something was built.
  */
 
+import { isFilePath } from "../game/files.js"
 import { refuse } from "./errors.js"
-import { GAME_ID, SHA256, SIM_PATH, simPathFor } from "./paths.js"
+import { type FilesListing, listedFile, listingSha256 } from "./files.js"
+import { runtimeLoads } from "./loads.js"
+import { filesBaseFor, GAME_ID, SHA256, SIM_PATH, simPathFor } from "./paths.js"
 
 /**
  * The one name a page module may use for its simulation.
@@ -45,15 +48,12 @@ import { GAME_ID, SHA256, SIM_PATH, simPathFor } from "./paths.js"
 export const SIM_SPECIFIER = "cw2:sim"
 
 /**
- * Size caps, generous enough that nothing real hits them and small enough that
- * a runaway build is refused rather than stored.
- *
- * Measured: the Snake demo's sim is 35,558 bytes and its frame, which is
- * what a page module was before it carried its own host, is 545,518, most of
- * that the renderer.
+ * The prefix a page module names a file of its version's folder by, in a
+ * static import: `cw2:files/<path>`. It is rewritten with the rules code's
+ * specifier, to the folder's path under the game, so the bytes stored name
+ * one folder by the hash of its listing.
  */
-export const MAX_SIM_BYTES = 2 * 1024 * 1024
-export const MAX_PRESENT_BYTES = 8 * 1024 * 1024
+export const FILES_SPECIFIER = "cw2:files/"
 
 type ScannedImport = { kind: string; path: string }
 
@@ -112,18 +112,34 @@ export function assertSimSelfContained(simText: string): void {
   }
 }
 
+/** What a page module imports: its rules code, and files of its folder. */
+export interface PresentImports {
+  /** How many import statements name the rules code. */
+  readonly sim: number
+  /** The folder's files it imports, by path, one per import statement. */
+  readonly files: readonly string[]
+}
+
 /**
- * The page module must import the simulation, by that name, and nothing else.
+ * The page module must import the simulation, by that name, may import
+ * files of its version's folder as `cw2:files/<path>`, and imports nothing
+ * else, by no other means.
  *
- * The occurrence count is what earns the host's text rewrite. If the quoted
- * specifier appears more often than the scanner found imports, the string is
- * also data somewhere in the bundle, and replacing it would change a value the
- * game reads. That is a refusal rather than a rewrite.
+ * Every file it names has to be one the listing holds, and no specifier may
+ * also appear as data: the occurrence counts are what earn the host's text
+ * rewrite, and a specifier the scanner did not find as an import is a string
+ * the game reads, which a rewrite would change. That is a refusal rather
+ * than a rewrite. Nor may it load code at run time, by `import()` with any
+ * argument, `new Worker`, `new SharedWorker` or `importScripts`: what it
+ * loads has to be decidable without running it.
  *
- * Returns how many import statements there are, which the host compares
- * against its own count after rewriting.
+ * Returns what it imports, which the host compares against its own count
+ * after rewriting.
  */
-export function assertPresentImportsOnlySim(presentText: string): number {
+export function assertPresentImports(
+  presentText: string,
+  listing: FilesListing,
+): PresentImports {
   const imports = scan(presentText)
 
   const dynamic = imports.filter((i) => i.kind !== "import-statement")
@@ -133,33 +149,79 @@ export function assertPresentImportsOnlySim(presentText: string): number {
       `the page module uses a dynamic import (${dynamic.map((i) => i.path).join(", ")}); the module it loads must be decidable without running it`,
     )
   }
+  const loads = runtimeLoads(presentText)
+  const computed = loads.filter((load) => load.kind === "import()")
+  if (computed.length > 0) {
+    refuse(
+      "E_PRESENT_DYNAMIC_IMPORT",
+      `the page module calls import() ${computed.length} time${computed.length === 1 ? "" : "s"}, first at character ${computed[0]?.at}; it may load only ${SIM_SPECIFIER} and files its static imports name`,
+    )
+  }
+  const workers = loads.filter((load) => load.kind !== "import()")
+  if (workers.length > 0) {
+    refuse(
+      "E_PRESENT_WORKER",
+      `the page module calls ${[...new Set(workers.map((load) => load.kind))].join(", ")}; code a game runs that way goes in its files folder, which the page's policy names`,
+    )
+  }
 
-  if (imports.length === 0) {
+  const sim = imports.filter((i) => i.path === SIM_SPECIFIER).length
+  if (sim === 0) {
     refuse(
       "E_PRESENT_IMPORT_MISSING",
-      `the page module imports nothing, so it carries its own copy of the simulation; it must import ${SIM_SPECIFIER}`,
+      `the page module does not import ${SIM_SPECIFIER}, so it carries its own copy of the simulation; it must import ${SIM_SPECIFIER}`,
     )
   }
 
   const unexpected = [
-    ...new Set(imports.map((i) => i.path).filter((p) => p !== SIM_SPECIFIER)),
+    ...new Set(
+      imports
+        .map((i) => i.path)
+        .filter((p) => p !== SIM_SPECIFIER && !p.startsWith(FILES_SPECIFIER)),
+    ),
   ]
   if (unexpected.length > 0) {
     refuse(
       "E_PRESENT_IMPORT_UNEXPECTED",
-      `the page module imports ${unexpected.join(", ")}; the only import it may carry is ${SIM_SPECIFIER}`,
+      `the page module imports ${unexpected.join(", ")}; it may import ${SIM_SPECIFIER} and files of its folder as ${FILES_SPECIFIER}<path>, and nothing else`,
     )
+  }
+
+  const files = imports
+    .map((i) => i.path)
+    .filter((p) => p.startsWith(FILES_SPECIFIER))
+    .map((p) => p.slice(FILES_SPECIFIER.length))
+  for (const path of files) {
+    if (!isFilePath(path)) {
+      refuse(
+        "E_FILE_PATH_INVALID",
+        `the page module imports ${FILES_SPECIFIER}${path}, and ${JSON.stringify(path)} is not a path a version's folder may hold`,
+      )
+    }
+    if (listedFile(listing, path) === undefined) {
+      refuse(
+        "E_FILE_UNLISTED",
+        `the page module imports ${FILES_SPECIFIER}${path}, and the files folder has no ${path}`,
+      )
+    }
   }
 
   const occurrences = countQuoted(presentText, SIM_SPECIFIER)
-  if (occurrences !== imports.length) {
+  if (occurrences !== sim) {
     refuse(
       "E_PRESENT_SPECIFIER_AMBIGUOUS",
-      `${JSON.stringify(SIM_SPECIFIER)} appears ${occurrences} times as a quoted string but only ${imports.length} as an import, so rewriting it would change something the game reads`,
+      `${JSON.stringify(SIM_SPECIFIER)} appears ${occurrences} times as a quoted string but only ${sim} as an import, so rewriting it would change something the game reads`,
+    )
+  }
+  const fileOccurrences = presentText.split(FILES_SPECIFIER).length - 1
+  if (fileOccurrences !== files.length) {
+    refuse(
+      "E_PRESENT_SPECIFIER_AMBIGUOUS",
+      `${JSON.stringify(FILES_SPECIFIER)} appears ${fileOccurrences} times but only ${files.length} as an import, so rewriting it would change something the game reads; a file the game reads at run time is found through the folder's address, not by this prefix`,
     )
   }
 
-  return imports.length
+  return { sim, files }
 }
 
 /** Counts the specifier as a quoted literal, in either quote style. */
@@ -179,23 +241,28 @@ export function countQuoted(text: string, specifier: string): number {
 }
 
 /**
- * Points the page module's simulation import at the stored simulation, under
- * its game's path.
+ * Points the page module's imports at what the platform stores, under its
+ * game's path: `cw2:sim` at the rules code, `/g/<gameId>/sim/<sha256>.js`,
+ * and every `cw2:files/` at the files folder, `/g/<gameId>/t/<listing
+ * sha256>/`.
  *
- * The path is built here from the game's id and a hash the caller computed,
- * and both are checked, because a path taken from a submission would let a
- * bundle name some other module, or another game's. The result is re-scanned,
- * so the transform is verified rather than trusted.
+ * The paths are built here from the game's id, a hash the caller computed
+ * and the listing, and each is checked, because a path taken from a
+ * submission would let a bundle name some other module, or another game's.
+ * The result is re-scanned, so the transform is verified rather than
+ * trusted.
  *
  * This runs before the page module is hashed, so a stored page module's hash
- * is taken over bytes that already name one game and one simulation. That is
- * what makes "the browser and the validator ran the same code" checkable
- * rather than asserted: a page module can name exactly one sim, forever.
+ * is taken over bytes that already name one game, one rules code and one
+ * folder. That is what makes "the browser and the validator ran the same
+ * code" checkable rather than asserted: a page module can name exactly one
+ * sim and one set of files, forever.
  */
-export function rewriteSimImport(
+export function rewritePresentImports(
   presentText: string,
   gameId: string,
   simSha256: string,
+  listing: FilesListing,
 ): string {
   if (!GAME_ID.test(gameId)) {
     refuse("E_REWRITE_FAILED", `${JSON.stringify(gameId)} is not a game id`)
@@ -207,26 +274,32 @@ export function rewriteSimImport(
     )
   }
   const simPath = simPathFor(gameId, simSha256)
+  const filesBase = filesBaseFor(gameId, listingSha256(listing))
 
-  const expected = assertPresentImportsOnlySim(presentText)
+  const expected = assertPresentImports(presentText, listing)
 
+  // Every occurrence of either specifier is an import's, which the check
+  // above counted.
   const rewritten = presentText
     .replaceAll(`"${SIM_SPECIFIER}"`, JSON.stringify(simPath))
     .replaceAll(`'${SIM_SPECIFIER}'`, JSON.stringify(simPath))
+    .replaceAll(FILES_SPECIFIER, filesBase)
 
-  assertRewritten(rewritten, simPath, expected)
+  assertRewritten(rewritten, simPath, filesBase, expected)
   return rewritten
 }
 
 /**
- * That the rewrite produced what it promised.
+ * That the rewrite produced what it promised: import statements alone, as
+ * many naming the rules code at `simPath` as before, and every file import
+ * now under `filesBase`, the same files as before.
  *
  * Separate from the replacement above, and exported, because it cannot be
- * reached through `rewriteSimImport`: the input has already passed
- * `assertPresentImportsOnlySim`, the path was built from checked parts, and a
- * `replaceAll` of one quoted literal for another cannot change how many
- * imports a module has. Left inline it would be four lines no test could
- * execute, which is a guard nobody has ever seen work.
+ * reached through `rewritePresentImports`: the input has already passed
+ * `assertPresentImports`, the paths were built from checked parts, and a
+ * `replaceAll` of one specifier for another cannot change how many imports a
+ * module has. Left inline it would be lines no test could execute, which is
+ * a guard nobody has ever seen work.
  *
  * It is worth keeping rather than deleting, because what it guards is the one
  * transform this package performs on a stranger's bytes, and the next person
@@ -235,20 +308,29 @@ export function rewriteSimImport(
 export function assertRewritten(
   rewritten: string,
   simPath: string,
-  expected: number,
+  filesBase: string,
+  expected: PresentImports,
 ): void {
   const after = scan(rewritten)
-  const paths = [...new Set(after.map((i) => i.path))]
+  const sims = after.filter((i) => i.path === simPath).length
+  const files = after
+    .filter((i) => i.path.startsWith(filesBase))
+    .map((i) => i.path.slice(filesBase.length))
+    .sort()
+  const others = after.filter(
+    (i) => i.path !== simPath && !i.path.startsWith(filesBase),
+  )
   const ok =
     SIM_PATH.test(simPath) &&
-    after.length === expected &&
     after.every((i) => i.kind === "import-statement") &&
-    paths.length === 1 &&
-    paths[0] === simPath
+    sims === expected.sim &&
+    others.length === 0 &&
+    JSON.stringify(files) === JSON.stringify([...expected.files].sort())
   if (!ok) {
+    const paths = [...new Set(after.map((i) => i.path))]
     refuse(
       "E_REWRITE_FAILED",
-      `after rewriting, the page module imports ${paths.join(", ") || "nothing"} across ${after.length} statements, expected ${expected} of ${simPath}`,
+      `after rewriting, the page module imports ${paths.join(", ") || "nothing"} across ${after.length} statements, expected ${expected.sim} of ${simPath} and ${expected.files.length} under ${filesBase}`,
     )
   }
 }

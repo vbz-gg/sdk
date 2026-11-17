@@ -7,7 +7,7 @@ towards you, motes to collect.
 bun install
 bun run dev      # play it, loaded the way a studio's page loads it
 bun run check    # the engine's checks, and the input mapping held to the manifest
-bun run build    # the three files an upload carries
+bun run build    # the two modules, the manifest and the files an upload carries
 bun run site     # your page, against a stand-in for the platform
 ```
 

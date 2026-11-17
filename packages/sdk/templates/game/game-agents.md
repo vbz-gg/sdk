@@ -11,7 +11,7 @@ the one that counts.
 bun install
 bun run dev      # play it, loaded the way a studio's page loads it
 bun run check    # the engine's checks, and the input mapping held to the manifest
-bun run build    # the three files an upload carries
+bun run build    # the two modules, the manifest and the files an upload carries
 bun run site     # the game's page, against a stand-in for the platform
 VBZ_STUDIO_KEY=vbz_sk_... bunx vbz publish . --game <game id>
 ```

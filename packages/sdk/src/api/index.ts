@@ -107,8 +107,30 @@ export type PublicRefusalCode =
   | "E_SIM_NOT_SELF_CONTAINED"
   | "E_PRESENT_IMPORT_MISSING"
   | "E_PRESENT_IMPORT_UNEXPECTED"
+  /** The page module calls `import()`, with a literal or a computed name. */
   | "E_PRESENT_DYNAMIC_IMPORT"
+  /** The page module calls `new Worker`, `new SharedWorker` or `importScripts`. */
+  | "E_PRESENT_WORKER"
   | "E_PRESENT_SPECIFIER_AMBIGUOUS"
+  // A version's files folder.
+  /** The files listing is not a list of paths, sizes and SHA-256s. */
+  | "E_FILES_INVALID"
+  /** A path a version's folder may not hold, or one listed twice, ignoring case. */
+  | "E_FILE_PATH_INVALID"
+  /** One file over the 64 MiB a file may hold. */
+  | "E_FILE_TOO_LARGE"
+  /** The folder's files together over the 512 MiB a version's files may hold. */
+  | "E_FILES_TOO_LARGE"
+  /** More than the 10,000 files a version's folder may hold. */
+  | "E_FILES_TOO_MANY"
+  /** The page module imports `cw2:files/<path>` for a file the listing does not hold. */
+  | "E_FILE_UNLISTED"
+  /** The manifest declares a data pack the listing does not hold. */
+  | "E_PACK_UNLISTED"
+  /** A data pack's size or SHA-256 in the listing is not the one the manifest declares. */
+  | "E_PACK_MISMATCH"
+  /** One data pack over 16 MiB, or all of them over 48 MiB together. */
+  | "E_PACKS_TOO_LARGE"
   /** The platform could not rewrite the page module's import. Not reached in practice. */
   | "E_REWRITE_FAILED"
   // Player sign-in.
