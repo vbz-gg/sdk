@@ -1,12 +1,26 @@
 # From an upload to a listing
 
-What the platform does with a submission, in order. Sections 0 to 2 run
-before the first storage write, so a submission they refuse leaves nothing
-behind and costs no quota: an upload is its own dry run.
+What the platform does with a submission, in order. Only a game opted in to
+ranked play is uploaded: a game played only on its own page never meets any
+of this. Sections 0 to 2 run before the first storage write, so a submission
+they refuse leaves nothing behind and costs no quota: an upload is its own
+dry run.
 
-`vbz publish <dir> --game <id>` is how a submission arrives. It sends
-`dist/`, then reads the version back until the checks below decide, and
-prints the code and the first failed check of a rejection.
+`vbz publish <dir> --game <id>` is how a submission arrives. It sends the
+files folder's listing with the version's manifest and asks which files the
+platform lacks; the platform answers the refusals of sections 0 and 2 that
+the manifest and the listing alone decide, and the quota, before any file
+goes up, so a version it would refuse stores nothing. Then the command
+uploads each missing file on its own, sends the version with the listing
+beside it, then
+reads the version back until the checks below decide, and prints the code
+and the first failed check of a rejection. A file is stored under the hash
+of its bytes (`E_FILE_HASH_MISMATCH` when they are not), so a file an
+earlier version sent is not sent again, and a version whose listing names a
+file the platform does not hold is refused with `E_FILES_MISSING`. Files
+stored for a version that never arrives, because the publish stopped
+between them or another version arrived first, are named by nothing and
+removed a day later.
 
 ## 0. The version
 
@@ -41,29 +55,41 @@ The manifest is also compared against the one the built simulation exports.
 The code's copy wins: a submission whose JSON says something the simulation
 does not is refused rather than believed.
 
-## 2. The artifacts
+## 2. The artifacts and the files folder
 
 The contract in `references/artifacts.md`, on the uploaded bytes:
 `E_ARTIFACT_NOT_UTF8`, `E_ARTIFACT_TOO_LARGE`, `E_SIM_NOT_SELF_CONTAINED`,
 `E_PRESENT_IMPORT_MISSING`, `E_PRESENT_IMPORT_UNEXPECTED`,
-`E_PRESENT_DYNAMIC_IMPORT`, `E_PRESENT_SPECIFIER_AMBIGUOUS`.
+`E_PRESENT_DYNAMIC_IMPORT`, `E_PRESENT_WORKER`,
+`E_PRESENT_SPECIFIER_AMBIGUOUS`, and for the files folder's listing
+`E_FILES_INVALID`, `E_FILE_PATH_INVALID`, `E_FILE_TOO_LARGE`,
+`E_FILES_TOO_LARGE`, `E_FILES_TOO_MANY`, `E_FILE_UNLISTED`,
+`E_PACK_UNLISTED`, `E_PACK_MISMATCH` and `E_PACKS_TOO_LARGE`.
 
-Then the addressing: the simulation is hashed, the page module's specifier is
-rewritten to that address under the game's path, and the page module is
-hashed afterwards.
+Then the addressing: the simulation is hashed, the folder is named by the
+SHA-256 of its listing, the page module's `cw2:sim` is rewritten to the
+simulation's address and its `cw2:files/` to the folder's, both under the
+game's path, and the page module is hashed afterwards.
 
 ## 3. The conformance suite
 
-The twelve checks from `@clockwork2/engine/validate`, run against the built
-simulation laid out as a subject directory. They are the subject of the
-engine's guide, clockwork2: determinism, banned APIs, no async, restore,
-bounded runs, counters, headless, assets and the rest.
+The engine's `ranked` set from `@clockwork2/engine/validate`, run against the
+built simulation laid out as a subject directory with its data packs beside
+it, playing the config a run is served: every declared setting at its
+default. The set is every check the engine runs on any game, the subject of
+the engine's guide, clockwork2 (determinism, banned APIs, no async, restore,
+counters, headless, assets and the rest), and two that only a ranked or
+practice run needs. Each check plays its logs to the game's own end or to a
+fixed window; no run has a step limit.
 
-Plus a thirteenth the platform owns, **seed sensitivity**: two different seeds
-on the same input log must reach different states (`E_SEED_IGNORED`). A game
-that ignores its seed passes all twelve - check 1 compares same-seed runs to
-each other, so a seed-blind generator is perfectly deterministic - and turns a
-daily board into an all-time board.
+- **Seed sensitivity**: two different seeds on the same input log must pass
+  through different states (`E_SEED_IGNORED`). A game that ignores its seed
+  passes every other check - determinism compares same-seed runs to each
+  other, so a seed-blind generator is perfectly deterministic - and turns a
+  daily board into an all-time board.
+- **Ranking**: the manifest declares `rankBy` and `tiePolicy`
+  (`E_RANK_UNDECLARED`), which a game played only on its own page may leave
+  out.
 
 ## 4. The cross-engine sweep
 
@@ -80,12 +106,18 @@ differ for `Math.hypot` between JavaScriptCore and V8, 10.3% for `Math.exp`,
 
 The page module is loaded in a headless browser and played for a short run
 with the bot's inputs, so one that will not load, will not mount or fails as
-it plays is refused before any player meets it.
+it plays is refused before any player meets it. The checks' browser has no
+WebGL and no WebGPU, so a game drawn with them cannot get ready there; a
+watched run's `draw: false` is the SDK's way to play a page module without
+its presentation, so its checkpoints can still be compared with the
+replay's.
 
 ## 6. Published
 
 Nobody reviews in between: a version that passes every check is published.
-Its two modules are copied to `https://files.vbz.gg/g/<game id>/`, and
+Its two modules and its files folder are copied to
+`https://files.vbz.gg/g/<game id>/`, from where a studio's page loads them,
+and
 `vbz publish` prints which runs it serves. A patch of the day's release line
 reaches the next ranked start, because a ranked run plays the line's highest
 published patch. A new minor or major waits for the next day's seed. Practice

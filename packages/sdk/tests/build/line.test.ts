@@ -15,7 +15,7 @@ import {
 } from "../../src/build/line"
 
 const MANIFEST: Manifest = {
-  schemaVersion: 2,
+  schemaVersion: 3,
   id: "lane-runner",
   version: "1.2.0",
   name: "Lane Runner",
@@ -23,8 +23,6 @@ const MANIFEST: Manifest = {
   genres: ["arcade"],
   session: {
     tickHz: 60,
-    maxTicks: 7200,
-    maxWallSeconds: 300,
     hasEnding: true,
   },
   inputs: {
@@ -46,7 +44,7 @@ const MANIFEST: Manifest = {
       default: 1,
     },
   },
-  budgets: { bundleBytes: 1_000_000 },
+  budgets: { assetBytes: 1_000_000 },
   display: { orientation: "any" },
   capabilities: {
     deterministic: true,
@@ -68,7 +66,7 @@ describe("what a patch may change", () => {
       name: "Lane Runner Deluxe",
       kernel: { version: "0.9.0" },
       genres: ["arcade", "runner"],
-      budgets: { bundleBytes: 2_000_000 },
+      budgets: { assetBytes: 2_000_000 },
       display: { orientation: "portrait" },
       assets: [],
       capabilities: { ...m.capabilities, renderer: "pixi", webgpu: true },
@@ -117,7 +115,10 @@ describe("what a patch must keep", () => {
         "inputs",
         (m) => ({ ...m, inputs: { ...m.inputs, jump: { min: 0, max: 1 } } }),
       ],
-      ["session", (m) => ({ ...m, session: { ...m.session, maxTicks: 3600 } })],
+      [
+        "session",
+        (m) => ({ ...m, session: { ...m.session, hasEnding: false } }),
+      ],
       [
         "counters",
         (m) => ({
@@ -168,7 +169,7 @@ describe("what a patch must keep", () => {
 describe("the contract itself", () => {
   test("it holds the fixed fields and none of the free ones", () => {
     expect(lineContract(MANIFEST)).toEqual({
-      schemaVersion: 2,
+      schemaVersion: 3,
       id: "lane-runner",
       session: MANIFEST.session,
       inputs: { left: { min: 0, max: 1 }, aimX: { min: 0, max: 31 } },

@@ -1,0 +1,13 @@
+{
+  "name": "folder-fixture",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "vbz": {
+    "files": "files",
+    "needs": {
+      "wasm": true,
+      "workers": true
+    }
+  }
+}

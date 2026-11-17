@@ -10,13 +10,20 @@ import { join, resolve } from "node:path"
 import { buildGame, writeBuild } from "../../src/cli/build"
 import { isCopied, TEMPLATE_DIR } from "../../src/cli/new"
 import { HARNESS_GAME_ID, HARNESS_SEED } from "../../src/harness"
-import { type RunningSite, siteFile, startSite } from "../../src/harness/site"
+import { inlineScriptSource } from "../../src/harness/csp"
+import {
+  inlineScriptsOf,
+  type RunningSite,
+  siteFile,
+  startSite,
+} from "../../src/harness/site"
 import { STAND_IN_PAGE_KEY } from "../../src/harness/stand-in"
 
 const SOURCE = {
   simEntry: "src/sim/index.ts",
   presentEntry: "src/present.ts",
   captureEntry: "src/capture.ts",
+  filesDir: null,
 }
 
 const MANIFEST = {
@@ -31,7 +38,14 @@ const MANIFEST = {
 
 let root: string
 
-async function writeGame(dir: string, withSite: boolean): Promise<void> {
+/** The import map a page playing locally carries, which its policy admits by hash. */
+const IMPORT_MAP = `{"imports":{"cw2:sim":"./game/sim.js"}}`
+
+async function writeGame(
+  dir: string,
+  withSite: boolean,
+  mode: "local" | "ranked" = "ranked",
+): Promise<void> {
   await mkdir(join(dir, "src", "sim"), { recursive: true })
   await writeFile(
     join(dir, "src", "sim", "index.ts"),
@@ -47,7 +61,11 @@ async function writeGame(dir: string, withSite: boolean): Promise<void> {
   await mkdir(join(dir, "site", "art"), { recursive: true })
   await writeFile(
     join(dir, "site", "index.html"),
-    '<!doctype html><title>Site</title><script type="module" src="/main.js"></script>\n',
+    `<!doctype html><title>Site</title><script type="importmap">${IMPORT_MAP}</script><script type="module" src="/main.js"></script>\n`,
+  )
+  await writeFile(
+    join(dir, "site", "config.json"),
+    JSON.stringify({ mode, apiOrigin: "https://api.vbz.gg" }),
   )
   await writeFile(
     join(dir, "site", "main.ts"),
@@ -76,7 +94,7 @@ describe("the site, served with its stand-in", () => {
     await rm(root, { recursive: true, force: true })
   })
 
-  test("four origins: the site, the game's code, the API and the sign-in window", () => {
+  test("four origins: the site, the game's code, the API and the sign-in", () => {
     const origins = new Set([
       site.siteOrigin,
       site.bundlesOrigin,
@@ -86,7 +104,7 @@ describe("the site, served with its stand-in", () => {
     expect(origins.size).toBe(4)
   })
 
-  test("the page is the site's own, under a policy naming the game's path and the API", async () => {
+  test("the page is the site's own, under a policy naming the game's path, the API and the sign-in", async () => {
     const response = await fetch(site.siteOrigin)
     expect(await response.text()).toContain("<title>Site</title>")
     const csp = response.headers.get("content-security-policy") ?? ""
@@ -95,6 +113,8 @@ describe("the site, served with its stand-in", () => {
       `script-src 'self' ${site.bundlesOrigin}/g/${HARNESS_GAME_ID}/`,
     )
     expect(csp).toContain(`connect-src 'self' ${site.apiOrigin}`)
+    expect(csp).toContain(`frame-src ${site.signInOrigin};`)
+    expect(csp).toContain(inlineScriptSource(IMPORT_MAP))
     expect(csp).not.toContain("unsafe-eval")
     expect((await fetch(`${site.siteOrigin}/index.html`)).status).toBe(200)
   })
@@ -107,6 +127,7 @@ describe("the site, served with its stand-in", () => {
     expect(text).not.toContain(": { pageKey: string }")
     const config = await (await fetch(`${site.siteOrigin}/config.json`)).json()
     expect(config).toEqual({
+      mode: "ranked",
       apiOrigin: site.apiOrigin,
       signInOrigin: site.signInOrigin,
       pageKey: STAND_IN_PAGE_KEY,
@@ -132,6 +153,119 @@ describe("the site, served with its stand-in", () => {
     expect(body.today.line).toBe("1.2")
     expect(body.today.version.presentUrl).toBe(site.presentUrl)
     expect((await fetch(site.presentUrl)).status).toBe(200)
+  })
+})
+
+describe("a site played locally", () => {
+  let site: RunningSite
+
+  beforeAll(async () => {
+    root = await mkdtemp(join(tmpdir(), "sdk-site-local-"))
+    await writeGame(root, true, "local")
+    await writeFile(join(root, "dist", "game.json"), `{"present":"present.js"}`)
+    await writeFile(
+      join(root, "dist", "present.js"),
+      `import { MANIFEST } from "cw2:sim"\nexport default MANIFEST\n`,
+    )
+    await writeFile(join(root, "dist", "files.json"), `{"files":[]}`)
+    await mkdir(join(root, "dist", "files", "art"), { recursive: true })
+    await writeFile(join(root, "dist", "files", "art", "a.png"), "png")
+    site = await startSite({
+      source: { root, ...SOURCE },
+      gameId: HARNESS_GAME_ID,
+      seed: HARNESS_SEED,
+      hostPort: 0,
+      bundlesPort: 0,
+      needs: { wasm: true },
+    })
+  })
+
+  afterAll(async () => {
+    await site.stop()
+    await rm(root, { recursive: true, force: true })
+  })
+
+  /** A page that talks to nobody: no stand-in, no second origin. */
+  test("is one origin, and its config is the mode alone", async () => {
+    expect(site.mode).toBe("local")
+    expect([site.bundlesOrigin, site.apiOrigin, site.signInOrigin]).toEqual([
+      null,
+      null,
+      null,
+    ])
+    expect(
+      await (await fetch(`${site.siteOrigin}/config.json`)).json(),
+    ).toEqual({ mode: "local" })
+  })
+
+  test("serves the build beside the page as /game/, as a static host serves dist/", async () => {
+    const game = await fetch(`${site.siteOrigin}/game/game.json`)
+    expect(await game.json()).toEqual({ present: "present.js" })
+    const art = await fetch(`${site.siteOrigin}/game/files/art/a.png`)
+    expect(art.headers.get("content-type")).toBe("image/png")
+    expect(await art.text()).toBe("png")
+    expect(site.presentUrl).toBe(`${site.siteOrigin}/game/present.js`)
+    expect((await fetch(`${site.siteOrigin}/game/missing.js`)).status).toBe(404)
+    expect(
+      (await fetch(`${site.siteOrigin}/game/%2e%2e/site/index.html`)).status,
+    ).toBe(404)
+  })
+
+  test("under the policy for a page playing its own game, its import map admitted", async () => {
+    const response = await fetch(site.siteOrigin)
+    const csp = response.headers.get("content-security-policy") ?? ""
+    expect(csp).toBe(site.csp)
+    expect(csp).toContain(
+      `script-src 'self' 'wasm-unsafe-eval' ${inlineScriptSource(IMPORT_MAP)}`,
+    )
+    expect(csp).toContain("connect-src 'self';")
+    expect(csp).not.toContain(" 'unsafe-eval'")
+    // Played locally, nobody signs in, so nothing is framed.
+    expect(csp).not.toContain("frame-src")
+  })
+})
+
+describe("a site's config", () => {
+  test("naming no mode is refused before anything is served", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "sdk-site-nomode-"))
+    try {
+      await writeGame(dir, true)
+      await writeFile(
+        join(dir, "site", "config.json"),
+        JSON.stringify({ pageKey: "vbz_pk_x" }),
+      )
+      await expect(
+        startSite({
+          source: { root: dir, ...SOURCE },
+          gameId: HARNESS_GAME_ID,
+          seed: HARNESS_SEED,
+          hostPort: 0,
+          bundlesPort: 0,
+        }),
+      ).rejects.toThrow(/names its mode/)
+      await rm(join(dir, "site", "config.json"))
+      await expect(
+        startSite({
+          source: { root: dir, ...SOURCE },
+          gameId: HARNESS_GAME_ID,
+          seed: HARNESS_SEED,
+          hostPort: 0,
+          bundlesPort: 0,
+        }),
+      ).rejects.toThrow(/could not be read/)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test("an inline script is read for its policy, a script with a source or data is not", () => {
+    expect(
+      inlineScriptsOf(
+        `<script type="importmap">{"a":1}</script><script src="x.js"></script>` +
+          `<script type="application/json" id="c">{}</script><script>\n</script>` +
+          `<SCRIPT type='importmap'>{"b":2}</SCRIPT>`,
+      ),
+    ).toEqual([`{"a":1}`, `{"b":2}`])
   })
 })
 
@@ -169,9 +303,10 @@ describe("the template's own site", () => {
   /**
    * What `vbz new` hands an author has to bundle and serve as it is: its
    * script reaches `@vbz-gg/sdk/platform` and `/host` through the game's own
-   * install, as a studio's build would.
+   * install, as a studio's build would. It plays locally, the build beside
+   * it, until its author opts in to ranked play.
    */
-  test("bundles, and is served with the stand-in's config", async () => {
+  test("bundles, and plays locally, its build beside it and its import map admitted", async () => {
     const dir = await mkdtemp(join(tmpdir(), "sdk-site-template-"))
     try {
       await cp(TEMPLATE_DIR, dir, {
@@ -189,8 +324,20 @@ describe("the template's own site", () => {
         bundlesPort: 0,
       })
       try {
-        const html = await (await fetch(site.siteOrigin)).text()
+        expect(site.mode).toBe("local")
+        const page = await fetch(site.siteOrigin)
+        const html = await page.text()
         expect(html).toContain('<script type="module" src="main.js">')
+        const [map] = inlineScriptsOf(html)
+        expect(JSON.parse(map ?? "{}")).toEqual({
+          imports: {
+            "cw2:sim": "./game/sim.js",
+            "cw2:files/": "./game/files/",
+          },
+        })
+        expect(page.headers.get("content-security-policy")).toContain(
+          inlineScriptSource(map ?? ""),
+        )
         const script = await (await fetch(`${site.siteOrigin}/main.js`)).text()
         expect(script).toContain("Ranked play is paused; practice is open")
         // The page's SDK is bundled, and no engine with it: the page module
@@ -199,6 +346,16 @@ describe("the template's own site", () => {
         expect(script).not.toContain("ClockworkError")
         const css = await fetch(`${site.siteOrigin}/site.css`)
         expect(css.status).toBe(200)
+        // The build, beside the page, where its import map points.
+        const build = (await (
+          await fetch(`${site.siteOrigin}/game/game.json`)
+        ).json()) as { name: string; present: string }
+        expect(build.name).toBe("Lane Runner")
+        const present = await (
+          await fetch(`${site.siteOrigin}/game/${build.present}`)
+        ).text()
+        expect(present).toContain("cw2:sim")
+        expect((await fetch(`${site.siteOrigin}/game/sim.js`)).status).toBe(200)
       } finally {
         await site.stop()
       }

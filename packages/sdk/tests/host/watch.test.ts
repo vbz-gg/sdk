@@ -11,9 +11,14 @@ import {
 } from "@clockwork2/engine"
 import { ManualScheduler } from "@clockwork2/engine/host"
 import type { WatchedRun } from "../../src/api/index"
-import type { MountedEnd, MountOptions } from "../../src/game/contract"
+import type { MountedEnd } from "../../src/game/contract"
 import { definePageModule } from "../../src/game/define"
-import type { GameAddress, LoadedGame } from "../../src/host/load"
+import {
+  type GameAddress,
+  type GameMountOptions,
+  type LoadedGame,
+  loadGame,
+} from "../../src/host/load"
 import { watchRun } from "../../src/host/watch"
 import { PlatformClientError, PlatformRefusal } from "../../src/platform/errors"
 import { Drawn, FRAME_MS, MANIFEST, Probe } from "../game/subject"
@@ -46,14 +51,17 @@ const WATCHED: WatchedRun = {
   counters: { presses: 2 },
   endTick: 40,
   tickHz: 60,
-  maxTicks: 600,
   seed: "seed-7",
   config: { endAt: 300 },
   inputs: INPUTS,
   presentUrl: "https://bundles.example/g/g-1/present/v1.js",
   manifestHash: HASH,
+  filesUrl: "https://bundles.example/g/g-1/t/f1/",
   replayTicks: 40,
 }
+
+/** Lets every promise already settled run: a game gets ready in them. */
+const settle = () => Bun.sleep(0)
 
 const element = {
   ownerDocument: { defaultView: null },
@@ -75,15 +83,43 @@ function realGame(scheduler: ManualScheduler): {
     asked,
     load: async (address) => {
       asked.push(address)
-      return {
-        presentUrl: address.presentUrl,
-        manifestHash: module.manifestHash,
-        contract: 1,
-        needsMotion: false,
-        requestMotion: () => module.requestMotion(),
-        mount: (target, options) =>
-          module.mount(target, { ...options, scheduler }),
-      }
+      return await loadGame(address, {
+        importModule: async () => ({
+          default: {
+            ...module,
+            mount: (target: HTMLElement, options: GameMountOptions) =>
+              module.mount(target, {
+                ...options,
+                files: address.filesUrl,
+                scheduler,
+              }),
+          },
+        }),
+      })
+    },
+  }
+}
+
+/** A loaded game that hands what it was mounted with to `seen`. */
+function recording(seen: (options: GameMountOptions) => void): LoadedGame {
+  const handle = { recorded: () => [], stop() {}, destroy() {} }
+  return {
+    presentUrl: WATCHED.presentUrl,
+    manifestHash: HASH,
+    filesUrl: WATCHED.filesUrl,
+    contract: 2,
+    needsMotion: false,
+    tickHz: 60,
+    servedConfig: {},
+    requestMotion: async () => ({ granted: true }),
+    prepare: () => ({
+      ready: Promise.resolve(null),
+      mount: () => handle,
+      release() {},
+    }),
+    mount: (_target, options) => {
+      seen(options)
+      return handle
     },
   }
 }
@@ -111,8 +147,13 @@ describe("watching a run", () => {
       },
     })
     expect(game.asked).toEqual([
-      { presentUrl: WATCHED.presentUrl, manifestHash: HASH },
+      {
+        presentUrl: WATCHED.presentUrl,
+        manifestHash: HASH,
+        filesUrl: WATCHED.filesUrl,
+      },
     ])
+    await settle()
     scheduler.run(60, FRAME_MS)
     expect(ended).toHaveLength(1)
     expect(ended[0]).toMatchObject({
@@ -125,18 +166,13 @@ describe("watching a run", () => {
     watched.destroy()
   })
 
-  test("the mount is told the run's seed, config, rate, cap and hash", async () => {
-    let given: MountOptions | null = null
+  test("the mount is told the run's seed, config, rate, where to stop and hash", async () => {
+    let given: GameMountOptions | null = null
     await watchRun(element, {
       client: reading(WATCHED),
       runId: "s-7",
-      load: async () => ({
-        presentUrl: WATCHED.presentUrl,
-        manifestHash: HASH,
-        contract: 1,
-        needsMotion: false,
-        requestMotion: async () => ({ granted: true }),
-        mount: (_target, options) => {
+      load: async () =>
+        recording((options) => {
           given = options
           options.handlers.onCheckpoint({ tick: 0, hash: "h" })
           options.handlers.onNotice?.({
@@ -151,9 +187,7 @@ describe("watching a run", () => {
             counters: {},
             recording: {} as never,
           })
-          return { recorded: () => [], stop() {}, destroy() {} }
-        },
-      }),
+        }),
     })
     expect(given).toMatchObject({
       mode: "watch",
@@ -175,6 +209,7 @@ describe("watching a run", () => {
       load: realGame(scheduler).load,
       handlers: { onError: (error) => errors.push(error.code) },
     })
+    await settle()
     expect(errors).toEqual(["E_WRONG_GAME"])
   })
 

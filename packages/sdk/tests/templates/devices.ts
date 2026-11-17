@@ -36,6 +36,13 @@ export class FakeTarget implements EventTarget {
     return true
   }
 
+  /** How many listeners it has, across every type. */
+  listening(): number {
+    let total = 0
+    for (const set of this.listeners.values()) total += set.size
+    return total
+  }
+
   send(type: string, event: Record<string, unknown> = {}): void {
     for (const listener of [...(this.listeners.get(type) ?? [])]) {
       const call =

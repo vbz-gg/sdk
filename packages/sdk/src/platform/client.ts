@@ -2,12 +2,13 @@
  * A game page's client for the vbz.gg platform.
  *
  * It holds the protocol `docs/your-game-page.md` in the platform describes:
- * the page key on every request, the sign-in window and the code trade, the
+ * the page key on every request, the sign-in box and the code trade, the
  * player's token kept and renewed, and the run routes. Every request goes
  * through `request`, which is keyed by `PlatformRoutes`, so this file cannot
  * call a route the platform does not declare.
  */
 
+import type { Recording } from "@clockwork2/engine"
 import type {
   Board,
   BoardPeriod,
@@ -35,12 +36,23 @@ import {
   storagePlayerStore,
 } from "./kept.js"
 import { createRequester, type Requester } from "./request.js"
-import { requestSignInCode } from "./signin.js"
+import { MAX_SIGN_IN_READY_MS, openSignIn, SIGN_IN_READY_MS } from "./signin.js"
+
+/**
+ * A platform run's recording, as `Run` hands it to `submit`. The brand
+ * exists at compile time alone, so a recording from anywhere else, a local
+ * run's included, is not one `submit` takes without a cast somebody wrote.
+ * `request` stays open to every page route, so nothing at run time stops a
+ * page; the platform's own checks on a submit do that. The brand is a named
+ * property rather than a symbol, so two copies of this package, built apart,
+ * agree on it.
+ */
+export type RunRecording = Recording & { readonly "vbz:run-recording": true }
 
 export interface PlatformClientOptions {
   /** Where the platform's API answers: `https://api.vbz.gg`. */
   readonly apiOrigin: string
-  /** Where the platform's sign-in window is: `https://signin.vbz.gg`. */
+  /** Where the platform's sign-in is: `https://signin.vbz.gg`. */
   readonly signInOrigin: string
   /** The game's page key, from the dashboard. */
   readonly pageKey: PageKey
@@ -53,6 +65,14 @@ export interface PlatformClientOptions {
   readonly onSignedOut?: () => void
   /** The browser, or a test's stand-in for it. */
   readonly environment?: PageEnvironment
+  /**
+   * How long, in milliseconds, each page of the sign-in has to say it
+   * loaded in its box before `signIn()` gives up with
+   * `E_SIGNIN_UNREACHABLE`: `SIGN_IN_READY_MS`, 15 seconds, by default. A
+   * whole number from 1 to `MAX_SIGN_IN_READY_MS`, the most a browser's
+   * timer waits; a client is not made with anything else.
+   */
+  readonly signInReadyMs?: number
 }
 
 export interface BoardOptions {
@@ -95,14 +115,29 @@ export interface PlatformClient {
   onPlayerChange(
     listener: (player: SignedInPlayer["player"] | null) => void,
   ): () => void
-  /** Opens the sign-in window. Call it from a click, before anything is awaited. */
+  /**
+   * Puts the sign-in's box over the page, and answers the player once they
+   * signed in and the code was traded. Call it from a click, before
+   * anything is awaited, so focus moves into the box from the click. While
+   * one is open, another call answers the same promise and opens nothing.
+   * Rejects with `E_SIGNIN_CANCELLED` when the box is closed, and
+   * `E_SIGNIN_UNREACHABLE` when the sign-in does not load in it.
+   */
   signIn(): Promise<SignedInPlayer["player"]>
+  /**
+   * Ends the sign-in open on the page, if there is one: its box comes down
+   * and its `signIn()` rejects with `E_SIGNIN_CANCELLED`, also once the
+   * player has signed in and the code is being traded, whose answer is then
+   * kept for nobody. Nothing otherwise.
+   */
+  closeSignIn(): void
   /** Forgets the player on this page. No route signs a player out. */
   signOut(): void
   /** Starts a run, or finds again one that has sent nothing yet. */
   startRun(request?: StartRunRequest): Promise<StartedRun>
   sendChunk(run: StartedRun, chunk: RunChunk): Promise<ChunkAccepted>
-  submit(run: StartedRun, recording: unknown): Promise<SubmittedRun>
+  /** A run's recording, as `Run` hands it over: never a local run's. */
+  submit(run: StartedRun, recording: RunRecording): Promise<SubmittedRun>
   /** The player's own run and what its replay decided, now. */
   result(
     sessionId: string,
@@ -128,6 +163,16 @@ export function isFinalResult(result: RunResult): boolean {
 export function createPlatformClient(
   options: PlatformClientOptions,
 ): PlatformClient {
+  const readyMs = options.signInReadyMs ?? SIGN_IN_READY_MS
+  if (
+    !Number.isInteger(readyMs) ||
+    readyMs <= 0 ||
+    readyMs > MAX_SIGN_IN_READY_MS
+  ) {
+    throw new Error(
+      `signInReadyMs is how long, in milliseconds, a page of the sign-in has to say it is ready, a whole number from 1 to ${MAX_SIGN_IN_READY_MS}, the most a browser's timer waits, and ${String(readyMs)} is not one`,
+    )
+  }
   const environment = options.environment ?? browserEnvironment()
   const store =
     options.store ??
@@ -209,6 +254,12 @@ export function createPlatformClient(
     }
   }
 
+  /** The sign-in open over the page, until its promise settles. */
+  let signingIn: {
+    readonly player: Promise<SignedInPlayer["player"]>
+    readonly close: () => void
+  } | null = null
+
   const result = (
     sessionId: string,
     resultOptions: Pick<ResultOptions, "token"> = {},
@@ -235,21 +286,62 @@ export function createPlatformClient(
       }
     },
 
-    async signIn() {
-      const grant = await requestSignInCode({
+    signIn() {
+      if (signingIn !== null) return signingIn.player
+      // The box is on the page when this returns.
+      const asked = openSignIn({
         environment,
         signInOrigin: options.signInOrigin,
         pageKey: options.pageKey,
+        readyMs,
       })
-      const signedIn = await request("POST /v1/oauth/token", {
-        body: {
-          code: grant.code,
-          codeVerifier: grant.verifier,
-          clientId: options.pageKey,
+      // Closed by the page once the code has arrived: the sign-in ends now,
+      // the code is not traded if the trade has not begun, and what a trade
+      // already sent answers is nobody's.
+      let abandoned = false
+      let abandon: (error: unknown) => void = () => {}
+      const closed = new Promise<never>((_, reject) => {
+        abandon = reject
+      })
+      const traded = asked.grant.then(async (grant) => {
+        if (abandoned) throw new PlatformClientError("E_SIGNIN_CANCELLED")
+        const signedIn = await request("POST /v1/oauth/token", {
+          body: {
+            code: grant.code,
+            codeVerifier: grant.verifier,
+            clientId: options.pageKey,
+          },
+        })
+        if (abandoned) throw new PlatformClientError("E_SIGNIN_CANCELLED")
+        keep(signedIn.token, signedIn.expiresIn, signedIn.player)
+        return signedIn.player
+      })
+      const player = Promise.race([traded, closed])
+      const open = {
+        player,
+        close: () => {
+          abandoned = true
+          // Before the code arrived the box is what there is to close, and
+          // its own rejection, or the failure already on its way, is the
+          // sign-in's answer. From the turn it arrived, whether or not the
+          // trade has begun, the sign-in is over at once.
+          if (asked.handedOver) {
+            abandon(new PlatformClientError("E_SIGNIN_CANCELLED"))
+          } else {
+            asked.cancel()
+          }
         },
-      })
-      keep(signedIn.token, signedIn.expiresIn, signedIn.player)
-      return signedIn.player
+      }
+      signingIn = open
+      const done = () => {
+        if (signingIn === open) signingIn = null
+      }
+      player.then(done, done)
+      return player
+    },
+
+    closeSignIn() {
+      signingIn?.close()
     },
 
     signOut: forget,

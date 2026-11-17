@@ -9,6 +9,8 @@
  */
 
 export {
+  type ContractOneMountOptions,
+  type ContractOnePageModule,
   DRIVEN_CONTRACTS,
   MOUNT_ERROR,
   type MountError,
@@ -25,9 +27,21 @@ export {
   type PageModule,
   type PageModuleProblem,
   type PageModuleProblemCode,
+  type PlayMount,
+  type PreparedGame,
+  type PrepareOptions,
+  type RunMount,
+  type WatchMount,
 } from "./contract.js"
 export {
   definePageModule,
   mountErrorOf,
   type PageModuleParts,
 } from "./define.js"
+export {
+  FILE_PATH_PATTERN,
+  type GameFiles,
+  gameFiles,
+  isFilePath,
+  MAX_FILE_PATH_LENGTH,
+} from "./files.js"

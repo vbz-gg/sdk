@@ -2,14 +2,14 @@
  * What the platform knows about this game without running it.
  *
  * Every field here is read before a single tick executes: how fast it runs,
- * how long it may run for, what it records, what it counts and how it ranks.
+ * what it records, what it counts and how it ranks.
  */
 
 import type { Manifest } from "@clockwork2/engine/manifest"
 import { POINTER_X_MAX, POINTER_Y_MAX } from "./field"
 
 export const MANIFEST: Manifest = {
-  schemaVersion: 2,
+  schemaVersion: 3,
   /** Immutable. Change it and this is a different game with a new board. */
   id: "lane-runner",
   /**
@@ -32,12 +32,13 @@ export const MANIFEST: Manifest = {
    */
   version: "1.0.0",
   name: "Lane Runner",
-  kernel: { version: "0.9.0" },
+  kernel: { version: "0.10.0" },
   session: {
     tickHz: 60,
-    /** A hard cap: the kernel ends the run here whatever the game says. */
-    maxTicks: 60 * 120,
-    maxWallSeconds: 300,
+    /**
+     * A run ends by itself: the game ends it after ninety seconds, or when the
+     * runner hits a rock. No run has a step limit beside what the game does.
+     */
     hasEnding: true,
   },
   /**
@@ -64,7 +65,11 @@ export const MANIFEST: Manifest = {
     { name: "motes", direction: "up", monotonic: true, label: "Motes" },
     { name: "ticksSurvived", direction: "up", monotonic: true, label: "Ticks" },
   ],
-  /** Ties on motes break on how long you lasted. */
+  /**
+   * How one run ranks against another, which a ranked run needs and a game
+   * played only on its own page may leave out, with `tiePolicy`. Ties on
+   * motes break on how long you lasted.
+   */
   rankBy: ["motes", "ticksSurvived"],
   tiePolicy: "shared",
   params: {

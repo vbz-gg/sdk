@@ -1,8 +1,8 @@
 /**
  * Two servers, because a game needs two origins to be tested honestly.
  *
- * The bundles origin serves the game's two modules at the paths and with the
- * headers the platform's edge uses. The host origin serves the page that
+ * The bundles origin serves the game's two modules and its files at the
+ * paths and with the headers the platform's edge uses. The host origin serves the page that
  * loads the page module from it, as a studio's page does, under the
  * Content-Security-Policy a studio's page is meant to send. Two ports on one
  * host are two origins, which is what puts an author in front of the
@@ -65,14 +65,21 @@ export interface RunningServer {
   stop(): Promise<void>
 }
 
-/** Serves the game's two modules, as the platform's edge does. */
+/** Serves the game's two modules and its files, as the platform's edge does. */
 export function startBundleServer(options: BundleServerOptions): RunningServer {
   const keys = blobKeys(options.built)
   const blobs = new Map<string, Uint8Array>([
     [keys.sim, options.built.sim],
     [keys.present, options.built.present],
   ])
-  const read: BlobReader = async (key) => blobs.get(key)
+  const read: BlobReader = async (key) => {
+    const module = blobs.get(key)
+    if (module !== undefined) return module
+    if (!key.startsWith(keys.files)) return undefined
+    // Read from the folder each time, as listed when the game was built.
+    const onDisk = options.built.filesOnDisk.get(key.slice(keys.files.length))
+    return onDisk === undefined ? undefined : await Bun.file(onDisk).bytes()
+  }
   const serveBlob = createBlobServer(read)
   const listen = options.listen ?? LOOPBACK
 

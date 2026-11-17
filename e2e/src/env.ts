@@ -32,6 +32,18 @@ export const SUBJECTS = {
     bundlesPort: 4323,
     gameId: "00000000-0000-4000-8000-000000000002",
   },
+  /**
+   * `folder` carries a files folder and loads from it what an engine built
+   * into one does: WebAssembly, a worker from a blob that imports a module
+   * of the folder, a module imported by a computed name, and a data pack its
+   * rules code reads on demand. Its presentation gets ready late.
+   */
+  folder: {
+    dir: ["fixtures", "folder"],
+    hostPort: 4327,
+    bundlesPort: 4328,
+    gameId: "00000000-0000-4000-8000-000000000003",
+  },
 } as const
 
 export type SubjectName = keyof typeof SUBJECTS
@@ -44,8 +56,31 @@ export type SubjectName = keyof typeof SUBJECTS
 export const STUDIO_PORT = 4324
 export const STUDIO_BUNDLES_PORT = 4325
 
+/**
+ * A page on another origin that frames the studio's page, standing in for a
+ * portal a studio's game is embedded in.
+ */
+export const PORTAL_PORT = 4326
+
+/**
+ * The host the stand-ins' sign-ins are reached by. Every other server is
+ * 127.0.0.1, and `localhost` is another site from it, so the studio's page
+ * frames a sign-in on another site, as a studio's page frames the
+ * platform's.
+ */
+export const SIGN_IN_HOST = "localhost"
+
+/**
+ * How long the studio page's client gives each page of the sign-in to say
+ * it is ready: 3 seconds, against the 15 a studio's page gets by default, so
+ * a spec about a box nothing fills waits seconds rather than a quarter of a
+ * minute per engine. Every sign-in here is on this machine.
+ */
+export const SUITE_SIGN_IN_READY_MS = 3_000
+
 export const CONTROL_ORIGIN = `http://127.0.0.1:${CONTROL_PORT}`
 export const STUDIO_ORIGIN = `http://127.0.0.1:${STUDIO_PORT}`
+export const PORTAL_ORIGIN = `http://127.0.0.1:${PORTAL_PORT}`
 
 export function hostOrigin(name: SubjectName): string {
   return `http://127.0.0.1:${SUBJECTS[name].hostPort}`

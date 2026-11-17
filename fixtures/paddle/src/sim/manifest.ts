@@ -12,15 +12,13 @@
 import type { Manifest } from "@clockwork2/engine/manifest"
 
 export const MANIFEST: Manifest = {
-  schemaVersion: 2,
+  schemaVersion: 3,
   id: "paddle",
   version: "1.0.0",
   name: "Paddle",
-  kernel: { version: "0.9.0" },
+  kernel: { version: "0.10.0" },
   session: {
     tickHz: 60,
-    maxTicks: 60 * 120,
-    maxWallSeconds: 180,
     hasEnding: true,
   },
   inputs: {

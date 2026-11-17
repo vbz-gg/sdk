@@ -3,7 +3,9 @@
  * runs, said on the author's machine.
  *
  * It builds the game as `vbz build` does, runs the engine's conformance
- * checks over the rules code exactly as built, holds the input mapping in
+ * checks over the rules code exactly as built, the set every game needs or
+ * with `--ranked` the set a ranked or practice run needs, holds the input
+ * mapping in
  * `src/capture.ts` to the manifest with the engine's `checkCapture`, and
  * prints the release line and the hash of the contract every patch of that
  * line has to keep. The platform adds checks of its own after an upload, so a
@@ -17,13 +19,21 @@
  * is why the mapping lives in a file of its own that touches none.
  */
 
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import {
+  copyFile,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 import { pathToFileURL } from "node:url"
 import { assertManifest, type Manifest } from "@clockwork2/engine"
 import { type CaptureMapping, checkCapture } from "@clockwork2/engine/host"
 import {
+  type CheckSet,
   formatReport,
   loadSubject,
   type Report,
@@ -35,6 +45,8 @@ import { contractSha256 } from "../build/line.js"
 import { buildGame } from "./build.js"
 
 export interface GameCheck {
+  /** Which of the engine's sets ran. */
+  readonly set: CheckSet
   readonly version: string
   /** The release line, `MAJOR.MINOR`. */
   readonly line: string
@@ -55,27 +67,70 @@ export interface CheckFindings {
 
 /** What the child is handed on stdin. */
 export interface CheckRequest {
-  /** A directory holding the rules code as `index.js` and the manifest beside it. */
+  /**
+   * A directory holding the rules code as `index.js`, the manifest beside it,
+   * and every file the manifest declares at its path.
+   */
   readonly subject: string
   readonly source: GameSource
   readonly manifest: Manifest
+  /** Which of the engine's sets to run. */
+  readonly set: CheckSet
   /** Where the child writes its answer, so nothing the game prints can be read as one. */
   readonly answer: string
 }
 
+/** What `checkInChild` lays out for the engine's checks and runs them on. */
+export interface CheckInput {
+  readonly source: GameSource
+  /** The rules code as built. */
+  readonly sim: Uint8Array
+  readonly manifest: Manifest
+  /**
+   * The files the manifest declares that the folder holds, by their path, at
+   * where they are on disk: the engine's checks read them beside the rules
+   * code.
+   */
+  readonly declared: ReadonlyMap<string, string>
+  readonly set: CheckSet
+}
+
+/** The folder's files the manifest declares, by path, at where each is on disk. */
+function declaredFiles(
+  manifest: Manifest,
+  onDisk: ReadonlyMap<string, string>,
+): Map<string, string> {
+  const found = new Map<string, string>()
+  for (const asset of manifest.assets ?? []) {
+    const at = onDisk.get(asset.path)
+    if (at !== undefined) found.set(asset.path, at)
+  }
+  return found
+}
+
 /**
- * Builds the game and checks it. A manifest that is not one stops here with
- * the engine's own refusal, because nothing after it can be read against it.
+ * Builds the game and checks it: with the engine's `every-game` set, or with
+ * `ranked`, its `ranked` set, which adds what only a ranked or practice run
+ * needs: a seed that changes the state, and a manifest that says how a run
+ * ranks. A manifest that is not one stops here with the engine's own
+ * refusal, because nothing after it can be read against it.
  */
-export async function checkGame(source: GameSource): Promise<GameCheck> {
+export async function checkGame(
+  source: GameSource,
+  options: { readonly ranked: boolean },
+): Promise<GameCheck> {
   const built = await buildGame(source)
   const manifest = assertManifest(built.manifest)
-  const { conformance, capture } = await checkInChild(
+  const set: CheckSet = options.ranked ? "ranked" : "every-game"
+  const { conformance, capture } = await checkInChild({
     source,
-    built.sim,
+    sim: built.sim,
     manifest,
-  )
+    declared: declaredFiles(manifest, built.files.onDisk),
+    set,
+  })
   return {
+    set,
     version: built.version,
     line: built.line,
     contractSha256: contractSha256(manifest),
@@ -92,29 +147,34 @@ export function checkChildEntry(dir = import.meta.dir): string {
 
 /**
  * Both checks, in a process of their own, over the bytes an upload would
- * carry. The engine's suite wants a directory with the bundle as `index.js`
- * and the manifest beside it, which is disposed of however the checks end. A
- * child that writes no answer fails the command with what it printed.
+ * carry. The engine's suite wants a directory with the bundle as `index.js`,
+ * the manifest beside it and every file the manifest declares at its path,
+ * which is disposed of however the checks end. A child that writes no answer
+ * fails the command with what it printed.
  */
 export async function checkInChild(
-  source: GameSource,
-  sim: Uint8Array,
-  manifest: Manifest,
+  input: CheckInput,
   entry: string = checkChildEntry(),
 ): Promise<CheckFindings> {
   const dir = await mkdtemp(join(tmpdir(), "vbz-check-"))
   try {
     const subject = join(dir, "subject")
     await mkdir(subject)
-    await writeFile(join(subject, "index.js"), sim)
+    await writeFile(join(subject, "index.js"), input.sim)
     await writeFile(
       join(subject, "manifest.json"),
-      `${JSON.stringify(manifest, null, 2)}\n`,
+      `${JSON.stringify(input.manifest, null, 2)}\n`,
     )
+    for (const [path, from] of input.declared) {
+      const to = join(subject, ...path.split("/"))
+      await mkdir(dirname(to), { recursive: true })
+      await copyFile(from, to)
+    }
     const request: CheckRequest = {
       subject,
-      source,
-      manifest,
+      source: input.source,
+      manifest: input.manifest,
+      set: input.set,
       answer: join(dir, "answer.json"),
     }
     const child = await runGameProcess([entry], {
@@ -137,7 +197,9 @@ export async function checkInChild(
 /** What the child runs: the engine's checks and the mapping's, here. */
 export async function checkHere(request: CheckRequest): Promise<CheckFindings> {
   return {
-    conformance: await validate(await loadSubject(request.subject), {}),
+    conformance: await validate(await loadSubject(request.subject), {
+      set: request.set,
+    }),
     capture: await captureProblems(request.source, request.manifest),
   }
 }

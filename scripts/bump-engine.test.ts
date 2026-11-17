@@ -57,6 +57,7 @@ describe("bumping a tree", () => {
       recursive: true,
     })
     await mkdir(join(dir, "fixtures/paddle/src/sim"), { recursive: true })
+    await mkdir(join(dir, "fixtures/folder/src/sim"), { recursive: true })
     await mkdir(join(dir, "docs"), { recursive: true })
 
     await writeFile(
@@ -77,6 +78,7 @@ describe("bumping a tree", () => {
     for (const manifest of [
       "packages/sdk/templates/game/src/sim/manifest.ts",
       "fixtures/paddle/src/sim/manifest.ts",
+      "fixtures/folder/src/sim/manifest.ts",
     ]) {
       await writeFile(
         join(dir, manifest),
@@ -104,7 +106,7 @@ describe("bumping a tree", () => {
       const result = await bumpEngine("0.8.0", dir)
       expect(result.from.pinned).toBe("0.7.1")
       expect(result.range).toBe(">=0.8.0 <0.9.0")
-      expect(result.files.length).toBe(6)
+      expect(result.files.length).toBe(7)
 
       // And nothing anywhere still says 0.7.1.
       for (const file of result.files) {
@@ -198,6 +200,7 @@ describe("the real repository", () => {
       "packages/sdk/templates/game/package.json",
       "packages/sdk/templates/game/src/sim/manifest.ts",
       "fixtures/paddle/src/sim/manifest.ts",
+      "fixtures/folder/src/sim/manifest.ts",
       "docs/sdk.md",
     ])
     const { pinned, range } = await currentEngine(REPO)

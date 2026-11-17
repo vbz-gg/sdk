@@ -8,6 +8,11 @@
     />
     <title>Game</title>
     <link rel="stylesheet" href="site.css" />
+    <!-- Where a page playing locally serves the build: dist/ as game/. The
+         page module imports its rules code as cw2:sim and its files as
+         cw2:files/, as built, and this maps both. A policy admits it by the
+         SHA-256 of its exact text. -->
+    <script type="importmap">{"imports":{"cw2:sim":"./game/sim.js","cw2:files/":"./game/files/"}}</script>
     <script type="module" src="main.js"></script>
   </head>
   <body>

@@ -1,15 +1,31 @@
 # Lane Runner
 
-A starting point for a game that runs on vbz.gg. Three lanes, rocks coming
-towards you, motes to collect.
+A starting point for a game on the Clockwork 2 engine, built with the vbz
+kit. Three lanes, rocks coming towards you, motes to collect.
 
 ```bash
 bun install
-bun run dev      # play it, loaded the way a studio's page loads it
+bun run dev      # play it, with a replay of every run you play
 bun run check    # the engine's checks, and the input mapping held to the manifest
-bun run build    # the three files an upload carries
-bun run site     # your page, against a stand-in for the platform
+bun run build    # the two modules, the manifest and the files folder, into dist/
+bun run site     # the game's own page, played locally
 ```
+
+It is one build, played two ways:
+
+- **Locally**, on its own page, which is what `site/` does as it ships:
+  the page plays the build beside it and talks to nobody. No account, no
+  upload, and no limit on how long a run lasts.
+- **Ranked**, on vbz.gg, once you opt in: vbz.gg serves each run its seed
+  and settings, this same build plays it on your page and records the
+  player's inputs, and vbz.gg replays them on a server and ranks the score
+  its replay computed. A practice run is the same, and never on a board.
+
+A ranked run holds the game to a few rules a local one does not: the seed
+has to change what happens, a run holds at most 16 inputs a tick on
+average, inputs come from the engine's device helpers and never from a
+script on the page, and the checks play every setting at its default.
+`bunx vbz check . --ranked` runs those checks before an upload.
 
 ## What is where
 
@@ -21,7 +37,8 @@ src/sim/manifest.ts   what the platform knows without running anything
 src/capture.ts        which keys, fingers and controllers drive which inputs
 src/present/canvas.ts the renderer, which reads and never writes
 src/present.ts        the page module's entry, which a studio's page loads
-site/                 your game's page: sign-in, Play, Practice and the board
+site/                 your game's page: played locally, or sign-in, Play, Practice and the board
+site/config.json      which of the two the page is: { "mode": "local" } as it ships
 AGENTS.md             what an agent working on the game reads first
 .claude/skills/       the engine's guide and the kit's, for an agent to follow
 ```
@@ -36,6 +53,12 @@ at all.
 The two guides in `.claude/skills/` come from the versions of
 `@clockwork2/engine` and `@vbz-gg/sdk` the game installed. After upgrading
 either, `bunx vbz guides` replaces them with the ones the new versions ship.
+
+Lane Runner ships no files folder. A game that needs one, for a renderer's
+engine, art, or data the rules code reads, names it in `package.json` as
+`"vbz": { "files": "files" }`, and says there what a page's policy has to
+allow for it. The kit's guide has it in `references/files.md`, and drawing
+with null3d in `references/null3d.md`.
 
 ## Controls
 
@@ -67,11 +90,28 @@ of what 0 to 1000 would, for a game that only needs to know which button.
 
 `site/` is the page players open, and it is yours to deploy wherever you
 host your site. `site/index.html` is the shell, `site/page.ts` wires it up
-with the SDK and `site/messages.ts` holds every sentence it shows. It signs a
-player in through the platform's window, loads the game's page module before
-the Play button is pressed, starts a ranked or a practice run in the click,
-and shows today's board. The platform says which version each run plays; the
-page loads what it is told and never chooses.
+with the SDK and `site/messages.ts` holds every sentence it shows.
+`site/config.json` names the page's mode, and the page is in no other.
+
+**Played locally**, `{ "mode": "local" }`, which a new game ships with, the
+page talks to nobody. It loads the build `bun run build` wrote, served beside
+the page as `game/`, and Play starts a local run with `playLocal`: no
+sign-in, no board, and nothing sent anywhere. `index.html` maps the page
+module's two imports, `cw2:sim` and `cw2:files/`, to `./game/sim.js` and
+`./game/files/` with an import map, so a plain static host serves `dist/` as
+it is, and `dist/game.json` tells the page where each part is. A page that
+sends a Content-Security-Policy admits the import map by the SHA-256 of its
+exact text.
+
+**Ranked**, `{ "mode": "ranked", "apiOrigin": "https://api.vbz.gg",
+"signInOrigin": "https://signin.vbz.gg", "pageKey": "vbz_pk_..." }`, the page
+signs a player in through a box over the page holding the platform's
+sign-in, loads the game's page module before the Play button is pressed,
+starts a ranked or a practice run in the click, and shows today's board. The platform says which version each run
+plays; the page loads what it is told and never chooses. The build is the
+same one; opting in is this file and `vbz publish`. A page key is public, so
+the file can ship as it is; without one, the page says which file to fill
+in.
 
 On a day when ranked play is paused, because the version the day's runs were
 playing was taken down, the page says "Ranked play is paused; practice is
@@ -79,33 +119,27 @@ open" and reads the game again on every Play, so the first Play after a
 newer patch passes its checks is a ranked run again. A player barred for
 tampered submissions is told when the bar ends.
 
-`bun run site`, which is `vbz dev . --site`, serves it on this machine
-against a stand-in for the platform's page routes and sign-in window, which
-plays as one local player on a fixed seed. The stand-in neither replays nor
-ranks a run: it settles each one with the counters the page sent, and says so
-in the terminal. The page is served under the Content-Security-Policy a
-studio's page should send, which lets scripts come from your page's own
-origin and from your game's own path on the platform's bundles origin, and
-nowhere else. In production that path is
+`bun run site`, which is `vbz dev . --site`, serves it on this machine in
+the mode `site/config.json` names. Played locally, the build is served beside
+the page as `/game/`. Ranked, the page talks to a stand-in for the platform's
+page routes and sign-in, which plays as one local player on a fixed seed,
+and `bun run site` answers the page's `config.json` with the stand-in's API,
+sign-in and page key. The stand-in neither replays nor ranks a run: it
+settles each one with the counters the page sent, and says so in the
+terminal. The page is served under the Content-Security-Policy a studio's
+page should send, which lets scripts come from your page's own origin and,
+ranked, from your game's own path on the platform's bundles origin, and
+nowhere else, and lets the page frame the sign-in. In production that path is
 `https://files.vbz.gg/g/<game id>/`.
 
 To deploy it, bundle `site/main.ts` for the browser with whatever builds the
-rest of your site, serve it as `main.js` beside `index.html` and `site.css`,
-and put the game's page key from the dashboard in `site/config.json`. The
-file already names the platform's API, `https://api.vbz.gg`, and its sign-in
-window, `https://signin.vbz.gg`. A page key is public, so the file can ship
-as it is. Without one, the page says which file to fill in.
+rest of your site and serve it as `main.js` beside `index.html` and
+`site.css`, with `dist/` beside them as `game/` when the page plays locally.
 
-For local work there is nothing to change: `bun run site` answers the page's
-`config.json` itself, with the stand-in's API, sign-in window and page key,
-and never reads the file. To point the page at another platform, such as one
-running on your own machine, set `apiOrigin` and `signInOrigin` in
-`site/config.json` to its origins and `pageKey` to a key it issued for your
-page's origin.
+## Releasing on vbz.gg
 
-## Releasing
-
-The version is written once, in `src/sim/manifest.ts`, and `package.json`
+A game played only on its own page needs none of this. The version is
+written once, in `src/sim/manifest.ts`, and `package.json`
 carries none. The comment above it lists what a release line fixes. In
 short: a patch changes how the game looks or fixes a bug and keeps what a
 score means; a minor changes the rules; a major is a different game. Every

@@ -8,6 +8,7 @@
  */
 
 import type { RunResult } from "@vbz-gg/sdk/api"
+import type { LocalEnd } from "@vbz-gg/sdk/host"
 import { RUN_PHASE, type RunState } from "@vbz-gg/sdk/platform"
 
 /** Shown when the day's ranked play is paused and practice is offered. */
@@ -58,7 +59,17 @@ export function resultMessage(result: RunResult | null): string {
   if (replay.fault === "platform_fault") {
     return "This run could not be checked, and does not count"
   }
-  const counters = Object.entries(replay.counters ?? {})
+  return scoredMessage(replay.counters ?? {})
+}
+
+/** What a local run's end says: its own counters, which nobody checked. */
+export function endedMessage(ended: Pick<LocalEnd, "counters">): string {
+  return scoredMessage(ended.counters)
+}
+
+/** A run's counters, as a sentence. */
+function scoredMessage(scored: Readonly<Record<string, number>>): string {
+  const counters = Object.entries(scored)
   if (counters.length === 0) return "Nothing to score in that run"
   return `You scored ${counters.map(([name, value]) => `${name} ${value}`).join(", ")}`
 }

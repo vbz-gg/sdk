@@ -33,6 +33,7 @@ const SOURCE = {
   simEntry: "src/sim/index.ts",
   presentEntry: "src/present.ts",
   captureEntry: "src/capture.ts",
+  filesDir: null,
 }
 
 let root: string
@@ -56,8 +57,50 @@ async function copyTemplate(): Promise<void> {
 }
 
 describe("checking the template", () => {
+  /**
+   * The ranked set is what a ranked or practice run needs besides: the seed
+   * changes the state, and the manifest says how a run ranks. The template
+   * is a ranked game, so it passes both.
+   */
+  test("with --ranked it runs the ranked set, which the template passes too", async () => {
+    const checked = await checkGame(
+      { root: TEMPLATE_DIR, ...SOURCE },
+      { ranked: true },
+    )
+    expect(checked.set).toBe("ranked")
+    expect(checked.ok).toBe(true)
+    const names = checked.conformance.outcomes.map((outcome) => outcome.check)
+    expect(names).toContain("seed-sensitivity")
+    expect(names).toContain("ranking")
+    expect(checkLines(checked, SOURCE.captureEntry).join("\n")).toContain(
+      "all checks in the ranked set passed",
+    )
+  }, 120_000)
+
+  /** A game played only on its own page need not say how it ranks. */
+  test("a game that says nothing of ranking passes, and fails only --ranked", async () => {
+    await copyTemplate()
+    const path = join(root, "src", "sim", "manifest.ts")
+    const text = await readFile(path, "utf8")
+    const unranked = text
+      .replace(/ {2}rankBy: \[[^\]]*\],\n/, "")
+      .replace(/ {2}tiePolicy: "shared",\n/, "")
+    expect(unranked).not.toContain("rankBy:")
+    await writeFile(path, unranked)
+    const local = await checkGame({ root, ...SOURCE }, { ranked: false })
+    expect(local.ok).toBe(true)
+    const ranked = await checkGame({ root, ...SOURCE }, { ranked: true })
+    expect(ranked.ok).toBe(false)
+    const failed = ranked.conformance.outcomes.find((o) => !o.ok)
+    expect(failed?.findings[0]?.code).toBe("E_RANK_UNDECLARED")
+  }, 120_000)
+
   test("it passes, and names its line and the contract its patches keep", async () => {
-    const checked = await checkGame({ root: TEMPLATE_DIR, ...SOURCE })
+    const checked = await checkGame(
+      { root: TEMPLATE_DIR, ...SOURCE },
+      { ranked: false },
+    )
+    expect(checked.set).toBe("every-game")
     expect(checked.ok).toBe(true)
     expect(checked.conformance.ok).toBe(true)
     // A suite that ran nothing would pass vacuously.
@@ -68,12 +111,57 @@ describe("checking the template", () => {
     expect(checked.contractSha256).toBe(contractSha256(MANIFEST))
 
     const printed = checkLines(checked, SOURCE.captureEntry).join("\n")
-    expect(printed).toContain("all checks passed")
+    expect(printed).toContain("all checks in the every-game set passed")
     expect(printed).toContain(
       "capture   src/capture.ts maps only inputs the manifest declares",
     )
     expect(printed).toContain(`release line ${checked.line}`)
     expect(printed).toContain(`contract  ${checked.contractSha256}`)
+  }, 120_000)
+
+  /**
+   * A file the manifest declares is checked by the engine beside the rules
+   * code, so the checks' subject holds each declared file of the folder, at
+   * its path. Art the folder lacks is the engine's to refuse, since the
+   * build holds only the packs the rules code reads.
+   */
+  test("a file the manifest declares is checked from the files folder", async () => {
+    await copyTemplate()
+    const logo = new TextEncoder().encode("a logo\n")
+    const sha256 = new Bun.CryptoHasher("sha256").update(logo).digest("hex")
+    const path = join(root, "src", "sim", "manifest.ts")
+    const text = await readFile(path, "utf8")
+    const declaring = text.replace(
+      '  name: "Lane Runner",\n',
+      `  name: "Lane Runner",\n  assets: [{ path: "art/logo.txt", sha256: "${sha256}", bytes: ${logo.byteLength}, requiredForSim: false, license: "CC0-1.0" }],\n`,
+    )
+    expect(declaring).not.toBe(text)
+    await writeFile(path, declaring)
+    const files = join(root, "files")
+    await mkdir(join(files, "art"), { recursive: true })
+    await writeFile(join(files, "art", "logo.txt"), logo)
+    await writeFile(join(files, "other.txt"), "not declared\n")
+
+    const budgetsOf = (checked: Awaited<ReturnType<typeof checkGame>>) =>
+      checked.conformance.outcomes.find((o) => o.check === "budgets")
+    const held = await checkGame(
+      { root, ...SOURCE, filesDir: files },
+      { ranked: false },
+    )
+    expect(held.ok).toBe(true)
+    expect(budgetsOf(held)?.note).toBe(
+      `1 declared assets, ${logo.byteLength} bytes`,
+    )
+
+    await rm(join(files, "art"), { recursive: true })
+    const lacking = await checkGame(
+      { root, ...SOURCE, filesDir: files },
+      { ranked: false },
+    )
+    expect(lacking.ok).toBe(false)
+    expect(budgetsOf(lacking)?.findings[0]?.detail).toBe(
+      "art/logo.txt is declared but not present",
+    )
   }, 120_000)
 
   test("a mapping naming an input the manifest does not declare fails the check", async () => {
@@ -82,7 +170,7 @@ describe("checking the template", () => {
       join(root, "src", "capture.ts"),
       `export const capture = { keys: { Space: "jump" } }\n`,
     )
-    const checked = await checkGame({ root, ...SOURCE })
+    const checked = await checkGame({ root, ...SOURCE }, { ranked: false })
     expect(checked.conformance.ok).toBe(true)
     expect(checked.ok).toBe(false)
     expect(checked.capture.length).toBe(1)
@@ -122,7 +210,7 @@ describe("the game's own code", () => {
     }
     process.env.VBZ_STUDIO_KEY = PLANTED
     try {
-      const checked = await checkGame({ root, ...SOURCE })
+      const checked = await checkGame({ root, ...SOURCE }, { ranked: false })
       expect(JSON.stringify(checked)).not.toContain(PLANTED)
       expect(checked.capture).toEqual([])
       expect(checked.conformance.ok).toBe(true)
@@ -146,6 +234,7 @@ describe("the checks' own process", () => {
       subject,
       source,
       manifest: MANIFEST,
+      set: "every-game",
       answer: join(root, "answer.json"),
     })
     expect(found.conformance.ok).toBe(true)
@@ -158,7 +247,16 @@ describe("the checks' own process", () => {
     await writeFile(entry, `process.stderr.write("nothing to say")\n`)
     const sim = new TextEncoder().encode("export const MANIFEST = {}\n")
     await expect(
-      checkInChild({ root, ...SOURCE }, sim, MANIFEST, entry),
+      checkInChild(
+        {
+          source: { root, ...SOURCE },
+          sim,
+          manifest: MANIFEST,
+          declared: new Map(),
+          set: "every-game",
+        },
+        entry,
+      ),
     ).rejects.toThrow(/the checks did not answer: nothing to say/)
   })
 

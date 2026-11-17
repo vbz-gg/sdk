@@ -10,7 +10,8 @@ import { describe, expect, test } from "bun:test"
 import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { assertPresentImportsOnlySim } from "../../src/build/contract"
+import { assertPresentImports } from "../../src/build/contract"
+import { EMPTY_LISTING } from "../../src/build/files"
 import { DRIVEN_CONTRACTS, PAGE_MODULE_CONTRACT } from "../../src/game/contract"
 
 const PACKAGE = join(import.meta.dir, "..", "..")
@@ -99,7 +100,7 @@ describe("@vbz-gg/sdk/game", () => {
       })
       expect(built.success).toBe(true)
       const text = (await built.outputs[0]?.text()) ?? ""
-      expect(assertPresentImportsOnlySim(text)).toBe(1)
+      expect(assertPresentImports(text, EMPTY_LISTING).sim).toBe(1)
       // The host it plays with came along: the page brings no engine.
       expect(text).toContain("requestAnimationFrame")
     } finally {

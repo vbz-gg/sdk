@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "noEmit": true,
+    // `cw2:sim` is rewritten to the rules code's address at upload; for
+    // typechecking it points at the rules code's own source. The folder's
+    // entry is declared in src/files.d.ts.
+    "paths": { "cw2:sim": ["./src/sim/index.ts"] }
+  },
+  "include": ["src"]
+}

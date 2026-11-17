@@ -18,10 +18,18 @@
 
 import { existsSync } from "node:fs"
 import { join } from "node:path"
-import { hashCanonical, type PlainValue } from "@clockwork2/engine"
+import {
+  assertManifest,
+  hashCanonical,
+  type Manifest,
+  type ParamValues,
+  type PlainValue,
+} from "@clockwork2/engine"
+import { DIST_DIR, DIST_FILES } from "../build/dist.js"
 import type { GameSource } from "../build/index.js"
 import { type BuiltGame, blobKeys, buildAndAddress } from "./artifacts.js"
-import { pageCsp } from "./csp.js"
+import { CONFIG_WITH_RANKED, givenConfig, servedOrRefused } from "./config.js"
+import { type DeclaredNeeds, pageCsp, versionNeeds } from "./csp.js"
 import { readBuiltManifest } from "./dist-manifest.js"
 import { HARNESS_STYLE, harnessPage } from "./page/document.js"
 import { replayInChild } from "./replay.js"
@@ -42,6 +50,23 @@ export interface HarnessOptions {
   readonly seed?: string
   /** Every path the bundles origin was asked for, for a test. */
   readonly onRequest?: (path: string) => void
+  /**
+   * Whether the page's report holds a run's inputs to the budget a ranked or
+   * practice run is held to, `vbz dev --ranked`, or says it as a figure.
+   */
+  readonly ranked: boolean
+  /**
+   * What the game says it needs of the page's policy, beyond its two
+   * modules; what its build shows is added.
+   */
+  readonly needs?: DeclaredNeeds
+  /**
+   * A config of the author's own for the page's runs, `vbz dev --config`,
+   * held to the manifest's settings. The served config by default, which a
+   * game with a required setting that has no default cannot be served, and
+   * which a ranked run always plays, so `ranked` refuses one given here.
+   */
+  readonly config?: unknown
 }
 
 export interface Harness {
@@ -53,12 +78,6 @@ export interface Harness {
   /** The policy the page is served under. */
   readonly csp: string
   stop(): Promise<void>
-}
-
-/** What the harness needs from the game's manifest to start a session. */
-interface HarnessManifest {
-  readonly name?: string
-  readonly session?: { readonly tickHz?: number; readonly maxTicks?: number }
 }
 
 /** Where the page sends a run's recording for the harness's report on it. */
@@ -86,9 +105,10 @@ export const HARNESS_SEED = "harness"
 export async function startHarness(options: HarnessOptions): Promise<Harness> {
   const built = await buildAndAddress(options.source, HARNESS_GAME_ID)
   const manifest = await readManifest(options.source.root)
+  const config = configToPlay(manifest, options)
   const listen = options.listen ?? LOOPBACK
 
-  const title = manifest.name ?? "Game"
+  const title = manifest.name
 
   // Bound first, because the page has to name the bundles origin and an
   // origin is the port the socket got rather than the port it was asked for.
@@ -107,6 +127,7 @@ export async function startHarness(options: HarnessOptions): Promise<Harness> {
           built.sim,
           manifest,
           await request.text(),
+          packsOf(manifest, built.filesOnDisk),
         )
         return Response.json(report, {
           headers: { "cache-control": "no-store" },
@@ -121,10 +142,15 @@ export async function startHarness(options: HarnessOptions): Promise<Harness> {
     listen,
     ...(options.onRequest === undefined ? {} : { log: options.onRequest }),
   })
-  const presentUrl = `${bundles.origin}/${blobKeys(built).present}`
+  const keys = blobKeys(built)
+  const presentUrl = `${bundles.origin}/${keys.present}`
+  const filesUrl = `${bundles.origin}/${keys.files}`
   const csp = pageCsp({
     bundlesOrigin: bundles.origin,
     gameId: HARNESS_GAME_ID,
+    // The harness page plays local runs, and signs nobody in.
+    signInOrigin: null,
+    needs: versionNeeds(options.needs ?? {}, built),
   })
 
   host.setPage(
@@ -135,13 +161,14 @@ export async function startHarness(options: HarnessOptions): Promise<Harness> {
         // What the platform would compute from the uploaded manifest, so a
         // page module carrying another one is refused here as it would be on
         // a studio's page.
-        manifestHash: hashCanonical(manifest as PlainValue),
+        manifestHash: hashCanonical(manifest as unknown as PlainValue),
+        filesUrl,
         title,
         seed: options.seed ?? HARNESS_SEED,
-        tickHz: manifest.session?.tickHz ?? 60,
-        maxTicks: manifest.session?.maxTicks ?? 36000,
-        config: {},
+        tickHz: manifest.session.tickHz,
+        config,
         replayPath: REPLAY_PATH,
+        ranked: options.ranked,
       },
     }),
     csp,
@@ -159,9 +186,57 @@ export async function startHarness(options: HarnessOptions): Promise<Harness> {
   }
 }
 
-/** The manifest `vbz build` wrote, as the harness reads it. */
-async function readManifest(root: string): Promise<HarnessManifest> {
-  return (await readBuiltManifest(root)) as HarnessManifest
+/**
+ * What the page's runs play, decided before anything is served: the
+ * author's own config, held to the manifest, or the served config, which a
+ * ranked or practice run always plays.
+ */
+function configToPlay(
+  manifest: Manifest,
+  options: Pick<HarnessOptions, "config" | "ranked">,
+): ParamValues {
+  if (options.config === undefined) {
+    return servedOrRefused(
+      manifest,
+      options.ranked
+        ? "a ranked run plays every setting at its default, so give each one a default in the manifest"
+        : "give vbz dev a config to play with --config <file>, or give each setting a default in the manifest",
+    )
+  }
+  if (options.ranked) throw new Error(CONFIG_WITH_RANKED)
+  return givenConfig(manifest, options.config, "--config")
+}
+
+/**
+ * The manifest `vbz build` wrote, as the harness reads it: held to the
+ * engine's schema, so a game with no build on disk stops here, with the
+ * engine's own refusal, rather than serving a page that plays nothing.
+ */
+async function readManifest(root: string): Promise<Manifest> {
+  const built = await readBuiltManifest(root)
+  try {
+    return assertManifest(built)
+  } catch (error) {
+    throw new Error(
+      `the harness plays the manifest vbz build wrote to ${DIST_DIR}/${DIST_FILES.manifest}, and there is none to play: ${error instanceof Error ? error.message : String(error)}; run vbz build first`,
+    )
+  }
+}
+
+/**
+ * The data packs the manifest declares, by path, at where each is on disk in
+ * the files folder, for the replay of a run.
+ */
+export function packsOf(
+  manifest: Manifest,
+  onDisk: ReadonlyMap<string, string>,
+): ReadonlyMap<string, string> {
+  const packs = new Map<string, string>()
+  for (const asset of manifest.assets ?? []) {
+    const at = onDisk.get(asset.path)
+    if (asset.requiredForSim && at !== undefined) packs.set(asset.path, at)
+  }
+  return packs
 }
 
 /**
@@ -207,7 +282,16 @@ export {
   blobKeys,
   buildAndAddress,
 } from "./artifacts.js"
-export { gamePath, type PageCspOptions, pageCsp } from "./csp.js"
+export {
+  type DeclaredNeeds,
+  type GameNeeds,
+  gamePath,
+  inlineScriptSource,
+  localPageCsp,
+  type PageCspOptions,
+  pageCsp,
+  versionNeeds,
+} from "./csp.js"
 export { escapeHtml, HARNESS_STYLE, harnessPage } from "./page/document.js"
 export {
   type DevReport,
@@ -230,12 +314,17 @@ export {
   type Tls,
 } from "./servers.js"
 export {
+  inlineScriptsOf,
+  LOCAL_GAME_PATH,
   type RunningSite,
   SITE_DIR,
   SITE_ENTRY,
+  SITE_MODES,
   type SiteConfig,
+  type SiteMode,
   type SiteOptions,
   siteFile,
+  siteModeOf,
   startSite,
 } from "./site.js"
 export {

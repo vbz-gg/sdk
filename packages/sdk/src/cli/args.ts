@@ -33,10 +33,11 @@ export const VALUE_FLAGS = [
   "key",
   "game",
   "api",
+  "config",
 ] as const
 
 /** The flags that take none. */
-export const SWITCH_FLAGS = ["https", "site"] as const
+export const SWITCH_FLAGS = ["https", "site", "ranked"] as const
 
 type ValueFlag = (typeof VALUE_FLAGS)[number]
 type SwitchFlag = (typeof SWITCH_FLAGS)[number]
@@ -58,6 +59,13 @@ export interface Options {
   readonly key: string | undefined
   /** `dev`: serve the game's `site/` against a stand-in for the platform. */
   readonly site: boolean
+  /** `dev`: a JSON file holding the config the harness page's runs play. */
+  readonly config: string | undefined
+  /**
+   * `check`: also run what only a ranked or practice run needs. `dev`: hold
+   * a run's inputs to the budget a ranked or practice run is held to.
+   */
+  readonly ranked: boolean
   /** `publish`: the game to upload to. */
   readonly game: string | undefined
   /** `publish`: the platform's origin, over the environment and the default. */
@@ -130,6 +138,8 @@ export function parseArgs(argv: readonly string[]): Options {
     cert: values.get("cert"),
     key: values.get("key"),
     site: switches.has("site"),
+    config: values.get("config"),
+    ranked: switches.has("ranked"),
     game: values.get("game"),
     api: values.get("api"),
   }

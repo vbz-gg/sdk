@@ -1,10 +1,11 @@
 /**
- * A stand-in for the platform's page routes and its sign-in window, so a
- * studio's page runs on a laptop before it ever meets the platform.
+ * A stand-in for the platform's page routes and its sign-in, so a studio's
+ * page runs on a laptop before it ever meets the platform.
  *
  * It answers every route a game's page calls, with the shapes `/api`
- * declares, as one local player: sign-in through a window on an origin of
- * its own, a run started on the harness seed, chunks and a submit held to the
+ * declares, as one local player: sign-in through a box on the page, framing
+ * a sign-in on an origin of its own exactly as the platform's is framed
+ * (`stand-in-signin.ts`), a run started on the harness seed, chunks and a submit held to the
  * manifest the way the platform holds them, the result, a run read back to
  * watch, and the board. A page built against it is the page that runs in
  * production, through `@vbz-gg/sdk/platform` and `@vbz-gg/sdk/host`
@@ -48,9 +49,11 @@ import type {
   WatchedRun,
 } from "../api/index.js"
 import { sha256Hex } from "../build/digest.js"
+import { MAX_CHUNK_BYTES, MAX_RUN_BYTES } from "../build/limits.js"
 import { parseReleaseVersion, releaseLine } from "../build/version.js"
-import { escapeHtml } from "./page/document.js"
+import { servedOrRefused } from "./config.js"
 import { type Listen, originOf, serveOptions } from "./servers.js"
+import { type SignInGrant, signInPages } from "./stand-in-signin.js"
 
 /** The page key the stand-in hands its page, and the only one it takes. */
 export const STAND_IN_PAGE_KEY: PageKey = "vbz_pk_stand_in"
@@ -65,14 +68,13 @@ export const LOCAL_PLAYER: SignedInPlayer["player"] = {
 export const STAND_IN_VERSION_ID = "00000000-0000-4000-8000-00000000000b"
 
 /**
- * The byte caps the platform's plan gives a run: a chunk at 1 MiB, and a
- * run's chunks together, or its recording, at 29 MiB, which is the verifier's
- * 32 MiB less the largest rules code and a MiB of envelope. The platform is
- * the authority on both; these let a page meet the split and the stop here.
+ * The byte caps the platform gives a run, read from the limits it imports
+ * itself, so a page meets the split and the stop here at the sizes it meets
+ * them in production.
  */
 export const STAND_IN_LIMITS: RunLimits = {
-  chunkBytes: 1024 * 1024,
-  runBytes: 29 * 1024 * 1024,
+  chunkBytes: MAX_CHUNK_BYTES,
+  runBytes: MAX_RUN_BYTES,
 }
 
 /** How long a token lasts, in seconds, as a page is told. */
@@ -105,6 +107,7 @@ export const STAND_IN_STATUS = {
   E_INPUT_RANGE: 400,
   E_INPUT_BUDGET: 400,
   E_RECORDING_MALFORMED: 400,
+  E_PINNED_MISMATCH: 400,
 } as const satisfies Partial<Record<PublicRefusalCode, number>>
 
 /** A code the stand-in answers. */
@@ -156,14 +159,27 @@ export interface StandInOptions {
   readonly manifest: unknown
   /** The game's page module, absolute, on the bundles origin. */
   readonly presentUrl: string
+  /** The game's files folder, absolute, ending in `/`, on the bundles origin. */
+  readonly filesUrl: string
   /** The game id the bundles origin serves it under. */
   readonly gameId: string
   /** The only origin the stand-in lets call it: the site's. */
   readonly siteOrigin: string
-  /** The seed every run plays. */
+  /**
+   * What every run's seed is made from. A seed the platform issues is 64 hex
+   * characters, so a run plays the SHA-256 of this, never a seed a page
+   * could make up, such as a local run's.
+   */
   readonly seed: string
   readonly listen: Listen
-  /** The API's and the sign-in window's ports. Any free one by default. */
+  /**
+   * For a test: the host the sign-in's origin is written with, beside the
+   * address it listens on, such as `localhost` for a page on `127.0.0.1`,
+   * which is another site, as the platform's sign-in is to a studio's page.
+   * The listening address's own by default.
+   */
+  readonly signInHost?: string
+  /** The API's and the sign-in's ports. Any free one by default. */
   readonly apiPort?: number
   readonly signInPort?: number
   /** For a test: ranked play paused, or the player barred until a time. */
@@ -198,11 +214,6 @@ interface Session {
   } | null
 }
 
-interface Grant {
-  readonly challenge: string
-  used: boolean
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
@@ -224,9 +235,28 @@ function dayOf(date: Date): {
   return { day, from: start.toISOString(), to: next.toISOString() }
 }
 
-/** Starts the stand-in's two origins: the API and the sign-in window. */
+/**
+ * Starts the stand-in's two origins: the API and the sign-in. A game
+ * whose manifest declares no `rankBy` and `tiePolicy` cannot be ranked, so it
+ * is refused here, as the platform's checks refuse it.
+ */
 export function startStandIn(options: StandInOptions): RunningStandIn {
   const manifest = options.manifest as Manifest
+  const { rankBy, tiePolicy } = manifest
+  if (rankBy === undefined || tiePolicy === undefined) {
+    throw new Error(
+      "the manifest declares no rankBy and tiePolicy, which a ranked run is ordered by; declare both to play against the stand-in for the platform",
+    )
+  }
+  const ranking: Pick<Board, "rankBy" | "tiePolicy"> = { rankBy, tiePolicy }
+  // What a platform serves a run: every declared setting at its default,
+  // which a game with a required setting that has none cannot be served.
+  const config = servedOrRefused(
+    manifest,
+    "a ranked or practice run plays every setting at its default, so give each one a default in the manifest to play it against the stand-in for the platform",
+  )
+  // A seed shaped as the platform's are: 64 hex characters.
+  const seed = sha256Hex(new TextEncoder().encode(options.seed))
   const now = options.now ?? (() => new Date())
   const log = options.log ?? (() => {})
   const version =
@@ -239,94 +269,33 @@ export function startStandIn(options: StandInOptions): RunningStandIn {
     manifestSha256: sha256Hex(new TextEncoder().encode(manifestText)),
     manifestHash: hashCanonical(options.manifest as PlainValue),
     presentUrl: options.presentUrl,
+    filesUrl: options.filesUrl,
   }
 
   let token: string | null = null
-  const grants = new Map<string, Grant>()
+  const grants = new Map<string, SignInGrant>()
   const sessions = new Map<string, Session>()
   let boardRow: BoardRow | null = null
 
-  // The sign-in window's origin is needed by the API's answers and the API's
-  // by nothing the window serves, so the window is bound first.
+  // The sign-in's origin is needed by the API's answers and the API's by
+  // nothing the sign-in serves, so the sign-in is bound first.
   const signIn = Bun.serve({
     ...serveOptions(options.listen, options.signInPort ?? 0),
-    fetch: (request) => authorize(request),
+    fetch: signInPages({
+      pageKey: STAND_IN_PAGE_KEY,
+      siteOrigin: options.siteOrigin,
+      signInOrigin: () => signInOrigin,
+      player: LOCAL_PLAYER,
+      grants,
+      log,
+    }),
   })
-  const signInOrigin = originOf(options.listen, signIn.port ?? 0)
-
-  function authorize(request: Request): Response {
-    const url = new URL(request.url)
-    const page = (body: string, status = 200) =>
-      new Response(body, {
-        status,
-        headers: {
-          "content-type": "text/html; charset=utf-8",
-          "cache-control": "no-store",
-        },
-      })
-    if (url.pathname !== "/authorize") {
-      return page(
-        "<!doctype html><title>Not here</title><p>Nothing here.</p>",
-        404,
-      )
-    }
-    const query = url.searchParams
-    const redirect = query.get("redirect_uri")
-    const state = query.get("state")
-    const challenge = query.get("code_challenge")
-    // A request it cannot check hands nothing anywhere, as the platform's
-    // window does not.
-    const why =
-      query.get("client_id") !== STAND_IN_PAGE_KEY
-        ? "the page key is not the stand-in's"
-        : redirect !== options.siteOrigin
-          ? `the page asking is not ${options.siteOrigin}`
-          : query.get("code_challenge_method") !== "S256" ||
-              challenge === null ||
-              challenge === ""
-            ? "the request carries no S256 challenge"
-            : state === null || state === ""
-              ? "the request carries no state"
-              : null
-    if (
-      why !== null ||
-      redirect === null ||
-      state === null ||
-      challenge === null
-    ) {
-      return page(
-        `<!doctype html><title>Sign-in refused</title><p>Refused: ${escapeHtml(why ?? "malformed")}.</p>`,
-        400,
-      )
-    }
-    const code = crypto.randomUUID()
-    grants.set(code, { challenge, used: false })
-    const hand = JSON.stringify({
-      origin: redirect,
-      message: { type: "vbz.signin", state, code },
-    }).replaceAll("</", "<\\/")
-    return page(`<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Sign in</title>
-  </head>
-  <body style="font: 16px system-ui, sans-serif; padding: 24px">
-    <p>The vbz platform's sign-in window, stood in for on this machine.</p>
-    <button id="continue" type="button">Sign in as ${escapeHtml(LOCAL_PLAYER.displayName)}</button>
-    <script type="application/json" id="hand">${hand}</script>
-    <script>
-      const hand = JSON.parse(document.getElementById("hand").textContent)
-      document.getElementById("continue").addEventListener("click", () => {
-        window.opener.postMessage(hand.message, hand.origin)
-        window.close()
-      })
-    </script>
-  </body>
-</html>
-`)
-  }
+  const signInOrigin = originOf(
+    options.signInHost === undefined
+      ? options.listen
+      : { ...options.listen, hostname: options.signInHost },
+    signIn.port ?? 0,
+  )
 
   const api = Bun.serve({
     ...serveOptions(options.listen, options.apiPort ?? 0),
@@ -490,7 +459,7 @@ export function startStandIn(options: StandInOptions): RunningStandIn {
       studio: { slug: "local", name: "This machine" },
       day: dayOf(now()).day,
       today: {
-        seedCommit: sha256Hex(new TextEncoder().encode(options.seed)),
+        seedCommit: sha256Hex(new TextEncoder().encode(seed)),
         line: releaseLine(parseReleaseVersion(version)),
         ranked: paused ? "paused" : "open",
         version: paused ? null : pageVersion,
@@ -502,7 +471,7 @@ export function startStandIn(options: StandInOptions): RunningStandIn {
   function trade(body: unknown): SignedInPlayer {
     const refused = new Refused(
       "E_SIGNIN_GRANT_INVALID",
-      "the code is not one this window handed this page, or was already traded",
+      "the code is not one this sign-in handed this page, or was already traded",
     )
     if (!isRecord(body)) throw refused
     const grant =
@@ -560,16 +529,15 @@ export function startStandIn(options: StandInOptions): RunningStandIn {
       mode,
       day: today,
       rankedRunsLeft: null,
-      seed: options.seed,
-      config: {},
+      seed,
+      config,
       game: {
         id: STAND_IN_VERSION_ID,
         presentUrl: options.presentUrl,
         manifestHash: pageVersion.manifestHash,
+        filesUrl: options.filesUrl,
         manifest: options.manifest,
         tickHz: manifest.session.tickHz,
-        maxTicks: manifest.session.maxTicks,
-        maxWallSeconds: manifest.session.maxWallSeconds,
       },
       limits: STAND_IN_LIMITS,
       token: token as string,
@@ -669,6 +637,17 @@ export function startStandIn(options: StandInOptions): RunningStandIn {
     let recording: ReturnType<typeof decodeRecording>
     try {
       recording = decodeRecording(raw)
+    } catch (error) {
+      throw inputRefusal(error)
+    }
+    const pinned = pinnedDifference(session.started, recording)
+    if (pinned !== null) {
+      throw new Refused(
+        "E_PINNED_MISMATCH",
+        `the recording was not played on what this run was issued: its ${pinned} differs`,
+      )
+    }
+    try {
       checkInputs(recording.inputs, manifest.inputs, {
         endTick: recording.endTick,
       })
@@ -706,6 +685,30 @@ export function startStandIn(options: StandInOptions): RunningStandIn {
       `stand-in: ${session.started.mode} run ${session.started.sessionId} settled with the counters its page sent, unreplayed; the platform replays a run before it counts`,
     )
     return answer
+  }
+
+  /**
+   * What the run was issued that the recording does not carry, by name, or
+   * null. A local run's recording, played on a `local:` seed, is refused
+   * here as the platform refuses it.
+   */
+  function pinnedDifference(
+    started: StartedRun,
+    recording: ReturnType<typeof decodeRecording>,
+  ): string | null {
+    const pins: ReadonlyArray<readonly [string, boolean]> = [
+      ["seed", recording.seed === started.seed],
+      ["game", recording.gameId === manifest.id],
+      ["version", recording.gameVersion === version],
+      ["manifest hash", recording.manifestHash === started.game.manifestHash],
+      ["tick rate", recording.tickHz === started.game.tickHz],
+      [
+        "config",
+        hashCanonical(recording.config) ===
+          hashCanonical(started.config as PlainValue),
+      ],
+    ]
+    return pins.find(([, same]) => !same)?.[0] ?? null
   }
 
   function result(session: Session): RunResult {
@@ -762,16 +765,13 @@ export function startStandIn(options: StandInOptions): RunningStandIn {
       counters: settled.counters,
       endTick: settled.endTick,
       tickHz: started.game.tickHz,
-      maxTicks: started.game.maxTicks,
       seed: started.seed,
       config: started.config,
       inputs: settled.inputs,
       presentUrl: started.game.presentUrl,
       manifestHash: started.game.manifestHash,
-      replayTicks:
-        settled.endTick === 0
-          ? null
-          : Math.min(Math.max(settled.endTick, 1), started.game.maxTicks),
+      filesUrl: started.game.filesUrl,
+      replayTicks: settled.endTick === 0 ? null : Math.max(settled.endTick, 1),
     }
   }
 
@@ -794,8 +794,7 @@ export function startStandIn(options: StandInOptions): RunningStandIn {
       total: row === null ? 0 : 1,
       rows: row === null ? [] : [row],
       you: asPlayer ? row : null,
-      rankBy: manifest.rankBy,
-      tiePolicy: manifest.tiePolicy,
+      ...ranking,
     }
   }
 

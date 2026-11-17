@@ -45,7 +45,7 @@ import {
 import { fakeBrowser } from "../templates/devices"
 
 /** A run of the probe game with three presses, ended by the player at `stopAt`. */
-function played(stopAt = 90): Recording {
+async function played(stopAt = 90): Promise<Recording> {
   const keys = devices()
   const scheduler = new ManualScheduler()
   const game = definePageModule<View, Config>({
@@ -63,7 +63,8 @@ function played(stopAt = 90): Recording {
     seed: "harness",
     config: { endAt: 300 },
     tickHz: 60,
-    maxTicks: 600,
+    scripted: "ignore",
+    files: "https://files.test/g/probe/t/none/",
     expect: { manifestHash: hashCanonical(MANIFEST as unknown as PlainValue) },
     handlers: {
       onCheckpoint: () => {},
@@ -78,6 +79,8 @@ function played(stopAt = 90): Recording {
     scheduler,
     environment: keys,
   })
+  // The game gets ready before its clock starts.
+  await Bun.sleep(0)
   scheduler.run(1, FRAME_MS)
   for (let press = 0; press < 3; press += 1) {
     keys.press("ArrowLeft", true)
@@ -99,8 +102,8 @@ function report(recording: unknown): DevReport {
 }
 
 describe("replaying a recording", () => {
-  test("a run as a page recorded it replays, and every input is one the platform takes", () => {
-    const recording = played()
+  test("a run as a page recorded it replays, and every input is one the platform takes", async () => {
+    const recording = await played()
     const answer = report(recording)
     // A run of nothing would replay vacuously.
     expect(recording.inputs.length).toBe(6)
@@ -117,22 +120,22 @@ describe("replaying a recording", () => {
     expect(answer.bytes).toBe(
       new TextEncoder().encode(JSON.stringify(recording)).byteLength,
     )
-    expect(reportPasses(answer)).toBe(true)
+    expect(reportPasses(answer, false)).toBe(true)
   })
 
-  test("a recording claiming another score differs, and says where", () => {
-    const recording = played()
+  test("a recording claiming another score differs, and says where", async () => {
+    const recording = await played()
     const answer = report({ ...recording, counters: { presses: 9 } })
     expect(answer.replay.kind).toBe("differs")
     if (answer.replay.kind !== "differs") return
     expect(answer.replay.differences).toContain(
       "presses: recorded 9, replayed 3",
     )
-    expect(reportPasses(answer)).toBe(false)
+    expect(reportPasses(answer, false)).toBe(false)
   })
 
-  test("a recording whose checkpoint was changed differs from that checkpoint", () => {
-    const recording = played()
+  test("a recording whose checkpoint was changed differs from that checkpoint", async () => {
+    const recording = await played()
     const [first, second, ...rest] = recording.checkpoints
     if (first === undefined || second === undefined)
       throw new Error("no checkpoints")
@@ -145,8 +148,8 @@ describe("replaying a recording", () => {
     )
   })
 
-  test("an input the manifest does not declare is refused as the platform refuses it", () => {
-    const recording = played()
+  test("an input the manifest does not declare is refused as the platform refuses it", async () => {
+    const recording = await played()
     const answer = report({
       ...recording,
       inputs: [...recording.inputs, { tick: 70, code: "jump", value: 1 }].sort(
@@ -154,11 +157,11 @@ describe("replaying a recording", () => {
       ),
     })
     expect(answer.inputs.problem?.code).toBe("E_INPUT_UNDECLARED")
-    expect(reportPasses(answer)).toBe(false)
+    expect(reportPasses(answer, false)).toBe(false)
   })
 
-  test("more inputs than the budget allows is refused with the budget's code", () => {
-    const recording = played()
+  test("more inputs than the budget allows is refused with the budget's code", async () => {
+    const recording = await played()
     // A hundred a tick is under the engine's per-tick net, so what refuses
     // it is the budget over the run: 16 a tick on average.
     const flood = Array.from({ length: 200 }, (_, i) => ({
@@ -177,8 +180,8 @@ describe("replaying a recording", () => {
     expect(answer.inputs.problem?.code).toBe("E_INPUT_BUDGET")
   })
 
-  test("a run that ended at tick 0 has nothing to replay", () => {
-    const recording = played()
+  test("a run that ended at tick 0 has nothing to replay", async () => {
+    const recording = await played()
     const answer = report({
       ...recording,
       inputs: [],
@@ -186,7 +189,40 @@ describe("replaying a recording", () => {
       checkpoints: recording.checkpoints.slice(0, 1),
     })
     expect(answer.replay).toEqual({ kind: "nothing" })
-    expect(reportLines(answer)[0]).toContain("ended at tick 0")
+    expect(reportLines(answer, false)[0]).toContain("ended at tick 0")
+  })
+
+  /**
+   * A game's data packs are part of what its replay plays: a start pack the
+   * replay is not given ends it before `init`, as on the platform.
+   */
+  test("the replay is given the data packs the manifest declares", async () => {
+    const pack = new TextEncoder().encode(`{"level":1}`)
+    const packed: typeof MANIFEST = {
+      ...MANIFEST,
+      assets: [
+        {
+          path: "packs/level.json",
+          sha256: new Bun.CryptoHasher("sha256").update(pack).digest("hex"),
+          bytes: pack.byteLength,
+          requiredForSim: true,
+          license: "CC0",
+        },
+      ],
+    }
+    const text = JSON.stringify(await played())
+    const given = replayRecording(
+      source,
+      packed,
+      text,
+      new Map([["packs/level.json", pack]]),
+    )
+    expect(given.replay.kind).toBe("matches")
+    const missing = replayRecording(source, packed, text)
+    expect(missing.replay).toMatchObject({
+      kind: "failed",
+      code: "E_PACK_NOT_DELIVERED",
+    })
   })
 
   test("text that is not a recording fails, and says why, without throwing", () => {
@@ -201,8 +237,8 @@ describe("replaying a recording", () => {
     expect(other.replay.kind).toBe("failed")
   })
 
-  test("a rules code that throws while replaying fails, with its message", () => {
-    const recording = played()
+  test("a rules code that throws while replaying fails, with its message", async () => {
+    const recording = await played()
     const answer = replayRecording(
       () => {
         throw new Error("no game today")
@@ -228,54 +264,100 @@ describe("what the page is told", () => {
   }
 
   test("a run that matches says where it ended and what it counted", () => {
-    expect(reportLines(base)).toEqual([
+    expect(reportLines(base, false)).toEqual([
       "replayed: it matches, ending at tick 1,650 with motes 3",
-      "inputs: 1,204, within the budget of 26,416",
+      "inputs: 1,204, within the budget of 26,416 a ranked or practice run is held to",
       "recording: 18,234 bytes",
     ])
     expect(
-      reportLines({
-        ...base,
-        replay: { kind: "matches", endTick: 1, counters: {} },
-      })[0],
+      reportLines(
+        {
+          ...base,
+          replay: { kind: "matches", endTick: 1, counters: {} },
+        },
+        false,
+      )[0],
     ).toBe("replayed: it matches, ending at tick 1")
   })
 
   test("a run that differs names the first difference", () => {
     expect(
-      reportLines({
-        ...base,
-        replay: {
-          kind: "differs",
-          divergedAt: 120,
-          differences: ["tick 120: recorded a, replayed b"],
+      reportLines(
+        {
+          ...base,
+          replay: {
+            kind: "differs",
+            divergedAt: 120,
+            differences: ["tick 120: recorded a, replayed b"],
+          },
         },
-      })[0],
+        false,
+      )[0],
     ).toBe(
       "replayed: it differs from tick 120: tick 120: recorded a, replayed b",
     )
     expect(
-      reportLines({
-        ...base,
-        replay: { kind: "differs", divergedAt: null, differences: [] },
-      })[0],
+      reportLines(
+        {
+          ...base,
+          replay: { kind: "differs", divergedAt: null, differences: [] },
+        },
+        false,
+      )[0],
     ).toBe("replayed: it differs: no difference named")
   })
 
-  test("a replay that failed, and inputs that were refused, say their codes", () => {
-    const lines = reportLines({
-      ...base,
-      replay: { kind: "failed", code: "E_X", message: "broke" },
-      inputs: {
-        count: 9,
-        budget: 16,
-        problem: { code: "E_INPUT_RANGE", message: "too far" },
+  test("a replay that failed, and inputs that were refused, say their codes", async () => {
+    const lines = reportLines(
+      {
+        ...base,
+        replay: { kind: "failed", code: "E_X", message: "broke" },
+        inputs: {
+          count: 9,
+          budget: 16,
+          problem: { code: "E_INPUT_RANGE", message: "too far" },
+        },
       },
-    })
+      false,
+    )
     expect(lines.slice(0, 2)).toEqual([
       "replayed: it failed, E_X: broke",
       "inputs: 9, refused as E_INPUT_RANGE: too far",
     ])
+  })
+
+  /**
+   * The budget binds a ranked or practice run alone: a game played on its
+   * own page may record more, and is told the figure rather than refused,
+   * unless the author asked for a ranked run's rules.
+   */
+  test("over the input budget is a ranked run's figure, and red only when ranked", () => {
+    const over: DevReport = {
+      ...base,
+      inputs: {
+        count: 30_000,
+        budget: 26_416,
+        problem: { code: "E_INPUT_BUDGET", message: "too many" },
+      },
+    }
+    expect(reportLines(over, false)[1]).toBe(
+      "inputs: 30,000, over the budget of 26,416 a ranked or practice run is held to, which a game played on its own page is not",
+    )
+    expect(reportPasses(over, false)).toBe(true)
+    expect(reportLines(over, true)[1]).toBe(
+      "inputs: 30,000, refused as E_INPUT_BUDGET: too many",
+    )
+    expect(reportPasses(over, true)).toBe(false)
+    // Any other problem with the inputs is red either way.
+    const undeclared: DevReport = {
+      ...base,
+      inputs: {
+        count: 3,
+        budget: 26_416,
+        problem: { code: "E_INPUT_UNDECLARED", message: "jump" },
+      },
+    }
+    expect(reportPasses(undeclared, false)).toBe(false)
   })
 })
 
@@ -304,7 +386,7 @@ describe("replaying in a process of its own", () => {
   })
 
   test("the built rules code replays a page's recording to the same answer", async () => {
-    const recording = played()
+    const recording = await played()
     const answer = await replayInChild(sim, MANIFEST, JSON.stringify(recording))
     expect(answer).toEqual(report(recording))
     expect(answer.replay.kind).toBe("matches")
@@ -315,7 +397,7 @@ describe("replaying in a process of its own", () => {
     const answer = await replayInChild(
       broken,
       MANIFEST,
-      JSON.stringify(played()),
+      JSON.stringify(await played()),
     )
     expect(answer.replay.kind).toBe("failed")
     if (answer.replay.kind !== "failed") return
@@ -337,7 +419,7 @@ describe("replaying in a process of its own", () => {
       const answer = await replayInChild(
         reading,
         MANIFEST,
-        JSON.stringify(played()),
+        JSON.stringify(await played()),
       )
       expect(answer.replay.kind).toBe("failed")
       if (answer.replay.kind !== "failed") return
@@ -351,7 +433,7 @@ describe("replaying in a process of its own", () => {
   test("a child that answers with something other than a report is a failed replay", async () => {
     const entry = join(dir, "chatty.ts")
     await writeFile(entry, `process.stdout.write("hello")\n`)
-    const answer = await replayInChild(sim, MANIFEST, "{}", entry)
+    const answer = await replayInChild(sim, MANIFEST, "{}", new Map(), entry)
     expect(answer.replay.kind).toBe("failed")
     if (answer.replay.kind !== "failed") return
     expect(answer.replay.message).toContain("hello")
@@ -388,6 +470,7 @@ describe("the harness, asked about a run its page played", () => {
         simEntry: "src/sim/index.ts",
         presentEntry: "src/present.ts",
         captureEntry: "src/capture.ts",
+        filesDir: null,
       }),
     )
   })
@@ -397,7 +480,7 @@ describe("the harness, asked about a run its page played", () => {
   })
 
   /** Three seconds of the template with a tap on each button, as its page records it. */
-  function templateRun(): Recording {
+  async function templateRun(): Promise<Recording> {
     const browser = fakeBrowser(320, 480)
     const scheduler = new ManualScheduler()
     const game = definePageModule({
@@ -412,7 +495,8 @@ describe("the harness, asked about a run its page played", () => {
       seed: "harness",
       config: {},
       tickHz: 60,
-      maxTicks: TEMPLATE_MANIFEST.session.maxTicks,
+      scripted: "ignore",
+      files: "https://files.test/g/template/t/none/",
       expect: { manifestHash: game.manifestHash },
       handlers: {
         onCheckpoint: () => {},
@@ -428,6 +512,7 @@ describe("the harness, asked about a run its page played", () => {
       scheduler,
       environment: browser.environment,
     })
+    await Bun.sleep(0)
     scheduler.run(10, FRAME_MS)
     for (const x of [50, 270]) {
       const finger = browser.down(x, 440)
@@ -449,12 +534,14 @@ describe("the harness, asked about a run its page played", () => {
         simEntry: "src/sim/index.ts",
         presentEntry: "src/present.ts",
         captureEntry: "src/capture.ts",
+        filesDir: null,
       },
       hostPort: 0,
       bundlesPort: 0,
+      ranked: true,
     })
     try {
-      const recording = templateRun()
+      const recording = await templateRun()
       expect(recording.inputs.length).toBeGreaterThanOrEqual(6)
       const answer = await fetch(`${harness.hostOrigin}/replay`, {
         method: "POST",
@@ -467,7 +554,7 @@ describe("the harness, asked about a run its page played", () => {
         counters: recording.counters,
       })
       expect(report.inputs.problem).toBeNull()
-      expect(reportPasses(report)).toBe(true)
+      expect(reportPasses(report, false)).toBe(true)
     } finally {
       await harness.stop()
     }

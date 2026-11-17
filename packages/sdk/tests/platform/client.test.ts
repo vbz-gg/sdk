@@ -5,12 +5,19 @@
  */
 
 import { describe, expect, test } from "bun:test"
-import { createPlatformClient, isFinalResult } from "../../src/platform/client"
+import {
+  createPlatformClient,
+  isFinalResult,
+  type RunRecording,
+} from "../../src/platform/client"
 import type {
   PlatformClientError,
   PlatformRefusal,
 } from "../../src/platform/errors"
-import { CLOSED_GRACE_MS, CLOSED_POLL_MS } from "../../src/platform/signin"
+import {
+  MAX_SIGN_IN_READY_MS,
+  SIGN_IN_READY_MS,
+} from "../../src/platform/signin"
 import { FakePage, settle } from "./fake-page"
 
 const API = "https://api.vbz.example"
@@ -40,11 +47,57 @@ async function caught(run: () => Promise<unknown>): Promise<unknown> {
   throw new Error("expected a failure")
 }
 
-/** The query the page sent the window to. */
+/** The query the page pointed the box's frame at. */
 function authorizeQuery(page: FakePage): URLSearchParams {
-  const href = page.popup?.location.href ?? ""
+  const href = page.box?.url ?? ""
   expect(href.startsWith(`${SIGN_IN}/authorize?`)).toBe(true)
   return new URL(href).searchParams
+}
+
+/** The sign-in, posting from the box's frame on its own origin. */
+function fromFrame(page: FakePage, data: unknown): void {
+  page.post({ origin: SIGN_IN, source: page.box?.frame, data })
+}
+
+/** The ping the page last posted to its frame, and where it aimed it. */
+function lastPing(page: FakePage): {
+  readonly message: { type?: unknown; state?: unknown; load?: unknown }
+  readonly to: string
+} {
+  const sent = page.box?.posted.at(-1)
+  if (sent === undefined) throw new Error("the page pinged nothing")
+  return {
+    message: sent.message as {
+      type?: unknown
+      state?: unknown
+      load?: unknown
+    },
+    to: sent.to,
+  }
+}
+
+/**
+ * A page of the sign-in finishing its load in the box, and answering the
+ * ping the page sent it, if the page sent one: a box already down asks
+ * nothing.
+ */
+function pageReady(page: FakePage): void {
+  page.box?.loaded()
+  const sent = page.box?.posted.at(-1)
+  if (sent === undefined) return
+  const asked = sent.message as { state?: unknown; load?: unknown }
+  fromFrame(page, {
+    type: "vbz.signin.ready",
+    state: asked.state,
+    load: asked.load,
+  })
+}
+
+/** The sign-in loading in its box, and then handing the page a code. */
+function signedInThroughBox(page: FakePage, code = "code-1"): void {
+  const state = authorizeQuery(page).get("state")
+  pageReady(page)
+  fromFrame(page, { type: "vbz.signin", code, state })
 }
 
 async function signedIn() {
@@ -55,28 +108,37 @@ async function signedIn() {
   })
   const signing = made.client.signIn()
   await settle()
-  const state = authorizeQuery(made.page).get("state")
-  made.page.post({
-    origin: SIGN_IN,
-    source: made.page.popup,
-    data: { type: "vbz.signin", code: "code-1", state },
-  })
+  signedInThroughBox(made.page)
   await signing
   return made
 }
 
+/** How a sign-in ended, once it has: the player, or the client's code. */
+function outcome(signing: Promise<unknown>) {
+  const seen: { value?: unknown; code?: string } = {}
+  signing.then(
+    (value) => {
+      seen.value = value
+    },
+    (error: unknown) => {
+      seen.code = (error as PlatformClientError).code
+    },
+  )
+  return seen
+}
+
 describe("signing a player in", () => {
-  test("opens the window before anything is awaited, then sends it to authorize", async () => {
+  /**
+   * In the click's own turn, before anything is awaited, so focus moves into
+   * the box from the click; only then is the challenge made and the frame
+   * pointed at the sign-in.
+   */
+  test("puts the box on the page before anything is awaited, then points its frame at authorize", async () => {
     const { page, client: platform } = client()
     const signing = platform.signIn()
-    // Synchronously, in the click's own turn.
-    expect(page.opened).toEqual([
-      {
-        url: "about:blank",
-        target: "vbz-signin",
-        features: "popup,width=480,height=680",
-      },
-    ])
+    expect(page.boxes).toHaveLength(1)
+    expect(page.box?.url).toBeNull()
+    expect(page.listening).toBe(1)
     await settle()
     const query = authorizeQuery(page)
     expect(query.get("client_id")).toBe(KEY)
@@ -84,19 +146,11 @@ describe("signing a player in", () => {
     expect(query.get("code_challenge_method")).toBe("S256")
     expect(query.get("code_challenge")).toHaveLength(43)
     expect(query.get("state")?.length).toBeGreaterThan(0)
-    page.popup?.close()
-    page.advance(CLOSED_POLL_MS + CLOSED_GRACE_MS)
+    page.box?.cancel()
     await caught(() => signing)
   })
 
-  test("a blocked window is E_POPUP_BLOCKED", async () => {
-    const { page, client: platform } = client()
-    page.popup = null
-    const error = (await caught(() => platform.signIn())) as PlatformClientError
-    expect(error.code).toBe("E_POPUP_BLOCKED")
-  })
-
-  test("takes only the window's own message, for this state, and trades its code", async () => {
+  test("takes only the frame's own message, on the sign-in's origin, for this state, and trades its code", async () => {
     const { page, client: platform } = client()
     page.answers.push({
       status: 200,
@@ -109,28 +163,26 @@ describe("signing a player in", () => {
     // Another origin, another window, another message, another state, no code.
     page.post({
       origin: "https://evil.example",
-      source: page.popup,
+      source: page.box?.frame,
       data: right,
     })
     page.post({ origin: SIGN_IN, source: {}, data: right })
+    page.post({ origin: SIGN_IN, source: null, data: right })
+    fromFrame(page, { ...right, type: "other" })
+    fromFrame(page, { ...right, state: "x" })
+    fromFrame(page, { ...right, code: 7 })
+    fromFrame(page, null)
+    fromFrame(page, "vbz.signin")
+    // A cancel for another state, or from another window, closes nothing.
+    fromFrame(page, { type: "vbz.signin.cancel", state: "x" })
     page.post({
       origin: SIGN_IN,
-      source: page.popup,
-      data: { ...right, type: "other" },
+      source: {},
+      data: { type: "vbz.signin.cancel", state },
     })
-    page.post({
-      origin: SIGN_IN,
-      source: page.popup,
-      data: { ...right, state: "x" },
-    })
-    page.post({
-      origin: SIGN_IN,
-      source: page.popup,
-      data: { ...right, code: 7 },
-    })
-    page.post({ origin: SIGN_IN, source: page.popup, data: null })
     expect(page.sent).toHaveLength(0)
-    page.post({ origin: SIGN_IN, source: page.popup, data: right })
+    expect(page.box?.removed).toBe(false)
+    fromFrame(page, right)
 
     expect(await signing).toEqual(PLAYER)
     const [trade] = page.sent
@@ -139,50 +191,339 @@ describe("signing a player in", () => {
     const traded = trade?.body as { codeVerifier?: string } | undefined
     expect(traded?.codeVerifier).toHaveLength(43)
     expect(platform.player()).toEqual(PLAYER)
-    // Nothing left listening or ticking once it is done.
+    // The box is down, and nothing is left listening or waiting.
+    expect(page.box?.removed).toBe(true)
     expect(page.listening).toBe(0)
     expect(page.pendingTimers).toBe(0)
   })
 
-  test("a window closed without a code is E_SIGNIN_CLOSED, after the grace", async () => {
-    const { page, client: platform } = client()
-    const signing = platform.signIn()
-    let failed: unknown
-    signing.catch((error: unknown) => {
-      failed = error
-    })
-    await settle()
-    page.popup?.close()
-    page.advance(CLOSED_POLL_MS)
-    await settle()
-    expect(failed).toBeUndefined()
-    page.advance(CLOSED_GRACE_MS)
-    await settle()
-    expect((failed as PlatformClientError).code).toBe("E_SIGNIN_CLOSED")
-    expect(page.listening).toBe(0)
+  /**
+   * The player closes the box from the page, with its Cancel button or
+   * Escape; from inside the frame, where the page cannot hear Escape and the
+   * sign-in says so; or the page closes it itself.
+   */
+  test("closed by the player or the page, it rejects E_SIGNIN_CANCELLED and the box comes down", async () => {
+    const ways: ReadonlyArray<
+      (page: FakePage, platform: ReturnType<typeof client>["client"]) => void
+    > = [
+      (page) => page.box?.cancel(),
+      (page) =>
+        fromFrame(page, {
+          type: "vbz.signin.cancel",
+          state: authorizeQuery(page).get("state"),
+        }),
+      (_page, platform) => platform.closeSignIn(),
+    ]
+    for (const close of ways) {
+      const { page, client: platform } = client()
+      const seen = outcome(platform.signIn())
+      await settle()
+      close(page, platform)
+      await settle()
+      expect(seen.code).toBe("E_SIGNIN_CANCELLED")
+      expect(page.box?.removed).toBe(true)
+      expect(page.listening).toBe(0)
+      expect(page.pendingTimers).toBe(0)
+      // A code that arrives after is nobody's.
+      signedInThroughBox(page)
+      await settle()
+      expect(page.sent).toHaveLength(0)
+      // And closing again, or a sign-in already closed, does nothing.
+      platform.closeSignIn()
+      page.box?.cancel()
+    }
   })
 
-  test("a code that arrives after the window reports closed is still taken", async () => {
+  /**
+   * The page closes the sign-in after the player signed in, while the code
+   * is being traded. The page asked for no player, so the trade's answer is
+   * kept for nobody and nothing hears of one.
+   */
+  test("closed by the page while the code is traded, it rejects E_SIGNIN_CANCELLED and keeps nobody", async () => {
     const { page, client: platform } = client()
     page.answers.push({
       status: 200,
       body: { token: "t-1", expiresIn: 7_776_000, player: PLAYER },
     })
-    const signing = platform.signIn()
+    const changes: unknown[] = []
+    platform.onPlayerChange((player) => changes.push(player))
+    const seen = outcome(platform.signIn())
     await settle()
-    const state = authorizeQuery(page).get("state")
-    page.popup?.close()
-    page.advance(CLOSED_POLL_MS)
-    page.post({
-      origin: SIGN_IN,
-      source: page.popup,
-      data: { type: "vbz.signin", code: "late", state },
-    })
-    expect(await signing).toEqual(PLAYER)
+    signedInThroughBox(page)
+    expect(page.box?.removed).toBe(true)
+    // Once the trade has been sent.
+    for (let turn = 0; turn < 10 && page.sent.length === 0; turn += 1) {
+      await Promise.resolve()
+    }
+    expect(page.sent).toHaveLength(1)
+    platform.closeSignIn()
+    await settle()
+    expect(seen.code).toBe("E_SIGNIN_CANCELLED")
+    // The trade was asked for, and what it answered is nobody's.
+    await settle()
+    expect(page.sent.map((sent) => sent.url.pathname)).toEqual([
+      "/v1/oauth/token",
+    ])
+    expect(platform.player()).toBeNull()
+    expect(page.kept.size).toBe(0)
+    expect(changes).toEqual([])
+    // The next sign-in opens a box of its own.
+    const next = platform.signIn()
+    expect(page.boxes).toHaveLength(2)
+    page.box?.cancel()
+    await caught(() => next)
+  })
+
+  /**
+   * Closed in the very turn the hand-off arrived, before anything awaiting
+   * the code has run: the code is never traded, and the sign-in rejects at
+   * once rather than after a trade's round trip.
+   */
+  test("closed in the turn the code arrives, it trades nothing and rejects at once", async () => {
+    const { page, client: platform } = client()
+    const changes: unknown[] = []
+    platform.onPlayerChange((player) => changes.push(player))
+    const seen = outcome(platform.signIn())
+    await settle()
+    signedInThroughBox(page)
+    platform.closeSignIn()
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(seen.code).toBe("E_SIGNIN_CANCELLED")
+    await settle()
+    expect(page.sent).toEqual([])
+    expect(platform.player()).toBeNull()
+    expect(changes).toEqual([])
+  })
+
+  test("closed before its frame was pointed anywhere, the box comes down and nothing loads", async () => {
+    const { page, client: platform } = client()
+    const seen = outcome(platform.signIn())
+    page.box?.cancel()
+    await settle()
+    expect(seen.code).toBe("E_SIGNIN_CANCELLED")
+    expect(page.box?.url).toBeNull()
     expect(page.pendingTimers).toBe(0)
   })
 
-  test("a window that cannot make a challenge is closed again", async () => {
+  /**
+   * A browser that refused the frame shows nothing in the box and fires
+   * `load` all the same, so the sign-in's own ready message is the only
+   * sign it works.
+   */
+  test("no ready from the sign-in in time rejects E_SIGNIN_UNREACHABLE, and the box comes down", async () => {
+    const { page, client: platform } = client()
+    const seen = outcome(platform.signIn())
+    await settle()
+    page.advance(SIGN_IN_READY_MS - 1)
+    await settle()
+    expect(seen).toEqual({})
+    // A ready from anywhere but the frame changes nothing.
+    page.post({
+      origin: SIGN_IN,
+      source: {},
+      data: {
+        type: "vbz.signin.ready",
+        state: authorizeQuery(page).get("state"),
+      },
+    })
+    page.advance(1)
+    await settle()
+    expect(seen.code).toBe("E_SIGNIN_UNREACHABLE")
+    expect(page.box?.removed).toBe(true)
+    expect(page.listening).toBe(0)
+  })
+
+  test("once the sign-in is ready, the player may take as long as they need", async () => {
+    const { page, client: platform } = client()
+    page.answers.push({
+      status: 200,
+      body: { token: "t-1", expiresIn: 7_776_000, player: PLAYER },
+    })
+    const seen = outcome(platform.signIn())
+    await settle()
+    const state = authorizeQuery(page).get("state")
+    pageReady(page)
+    page.advance(SIGN_IN_READY_MS * 20)
+    await settle()
+    expect(seen).toEqual({})
+    expect(page.pendingTimers).toBe(0)
+    fromFrame(page, { type: "vbz.signin", code: "late", state })
+    await settle()
+    expect(seen.value).toEqual(PLAYER)
+  })
+
+  /**
+   * Every page the frame shows owes a ready, not only the first. A form
+   * step answered with a page the browser will not frame, a 404 the
+   * sign-in frames for nobody, or one sent without the headers a page under
+   * COOP and COEP needs, leaves the box as empty as a refused first page,
+   * and fires `load` all the same. Each load is pinged, to the sign-in's
+   * origin alone, and only the answer echoing that load clears it.
+   */
+  test("each page the frame loads is asked, and a later one that never answers is E_SIGNIN_UNREACHABLE", async () => {
+    const { page, client: platform } = client()
+    const seen = outcome(platform.signIn())
+    await settle()
+    const state = authorizeQuery(page).get("state")
+    pageReady(page)
+    expect(lastPing(page)).toEqual({
+      message: { type: "vbz.signin.ping", state, load: 1 },
+      to: SIGN_IN,
+    })
+    page.advance(SIGN_IN_READY_MS * 4)
+    expect(page.pendingTimers).toBe(0)
+    pageReady(page)
+    expect(lastPing(page).message.load).toBe(2)
+    page.advance(SIGN_IN_READY_MS * 4)
+    await settle()
+    expect(seen).toEqual({})
+    // A third, the browser refused to show: it loads and answers nothing.
+    page.box?.loaded()
+    page.advance(SIGN_IN_READY_MS - 1)
+    await settle()
+    expect(seen).toEqual({})
+    page.advance(1)
+    await settle()
+    expect(seen.code).toBe("E_SIGNIN_UNREACHABLE")
+    expect(page.box?.removed).toBe(true)
+    expect(page.listening).toBe(0)
+  })
+
+  /**
+   * A page that says it is ready more than once, on `load` and again on
+   * `pageshow`, or twice by mistake, or before the iframe's `load` reaches
+   * the page (measured in Firefox 142 under COOP and COEP), must not leave
+   * a later refused page unowed: a ready counts only as the answer for the
+   * load the frame holds now.
+   */
+  test("extra readies, unasked or for an earlier load, change nothing", async () => {
+    const { page, client: platform } = client()
+    const seen = outcome(platform.signIn())
+    await settle()
+    const state = authorizeQuery(page).get("state")
+    // Unasked, before any load: the wait from asking for the first goes on.
+    fromFrame(page, { type: "vbz.signin.ready", state })
+    fromFrame(page, { type: "vbz.signin.ready", state, load: 1 })
+    expect(page.pendingTimers).toBe(1)
+    pageReady(page)
+    // Two more for the first page, then a second page the browser refused.
+    fromFrame(page, { type: "vbz.signin.ready", state, load: 1 })
+    fromFrame(page, { type: "vbz.signin.ready", state })
+    page.box?.loaded()
+    fromFrame(page, { type: "vbz.signin.ready", state, load: 1 })
+    fromFrame(page, { type: "vbz.signin.ready", state, load: "2" })
+    page.advance(SIGN_IN_READY_MS)
+    await settle()
+    expect(seen.code).toBe("E_SIGNIN_UNREACHABLE")
+  })
+
+  /** A load says a page came; the wait for its answer starts there. */
+  test("each page's wait for its ready starts at its load", async () => {
+    const { page, client: platform } = client()
+    const seen = outcome(platform.signIn())
+    await settle()
+    page.advance(SIGN_IN_READY_MS - 10)
+    page.box?.loaded()
+    page.advance(SIGN_IN_READY_MS - 10)
+    await settle()
+    expect(seen).toEqual({})
+    const { message } = lastPing(page)
+    fromFrame(page, {
+      type: "vbz.signin.ready",
+      state: message.state,
+      load: message.load,
+    })
+    expect(page.pendingTimers).toBe(0)
+    page.box?.cancel()
+    await settle()
+    expect(seen.code).toBe("E_SIGNIN_CANCELLED")
+    // A load after the box came down asks nothing and waits for nothing.
+    const asked = page.box?.posted.length
+    page.box?.loaded()
+    expect(page.pendingTimers).toBe(0)
+    expect(page.box?.posted.length).toBe(asked)
+  })
+
+  /**
+   * A page may give the sign-in more time, or less, as the browser suite
+   * does so that a box nothing will fill gives up in seconds.
+   */
+  test("a page names its own ready time, a whole number of milliseconds above zero", async () => {
+    const page = new FakePage()
+    const platform = createPlatformClient({
+      apiOrigin: API,
+      signInOrigin: SIGN_IN,
+      pageKey: KEY,
+      environment: page,
+      signInReadyMs: 2_000,
+    })
+    const seen = outcome(platform.signIn())
+    await settle()
+    page.advance(1_999)
+    await settle()
+    expect(seen).toEqual({})
+    page.advance(1)
+    await settle()
+    expect(seen.code).toBe("E_SIGNIN_UNREACHABLE")
+    // The most a browser's timer waits is taken; one past it would fire at once.
+    expect(() =>
+      createPlatformClient({
+        apiOrigin: API,
+        signInOrigin: SIGN_IN,
+        pageKey: KEY,
+        environment: page,
+        signInReadyMs: MAX_SIGN_IN_READY_MS,
+      }),
+    ).not.toThrow()
+    expect(MAX_SIGN_IN_READY_MS).toBe(2_147_483_647)
+    for (const readyMs of [
+      0,
+      -1,
+      1.5,
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      MAX_SIGN_IN_READY_MS + 1,
+    ]) {
+      expect(() =>
+        createPlatformClient({
+          apiOrigin: API,
+          signInOrigin: SIGN_IN,
+          pageKey: KEY,
+          environment: page,
+          signInReadyMs: readyMs,
+        }),
+      ).toThrow("signInReadyMs is how long")
+    }
+  })
+
+  /** A second click while the box is up opens no second box. */
+  test("a second signIn while one is open answers the first's promise, and opens nothing", async () => {
+    const { page, client: platform } = client()
+    page.answers.push({
+      status: 200,
+      body: { token: "t-1", expiresIn: 7_776_000, player: PLAYER },
+    })
+    const first = platform.signIn()
+    const second = platform.signIn()
+    expect(second).toBe(first)
+    expect(page.boxes).toHaveLength(1)
+    await settle()
+    signedInThroughBox(page)
+    // Still the same while the code is traded.
+    expect(platform.signIn()).toBe(first)
+    expect(await first).toEqual(PLAYER)
+    expect(page.boxes).toHaveLength(1)
+
+    // Once it settled, the next opens a box of its own.
+    const third = platform.signIn()
+    expect(third).not.toBe(first)
+    expect(page.boxes).toHaveLength(2)
+    page.box?.cancel()
+    await caught(() => third)
+  })
+
+  test("a page that cannot make a challenge takes its box down again", async () => {
     const page = new FakePage()
     const broken = Object.create(page) as FakePage
     Object.defineProperty(broken, "crypto", {
@@ -193,7 +534,24 @@ describe("signing a player in", () => {
     })
     const { client: platform } = client(broken)
     expect(String(await caught(() => platform.signIn()))).toContain("no digest")
-    expect(page.popup?.closed).toBe(true)
+    expect(page.box?.removed).toBe(true)
+    expect(page.box?.url).toBeNull()
+  })
+
+  test("a box that cannot be put on the page fails the sign-in with what went wrong", async () => {
+    const { page, client: platform } = client()
+    page.boxFails = new Error("no document")
+    const failing = platform.signIn()
+    // Closing one that never opened does nothing.
+    platform.closeSignIn()
+    expect(String(await caught(() => failing))).toContain("no document")
+    expect(page.listening).toBe(0)
+    // Nothing is left open, so the next try opens a box.
+    page.boxFails = null
+    const next = platform.signIn()
+    expect(page.boxes).toHaveLength(1)
+    page.box?.cancel()
+    await caught(() => next)
   })
 
   test("signing out forgets the player on this page", async () => {
@@ -240,15 +598,7 @@ describe("runs", () => {
     })
     const signing = made.client.signIn()
     await settle()
-    made.page.post({
-      origin: SIGN_IN,
-      source: made.page.popup,
-      data: {
-        type: "vbz.signin",
-        code: "c",
-        state: authorizeQuery(made.page).get("state"),
-      },
-    })
+    signedInThroughBox(made.page, "c")
     await signing
 
     made.page.answers.push({
@@ -277,15 +627,7 @@ describe("runs", () => {
     })
     const signing = made.client.signIn()
     await settle()
-    made.page.post({
-      origin: SIGN_IN,
-      source: made.page.popup,
-      data: {
-        type: "vbz.signin",
-        code: "c",
-        state: authorizeQuery(made.page).get("state"),
-      },
-    })
+    signedInThroughBox(made.page, "c")
     await signing
     const run = { sessionId: "s-old", token: "t-old" } as Parameters<
       typeof made.client.sendChunk
@@ -333,7 +675,7 @@ describe("runs", () => {
       checkpoints: [],
       inputs: [],
     })
-    await platform.submit(run, { version: 1 })
+    await platform.submit(run, { version: 1 } as unknown as RunRecording)
     expect(
       page.sent.slice(-2).map((s) => [s.url.pathname, s.headers.authorization]),
     ).toEqual([
@@ -357,15 +699,7 @@ describe("following the player", () => {
     })
     const signing = made.client.signIn()
     await settle()
-    made.page.post({
-      origin: SIGN_IN,
-      source: made.page.popup,
-      data: {
-        type: "vbz.signin",
-        code: "c",
-        state: authorizeQuery(made.page).get("state"),
-      },
-    })
+    signedInThroughBox(made.page, "c")
     await signing
   }
 
@@ -388,7 +722,7 @@ describe("following the player", () => {
     await made.client.startRun()
     expect(told).toEqual([PLAYER])
 
-    // The same player under a name changed in the sign-in window is a change.
+    // The same player under a name changed on the sign-in's own page is a change.
     const renamed = { ...PLAYER, displayName: "Ann" }
     await signInAs(made, renamed)
     expect(told).toEqual([PLAYER, renamed])

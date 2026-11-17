@@ -22,12 +22,13 @@ export {
   type PlatformClientOptions,
   RESULT_INTERVAL_MS,
   type ResultOptions,
+  type RunRecording,
 } from "./client.js"
 export {
   browserEnvironment,
   type MessageLike,
   type PageEnvironment,
-  type PopupWindow,
+  type SignInBox,
 } from "./environment.js"
 export {
   CLIENT_ERROR,
@@ -58,7 +59,4 @@ export {
   SUBMIT_ATTEMPTS,
   SUBMIT_RETRY_MS,
 } from "./run.js"
-export {
-  CLOSED_GRACE_MS,
-  CLOSED_POLL_MS,
-} from "./signin.js"
+export { MAX_SIGN_IN_READY_MS, SIGN_IN_READY_MS } from "./signin.js"

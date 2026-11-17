@@ -10,6 +10,7 @@
  */
 
 import type { Board, BoardRow } from "../api/index.js"
+import { styleButton } from "../platform/box.js"
 import type { BoardOptions, PlatformClient } from "../platform/client.js"
 import { PlatformClientError, PlatformRefusal } from "../platform/errors.js"
 
@@ -18,21 +19,17 @@ export interface MountedWidget {
   destroy(): void
 }
 
+function isCancelled(error: unknown): boolean {
+  return (
+    error instanceof PlatformClientError && error.code === "E_SIGNIN_CANCELLED"
+  )
+}
+
 function messageOf(error: unknown): string {
   return error instanceof PlatformRefusal ||
     error instanceof PlatformClientError
     ? error.message
     : String(error)
-}
-
-function styleButton(button: HTMLButtonElement): void {
-  button.style.font = "inherit"
-  button.style.cursor = "pointer"
-  button.style.padding = "var(--gb-widget-padding, 6px 12px)"
-  button.style.borderRadius = "var(--gb-widget-radius, 8px)"
-  button.style.border = "var(--gb-widget-border, 1px solid #3a3d46)"
-  button.style.background = "var(--gb-widget-bg, #191b20)"
-  button.style.color = "var(--gb-widget-fg, #ecedf0)"
 }
 
 export interface SignInOptions {
@@ -55,9 +52,11 @@ export interface MountedSignIn extends MountedWidget {
 /**
  * A button that signs a player in or out, and the signed-in player's name.
  *
- * The sign-in window opens in the click itself, before anything is awaited,
- * because a browser opens one only in the turn of the click that asked. A
- * failure, the window blocked or closed early, is shown beside the button.
+ * `signIn()` is called in the click itself, so the sign-in's box is on the
+ * page, and focus in its frame, before anything is awaited. A box the
+ * player closed shows nothing; any other failure, such as a sign-in that
+ * did not load in its box, is shown beside the button in the client's own
+ * sentence.
  *
  * It follows the client through `onPlayerChange`, so it never shows a
  * player the client has let go: one signed out elsewhere on the page, or
@@ -103,21 +102,32 @@ export function mountSignIn(
       options.onChange?.(null)
       return
     }
-    // Called in the click's own turn: `signIn` opens the window before it
-    // awaits anything.
+    // Called in the click's own turn: `signIn` puts the box on the page
+    // before it awaits anything.
     const signingIn = options.client.signIn()
     busy = true
     update()
+    /**
+     * The button back, and focus on it. The box gives focus back to what
+     * had it, this button, as it comes down, while the button is still
+     * disabled, which a browser refuses, so focus fell to the page's body
+     * and a keyboard player would start again from the top of the page.
+     */
+    const back = () => {
+      busy = false
+      update()
+      const at = document.activeElement
+      if (at === null || at === document.body) button.focus()
+    }
     signingIn.then(
       (player) => {
-        busy = false
-        update()
+        back()
         options.onChange?.(player)
       },
       (error: unknown) => {
-        busy = false
-        status.textContent = messageOf(error)
-        update()
+        // The player closed it, which needs no telling.
+        status.textContent = isCancelled(error) ? "" : messageOf(error)
+        back()
       },
     )
   })

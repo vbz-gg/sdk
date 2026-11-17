@@ -10,7 +10,6 @@
  * decision in it lives beside this file rather than in it.
  */
 
-import type { GameSource } from "../build/index.js"
 import {
   DEFAULT_BUNDLES_PORT,
   DEFAULT_HOST_PORT,
@@ -36,6 +35,7 @@ import {
   STUDIO_KEY_VARIABLE,
   verdictOf,
 } from "./publish.js"
+import { needsOf, sourceOf } from "./source.js"
 
 /** Everything the usage says after the commands: the flags, and publish's key. */
 const FLAGS = `  --sim <path>       the simulation's entry   (default src/sim/index.ts)
@@ -46,8 +46,15 @@ const FLAGS = `  --sim <path>       the simulation's entry   (default src/sim/in
   --address <host>   dev: where both listen, and the host their origins name
                      (default ${DEFAULT_ADDRESS}); another machine's needs --https
   --https            dev: serve https, with --cert <file> and --key <file> (PEM)
-  --site             dev: serve the game's site/ against a stand-in for the
-                     platform, which plays one local player and ranks nothing
+  --site             dev: serve the game's site/ in the mode its config.json
+                     names: local, with the build beside it as /game/, or
+                     ranked, against a stand-in for the platform, which
+                     plays one local player and ranks nothing
+  --ranked           check: also what a ranked or practice run needs: the seed
+                     changes the state, and the manifest says how a run ranks
+                     dev: hold each run to a ranked run's input budget
+  --config <file>    dev: a JSON config for the page's runs to play, in place
+                     of every setting at its default
   --game <id>      publish: the game to upload to
   --api <origin>   publish: the platform    (default ${DEFAULT_API_ORIGIN},
                    or ${API_ORIGIN_VARIABLE})
@@ -57,18 +64,9 @@ const FLAGS = `  --sim <path>       the simulation's entry   (default src/sim/in
   it serves; anything else, a version an operator took down included, is 1.
 `
 
-function sourceOf(options: Options): GameSource {
-  return {
-    root: options.dir,
-    simEntry: options.simEntry,
-    presentEntry: options.presentEntry,
-    captureEntry: options.captureEntry,
-  }
-}
-
-/** Writes the three files an upload carries, and says what it wrote. */
+/** Writes what an upload carries, and says what it wrote. */
 async function build(options: Options): Promise<void> {
-  const built = await buildGame(sourceOf(options))
+  const built = await buildGame(await sourceOf(options))
   await writeBuild(options.dir, built)
   for (const line of buildLines(built)) process.stdout.write(`${line}\n`)
 }
@@ -80,7 +78,8 @@ async function dev(options: Options): Promise<void> {
   await build(options)
   if (settings.site) {
     const site = await startSite({
-      source: sourceOf(options),
+      source: await sourceOf(options),
+      needs: await needsOf(options.dir),
       gameId: HARNESS_GAME_ID,
       seed: HARNESS_SEED,
       hostPort: settings.hostPort,
@@ -89,19 +88,25 @@ async function dev(options: Options): Promise<void> {
       log: (line) => process.stdout.write(`${line}\n`),
     })
     process.stdout.write(
-      `\n  site     ${site.siteOrigin}\n` +
-        `  bundles  ${site.bundlesOrigin}\n` +
-        `  api      ${site.apiOrigin}  (a stand-in: one local player, no replay, no ranking)\n` +
-        `  sign-in  ${site.signInOrigin}\n\n` +
-        "  Ctrl-C to stop.\n",
+      site.mode === "local"
+        ? `\n  site     ${site.siteOrigin}  (played locally: the build as ${site.siteOrigin}/game/)\n\n` +
+            "  Ctrl-C to stop.\n"
+        : `\n  site     ${site.siteOrigin}\n` +
+            `  bundles  ${site.bundlesOrigin}\n` +
+            `  api      ${site.apiOrigin}  (a stand-in: one local player, no replay, no ranking)\n` +
+            `  sign-in  ${site.signInOrigin}\n\n` +
+            "  Ctrl-C to stop.\n",
     )
     return
   }
   const harness = await startHarness({
-    source: sourceOf(options),
+    source: await sourceOf(options),
     hostPort: settings.hostPort,
     bundlesPort: settings.bundlesPort,
     listen: settings.listen,
+    ranked: settings.ranked,
+    needs: await needsOf(options.dir),
+    ...(settings.config === undefined ? {} : { config: settings.config }),
   })
   process.stdout.write(
     `\n  play     ${harness.hostOrigin}\n` +
@@ -139,7 +144,9 @@ async function check(options: Options): Promise<number> {
   // with TypeScript, which a game has only once its own install has run,
   // and `vbz new` runs before that.
   const { checkGame, checkLines } = await import("./check.js")
-  const checked = await checkGame(sourceOf(options))
+  const checked = await checkGame(await sourceOf(options), {
+    ranked: options.ranked,
+  })
   for (const line of checkLines(checked, options.captureEntry)) {
     process.stdout.write(`${line}\n`)
   }
@@ -202,7 +209,10 @@ export const COMMANDS: readonly Command[] = [
   {
     name: "build",
     args: "[dir]",
-    summary: ["write dist/sim.js, dist/present.js and dist/manifest.json"],
+    summary: [
+      "write dist/sim.js, dist/present.js, dist/manifest.json, and the",
+      "files folder package.json names as dist/files/, listed in dist/files.json",
+    ],
     run: async (options) => {
       await build(options)
       return 0
@@ -212,14 +222,15 @@ export const COMMANDS: readonly Command[] = [
     name: "check",
     args: "[dir]",
     summary: [
-      "run the engine's checks and hold src/capture.ts to the manifest",
+      "run the engine's checks every game needs, or with --ranked the",
+      "ranked set, and hold src/capture.ts to the manifest",
     ],
     run: check,
   },
   {
     name: "dev",
     args: "[dir]",
-    summary: ["serve the game the way production does"],
+    summary: ["serve the game the way production does, and play it locally"],
     run: serve,
   },
   {

@@ -480,6 +480,7 @@ describe("what a copy is", () => {
         simEntry: "src/sim/index.ts",
         presentEntry: "src/present.ts",
         captureEntry: "src/capture.ts",
+        filesDir: null,
       })
       expect(sim.byteLength).toBeGreaterThan(1000)
       expect(present.byteLength).toBeGreaterThan(sim.byteLength)

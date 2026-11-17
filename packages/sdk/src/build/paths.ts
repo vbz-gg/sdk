@@ -1,5 +1,6 @@
 /**
- * Where a game's two modules are served, given the game and a digest.
+ * Where a game's two modules and its files are served, given the game and a
+ * digest.
  *
  * Every path names the game, so a studio's Content-Security-Policy can name
  * its own game's path and no other studio's file loads into its page. The
@@ -9,6 +10,8 @@
  * Plain patterns and string building, with nothing that needs bun, because
  * `/serve` reads them as well as `/build`.
  */
+
+import { isFilePath } from "../game/files.js"
 
 /** A game id as the platform issues it: a UUID, written lowercase. */
 const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
@@ -60,4 +63,31 @@ export function simPathFor(gameId: string, sha256: string): string {
 /** Where a page module of this game and hash is served. */
 export function presentPathFor(gameId: string, sha256: string): string {
   return artifactPathFor("present", gameId, sha256)
+}
+
+/**
+ * A file of a version's folder: the game, the SHA-256 of the folder's
+ * listing, and the file's path in it. The listing names every file's bytes,
+ * so a path here names one file's bytes forever, as a module's path does.
+ */
+const FILE_PATH = new RegExp(`^/g/${UUID}/t/${DIGEST}/(.+)$`)
+
+/** Whether `pathname` is a file of some game's folder, its own path one the folder may hold. */
+export function isFilePathname(pathname: string): boolean {
+  const file = FILE_PATH.exec(pathname)?.[1]
+  return file !== undefined && isFilePath(file)
+}
+
+/** Where a version's files folder is served: ending in `/`, as a base. */
+export function filesBaseFor(gameId: string, listingSha256: string): string {
+  return `/g/${gameId}/t/${listingSha256}/`
+}
+
+/** Where one file of a version's folder is served. */
+export function filePathFor(
+  gameId: string,
+  listingSha256: string,
+  path: string,
+): string {
+  return `${filesBaseFor(gameId, listingSha256)}${path}`
 }

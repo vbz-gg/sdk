@@ -100,15 +100,46 @@ export type PublicRefusalCode =
   /** The studio's uploads over the last 24 hours, all its games together. */
   | "E_QUOTA_EXCEEDED"
   | "E_MANIFEST_INVALID"
-  /** The manifest declares a data pack the simulation reads, which the platform cannot replay yet. */
-  | "E_PACKS_UNSUPPORTED"
   | "E_ARTIFACT_NOT_UTF8"
   | "E_ARTIFACT_TOO_LARGE"
   | "E_SIM_NOT_SELF_CONTAINED"
   | "E_PRESENT_IMPORT_MISSING"
   | "E_PRESENT_IMPORT_UNEXPECTED"
+  /** The page module calls `import()`, with a literal or a computed name. */
   | "E_PRESENT_DYNAMIC_IMPORT"
+  /** The page module calls `new Worker`, `new SharedWorker` or `importScripts`. */
+  | "E_PRESENT_WORKER"
   | "E_PRESENT_SPECIFIER_AMBIGUOUS"
+  // A version's files folder.
+  /**
+   * The files listing is not a list of paths, sizes and SHA-256s, or a file
+   * was uploaded under a name that is not a SHA-256.
+   */
+  | "E_FILES_INVALID"
+  /** A path a version's folder may not hold, or one listed twice, ignoring case. */
+  | "E_FILE_PATH_INVALID"
+  /** One file over the 64 MiB a file may hold. */
+  | "E_FILE_TOO_LARGE"
+  /** The folder's files together over the 512 MiB a version's files may hold. */
+  | "E_FILES_TOO_LARGE"
+  /** More than the 10,000 files a version's folder may hold. */
+  | "E_FILES_TOO_MANY"
+  /** The page module imports `cw2:files/<path>` for a file the listing does not hold. */
+  | "E_FILE_UNLISTED"
+  /**
+   * A version upload whose listing names a file the game's store does not
+   * hold: upload each file `POST /v1/games/:gameId/files/missing` names
+   * first. Its `detail` is a `FilesMissingDetail`.
+   */
+  | "E_FILES_MISSING"
+  /** A file uploaded under a SHA-256 its bytes do not hash to. */
+  | "E_FILE_HASH_MISMATCH"
+  /** The manifest declares a data pack the listing does not hold. */
+  | "E_PACK_UNLISTED"
+  /** A data pack's size or SHA-256 in the listing is not the one the manifest declares. */
+  | "E_PACK_MISMATCH"
+  /** One data pack over 16 MiB, or all of them over 48 MiB together. */
+  | "E_PACKS_TOO_LARGE"
   /** The platform could not rewrite the page module's import. Not reached in practice. */
   | "E_REWRITE_FAILED"
   // Player sign-in.
@@ -139,7 +170,6 @@ export type PublicRefusalCode =
   | "E_SESSION_CLOSED"
   | "E_CHUNK_CONFLICT"
   | "E_CHUNK_NOT_FORWARD"
-  | "E_TICK_CAP"
   | "E_RECORDING_MALFORMED"
   | "E_PINNED_MISMATCH"
   | "E_NO_CHUNKS"
@@ -200,6 +230,7 @@ export interface PlayerBarredDetail {
  * named here carries a `detail` for a log, with no shape promised.
  */
 export interface RefusalDetails {
+  readonly E_FILES_MISSING: FilesMissingDetail
   readonly E_VERSION_NOT_NEWER: VersionNotNewerDetail
   readonly E_PATCH_CHANGES_RULES: PatchChangesRulesDetail
   readonly E_PLAYER_BARRED: PlayerBarredDetail
@@ -225,6 +256,13 @@ export interface PageGameVersion {
    * `loadGame` in `@vbz-gg/sdk/host` imports it.
    */
   readonly presentUrl: string
+  /**
+   * The version's files folder, absolute and ending in `/`:
+   * `https://<bundles host>/g/<gameId>/t/<listing sha256>/`, named by the
+   * SHA-256 of its listing. The page module finds its art and data packs
+   * here, and `loadGame` hands it to the module.
+   */
+  readonly filesUrl: string
 }
 
 /** Whether ranked runs can start today. */
@@ -286,6 +324,83 @@ export interface PageGame {
   readonly practiceVersion: PageGameVersion | null
 }
 
+/**
+ * One file in a version's files folder, as its listing names it.
+ * `canonicalListing` and `listingSha256` in `@vbz-gg/sdk/build` turn a
+ * listing into the text and the name the platform stores it under.
+ */
+export interface FileEntry {
+  /**
+   * Where it is in the folder: relative, POSIX, at most 512 characters of
+   * ASCII letters, digits, `.`, `_`, `-` and `/`, with no `.` or `..`
+   * segment.
+   */
+  readonly path: string
+  readonly bytes: number
+  /** Lowercase hex SHA-256 of its bytes. */
+  readonly sha256: string
+}
+
+/**
+ * Everything a version's files folder holds, as `vbz build` writes it to
+ * `dist/files.json`. A game with no folder lists nothing.
+ */
+export interface FilesListing {
+  readonly files: readonly FileEntry[]
+}
+
+/**
+ * The body of `POST /v1/games/:gameId/files/missing`: a version's listing,
+ * and the manifest its upload will carry, asked before any of its files go
+ * up.
+ *
+ * The platform answers first every refusal the version's upload would get
+ * from these two alone, before a byte is stored: a manifest that is not one
+ * (`E_MANIFEST_INVALID`), its version (`E_VERSION_INVALID`,
+ * `E_VERSION_EXISTS`, `E_VERSION_NOT_NEWER`, `E_PATCH_CHANGES_RULES`), the
+ * listing and the data packs the manifest declares in it (the `E_FILE*` and
+ * `E_PACK*` codes), and the studio's uploads (`E_QUOTA_EXCEEDED`), which
+ * asking does not count against. So a version the platform would refuse
+ * uploads no file. The upload runs every check again, because another
+ * version can arrive in between; files stored ahead of a version that never
+ * arrives are removed a day later, as nothing names them.
+ */
+export interface MissingFilesRequest extends FilesListing {
+  /** The version's manifest, as `dist/manifest.json` holds it. */
+  readonly manifest: unknown
+}
+
+/**
+ * `POST /v1/games/:gameId/files/missing`, asked with a version's listing:
+ * which of its files the game's store lacks. A file is stored by its
+ * SHA-256, once per game however many versions or paths name it, so the
+ * answer names each missing one once. It is answered from the game's own
+ * store alone, so a studio learns nothing of what another has uploaded.
+ */
+export interface MissingFiles {
+  /** The listing's name, the SHA-256 of its canonical text. */
+  readonly filesSha256: string
+  /** The SHA-256 of every listed file the store lacks, in order of path. */
+  readonly missing: readonly string[]
+}
+
+/**
+ * `PUT /v1/games/:gameId/files/:sha256`: one file of a version's folder,
+ * stored in the game's store under the SHA-256 of its bytes. Sending the same
+ * bytes again answers the same, so an upload whose answer was lost is safe
+ * to send again.
+ */
+export interface StoredFile {
+  readonly sha256: string
+  readonly bytes: number
+}
+
+/** `E_FILES_MISSING`'s `detail`: what the version's listing names that the store lacks. */
+export interface FilesMissingDetail {
+  /** The SHA-256 of each listed file the store lacks, in order of path. */
+  readonly missing: readonly string[]
+}
+
 /** `POST /v1/games/:gameId/versions`: an upload, accepted for checking. */
 export interface UploadedVersion {
   readonly gameVersionId: string
@@ -311,6 +426,10 @@ export interface UploadedVersion {
   readonly simUrl: string
   /** `https://<bundles host>/g/<gameId>/present/<sha256>.js`, once published. */
   readonly presentUrl: string
+  /** The files folder's name, the SHA-256 of its canonical listing. */
+  readonly filesSha256: string
+  /** `https://<bundles host>/g/<gameId>/t/<filesSha256>/`, once published. */
+  readonly filesUrl: string
 }
 
 /**
@@ -397,6 +516,57 @@ export interface TokenRequest {
   readonly clientId: string
 }
 
+/**
+ * What the platform's sign-in posts to the page that framed it, by
+ * `postMessage` from its frame to that page's origin alone. A page takes a
+ * message only from the frame it holds, on the sign-in origin, carrying the
+ * `state` it sent in the query it framed `/authorize` with.
+ *
+ * `vbz.signin.ready` answers a page's `vbz.signin.ping`, echoing its `load`,
+ * so a page can tell a sign-in page that works from one the browser refused
+ * to frame: a refused frame still fires `load` on the page's iframe
+ * (measured in Chromium 141 and 153 and Firefox 142), so the answer is the
+ * only signal, and it has to name the page it answers, because a page's
+ * own message can reach the page before the iframe's `load` (measured in
+ * Firefox 142 under COOP and COEP). `vbz.signin` hands the page the one-time
+ * code to trade at `POST /v1/oauth/token`. `vbz.signin.cancel` says the
+ * player closed the sign-in from inside the frame, such as with Escape,
+ * which the page cannot hear while the frame has focus.
+ */
+export interface SignInReady {
+  readonly type: "vbz.signin.ready"
+  readonly state: string
+  /** The `load` of the ping it answers. */
+  readonly load: number
+}
+
+/**
+ * What a page posts to the sign-in in its frame, to the sign-in's origin
+ * alone, each time the frame finishes loading a page: the `load`-th. Every
+ * sign-in page that carries a checked request answers it with
+ * `vbz.signin.ready` echoing `load`, and a page the browser refused cannot,
+ * so a page still waiting for that answer knows its box is empty.
+ */
+export interface SignInPing {
+  readonly type: "vbz.signin.ping"
+  readonly state: string
+  readonly load: number
+}
+
+export interface SignInHandoff {
+  readonly type: "vbz.signin"
+  readonly code: string
+  readonly state: string
+}
+
+export interface SignInCancel {
+  readonly type: "vbz.signin.cancel"
+  readonly state: string
+}
+
+/** Every message the sign-in posts to the page that framed it. */
+export type SignInMessage = SignInReady | SignInHandoff | SignInCancel
+
 /** A ranked run reaches the board; a practice run is replayed and never does. */
 export type RunMode = "ranked" | "practice"
 
@@ -449,11 +619,11 @@ export interface StartedRun {
     readonly presentUrl: string
     /** Compared against the page module's own before a tick runs. */
     readonly manifestHash: string
+    /** This run's own version's files folder, absolute, ending in `/`. */
+    readonly filesUrl: string
     /** The manifest of the version this run plays, as uploaded. */
     readonly manifest: unknown
     readonly tickHz: number
-    readonly maxTicks: number
-    readonly maxWallSeconds: number
   }
   readonly limits: RunLimits
   /** The player's token, renewed. Keep this one and drop the last. */
@@ -600,7 +770,6 @@ export interface WatchedRun {
   readonly counters: Readonly<Record<string, number>> | null
   readonly endTick: number | null
   readonly tickHz: number
-  readonly maxTicks: number
   readonly seed: string
   readonly config: unknown
   readonly inputs: readonly unknown[]
@@ -608,10 +777,12 @@ export interface WatchedRun {
   readonly presentUrl: string
   /** The run's own version's manifest hash, which its page module must report. */
   readonly manifestHash: string
+  /** The run's own version's files folder, absolute, ending in `/`. */
+  readonly filesUrl: string
   /**
-   * How many ticks to replay: the validator's `min(max(endTick, 1), cap)`,
-   * so an abandoned run stops where its player left it. Null when the run
-   * has nothing to replay.
+   * How many ticks to replay: the validator's `max(endTick, 1)`, so an
+   * abandoned run stops where its player left it. Null when the run has
+   * nothing to replay.
    */
   readonly replayTicks: number | null
 }
@@ -635,9 +806,31 @@ export interface PlatformRoutes {
     readonly body: never
     readonly response: PageGame
   }
+  readonly "POST /v1/games/:gameId/files/missing": {
+    readonly auth: "secret-key"
+    /**
+     * The version's listing, with its manifest beside it, whose refusals are
+     * answered first. A canonical listing of 10,000 files is at most
+     * `MAX_LISTING_BYTES` from `@vbz-gg/sdk/build`; the manifest is as long
+     * as the game's.
+     */
+    readonly body: MissingFilesRequest
+    readonly response: MissingFiles
+  }
+  readonly "PUT /v1/games/:gameId/files/:sha256": {
+    readonly auth: "secret-key"
+    /** The file's bytes, as `application/octet-stream`, at most `MAX_FILE_BYTES`. */
+    readonly body: "bytes"
+    readonly response: StoredFile
+  }
   readonly "POST /v1/games/:gameId/versions": {
     readonly auth: "secret-key"
-    /** Multipart: `manifest` (JSON), `sim` and `present` (JavaScript). */
+    /**
+     * Multipart: `manifest` (JSON), `sim` and `present` (JavaScript), and
+     * `files`, the listing (JSON), every file of which the game's store has
+     * to hold already. The folder is named by `listingSha256` of the listing
+     * the part parses to.
+     */
     readonly body: "multipart"
     readonly response: UploadedVersion
   }

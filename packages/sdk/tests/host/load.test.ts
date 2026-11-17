@@ -6,10 +6,17 @@
 
 import { afterEach, describe, expect, test } from "bun:test"
 import { hashCanonical, type PlainValue } from "@clockwork2/engine"
+import type {
+  ContractOneMountOptions,
+  MountError,
+  MountHandlers,
+  MountOptions,
+} from "../../src/game/contract"
 import { definePageModule } from "../../src/game/define"
 import {
   alteredBuiltins,
   type GameAddress,
+  type GameMountOptions,
   loadGame,
 } from "../../src/host/load"
 import { PlatformClientError } from "../../src/platform/errors"
@@ -17,10 +24,18 @@ import { Drawn, MANIFEST, Probe } from "../game/subject"
 
 const URL_OK =
   "https://bundles.example/g/0b6f3c1e-2d4a-4e8b-9c7d-5a1f2e3b4c6d/present/abc.js"
+const FILES =
+  "https://bundles.example/g/0b6f3c1e-2d4a-4e8b-9c7d-5a1f2e3b4c6d/t/def/"
 const HASH = hashCanonical(MANIFEST as unknown as PlainValue)
-const ADDRESS: GameAddress = { presentUrl: URL_OK, manifestHash: HASH }
+const ADDRESS: GameAddress = {
+  presentUrl: URL_OK,
+  manifestHash: HASH,
+  filesUrl: FILES,
+}
 
-/** A module whose every part a page reads is right. */
+const HANDLE = { recorded: () => [], stop() {}, destroy() {} }
+
+/** A contract-1 module whose every part a page reads is right. */
 function good(overrides: Record<string, unknown> = {}) {
   return {
     contract: 1,
@@ -28,8 +43,42 @@ function good(overrides: Record<string, unknown> = {}) {
     needsMotion: false,
     check: () => [],
     requestMotion: async () => ({ granted: true }),
-    mount: () => ({ recorded: () => [], stop() {}, destroy() {} }),
+    mount: () => HANDLE,
     ...overrides,
+  }
+}
+
+/** A contract-2 module whose every part a page reads is right. */
+function goodTwo(overrides: Record<string, unknown> = {}) {
+  return good({
+    contract: 2,
+    tickHz: 60,
+    servedConfig: { speed: 1 },
+    prepare: () => ({
+      ready: Promise.resolve(null),
+      mount: () => HANDLE,
+      release() {},
+    }),
+    ...overrides,
+  })
+}
+
+/** A played run, as a page hands one to a loaded game. */
+function run(handlers: Partial<MountHandlers> = {}): GameMountOptions {
+  return {
+    mode: "play",
+    seed: "s",
+    config: {},
+    tickHz: 60,
+    scripted: "ignore",
+    expect: { manifestHash: HASH },
+    handlers: {
+      onCheckpoint() {},
+      onFrame() {},
+      onEnded() {},
+      onError() {},
+      ...handlers,
+    },
   }
 }
 
@@ -79,7 +128,7 @@ describe("where a game's code may come from", () => {
     ]) {
       const server = serving({ default: good() })
       try {
-        await loadGame({ presentUrl, manifestHash: HASH }, server)
+        await loadGame({ ...ADDRESS, presentUrl }, server)
         throw new Error(`${presentUrl} was loaded`)
       } catch (error) {
         expect((error as PlatformClientError).code).toBe("E_GAME_UNLOADABLE")
@@ -96,9 +145,24 @@ describe("where a game's code may come from", () => {
       "http://[::1]:4311/g/x/present/a.js",
     ]) {
       const server = serving({ default: good() })
-      const game = await loadGame({ presentUrl, manifestHash: HASH }, server)
+      const game = await loadGame({ ...ADDRESS, presentUrl }, server)
       expect(server.asked).toEqual([presentUrl])
       expect(game.presentUrl).toBe(presentUrl)
+    }
+  })
+
+  /** A folder named without its slash would lose its last segment from every file. */
+  test("a files folder that is not absolute https, or http here, ending in /, imports nothing", async () => {
+    for (const filesUrl of [
+      "/g/x/t/y/",
+      "http://bundles.example/g/x/t/y/",
+      "https://bundles.example/g/x/t/y",
+      "https://bundles.example/g/x/t/y/?v=1",
+    ]) {
+      const server = serving({ default: good() })
+      const error = await caught(loadGame({ ...ADDRESS, filesUrl }, server))
+      expect(error.code).toBe("E_GAME_UNLOADABLE")
+      expect(server.asked).toEqual([])
     }
   })
 
@@ -118,8 +182,8 @@ describe("where a game's code may come from", () => {
   test("the browser's own import is what is used by default", async () => {
     const error = await caught(
       loadGame({
+        ...ADDRESS,
         presentUrl: "http://127.0.0.1:1/g/x/present/a.js",
-        manifestHash: HASH,
       }),
     )
     expect(error.code).toBe("E_GAME_UNLOADABLE")
@@ -137,10 +201,10 @@ describe("what a page module has to be", () => {
 
   /** A newer module's shape could mean anything, so it is not guessed at. */
   test("a contract this release does not drive, naming both", async () => {
-    for (const contract of [2, 0, "1", undefined]) {
+    for (const contract of [3, 0, "1", undefined]) {
       const error = await refusal(ADDRESS, { default: good({ contract }) })
       expect(error.code).toBe("E_GAME_CONTRACT_UNKNOWN")
-      expect(error.cause).toMatchObject({ module: contract, driven: [1] })
+      expect(error.cause).toMatchObject({ module: contract, driven: [1, 2] })
     }
   })
 
@@ -160,6 +224,22 @@ describe("what a page module has to be", () => {
     }
   })
 
+  /** What contract 2 adds is held as well, so a page never reads a missing tick rate. */
+  test("each part contract 2 adds that is the wrong kind is named", async () => {
+    for (const [field, value] of [
+      ["prepare", undefined],
+      ["tickHz", "60"],
+      ["servedConfig", undefined],
+      ["servedConfig", []],
+    ] as const) {
+      const error = await refusal(ADDRESS, {
+        default: goodTwo({ [field]: value }),
+      })
+      expect(error.code).toBe("E_GAME_MODULE_INVALID")
+      expect(error.cause).toMatchObject({ field })
+    }
+  })
+
   test("a module of another version of the game", async () => {
     const error = await refusal(ADDRESS, {
       default: good({ manifestHash: "other" }),
@@ -169,11 +249,7 @@ describe("what a page module has to be", () => {
   })
 
   test("the module's own problems, answered with the first one's code", async () => {
-    for (const code of [
-      "E_SIM_PACKS",
-      "E_CAPTURE_INVALID",
-      "E_GAME_MODULE_INVALID",
-    ]) {
+    for (const code of ["E_CAPTURE_INVALID", "E_GAME_MODULE_INVALID"]) {
       const problems = [
         { code, message: "first" },
         { code: "E_CAPTURE_INVALID", message: "second" },
@@ -186,14 +262,13 @@ describe("what a page module has to be", () => {
     }
   })
 
-  test("a check that throws, or answers anything but problems it knows", async () => {
+  test("a check that throws, or answers anything but problems", async () => {
     for (const check of [
       () => {
         throw new Error("check broke")
       },
       () => "fine",
-      () => [{ code: "E_SOMETHING_NEW", message: "?" }],
-      () => [{ code: "E_SIM_PACKS" }],
+      () => [{ code: "E_CAPTURE_INVALID" }],
       () => [null],
     ]) {
       const error = await refusal(ADDRESS, { default: good({ check }) })
@@ -201,12 +276,30 @@ describe("what a page module has to be", () => {
     }
   })
 
+  /**
+   * A contract-1 module refused a data pack with a code this release no
+   * longer has. It still cannot play, and the page says so in its words.
+   */
+  test("a problem with a code this page does not know still refuses, in the module's words", async () => {
+    const error = await refusal(ADDRESS, {
+      default: good({
+        check: () => [{ code: "E_SIM_PACKS", message: "packs" }],
+      }),
+    })
+    expect(error.code).toBe("E_GAME_MODULE_INVALID")
+    expect(error.cause).toMatchObject({
+      problems: [
+        { code: "E_GAME_MODULE_INVALID", message: "E_SIM_PACKS: packs" },
+      ],
+    })
+  })
+
   /** Checked in order, so a page is told the first thing wrong. */
   test("two things wrong report the earlier", async () => {
     const error = await refusal(ADDRESS, {
       default: good({
         manifestHash: "other",
-        check: () => [{ code: "E_SIM_PACKS", message: "packs" }],
+        check: () => [{ code: "E_CAPTURE_INVALID", message: "keys" }],
       }),
     })
     expect(error.code).toBe("E_WRONG_GAME")
@@ -300,20 +393,16 @@ describe("what the page has done to the built-ins", () => {
 })
 
 describe("a module that passes", () => {
-  test("is handed back with its own motion request and mount", async () => {
+  test("is handed back with its own motion request, and its version's folder", async () => {
     const asked: string[] = []
     const game = await loadGame(
       ADDRESS,
       serving({
-        default: good({
+        default: goodTwo({
           needsMotion: true,
           requestMotion: async () => {
             asked.push("motion")
             return { granted: true }
-          },
-          mount: (_element: HTMLElement, options: { seed: string }) => {
-            asked.push(`mount ${options.seed}`)
-            return { recorded: () => [], stop() {}, destroy() {} }
           },
         }),
       }),
@@ -321,12 +410,104 @@ describe("a module that passes", () => {
     expect(game).toMatchObject({
       presentUrl: URL_OK,
       manifestHash: HASH,
-      contract: 1,
+      filesUrl: FILES,
+      contract: 2,
       needsMotion: true,
+      tickHz: 60,
+      servedConfig: { speed: 1 },
     })
     expect(await game.requestMotion()).toEqual({ granted: true })
-    game.mount({} as HTMLElement, { seed: "s" } as never)
-    expect(asked).toEqual(["motion", "mount s"])
+    expect(asked).toEqual(["motion"])
+  })
+
+  /** The page never names a folder: every run is handed its version's own. */
+  test("a contract-2 module is handed its own files folder, prepared or mounted", async () => {
+    const given: string[] = []
+    const game = await loadGame(
+      ADDRESS,
+      serving({
+        default: goodTwo({
+          prepare: (_element: HTMLElement, options: { files: string }) => {
+            given.push(`prepare ${options.files}`)
+            return {
+              ready: Promise.resolve(null),
+              mount: () => HANDLE,
+              release() {},
+            }
+          },
+          mount: (_element: HTMLElement, options: MountOptions) => {
+            given.push(`mount ${options.files}`)
+            return HANDLE
+          },
+        }),
+      }),
+    )
+    game.prepare({} as HTMLElement)
+    game.mount({} as HTMLElement, run())
+    expect(given).toEqual([`prepare ${FILES}`, `mount ${FILES}`])
+  })
+
+  /**
+   * A contract-1 module takes a step limit for every run and stops at its
+   * manifest's: a played run is handed the largest it takes, and a watched
+   * one where its replay stops. It knows no folder and no scripted events.
+   */
+  test("a contract-1 module is driven the way its own release built it", async () => {
+    const given: ContractOneMountOptions[] = []
+    const game = await loadGame(
+      ADDRESS,
+      serving({
+        default: good({
+          mount: (_element: HTMLElement, options: ContractOneMountOptions) => {
+            given.push(options)
+            return HANDLE
+          },
+        }),
+      }),
+    )
+    expect(game).toMatchObject({
+      contract: 1,
+      tickHz: null,
+      servedConfig: null,
+    })
+    game.mount({} as HTMLElement, run())
+    expect(given[0]).toMatchObject({
+      mode: "play",
+      maxTicks: Number.MAX_SAFE_INTEGER,
+    })
+    expect(given[0]).not.toHaveProperty("scripted")
+    expect(given[0]).not.toHaveProperty("files")
+    const watched: GameMountOptions = {
+      ...run(),
+      mode: "watch",
+      inputs: [{ tick: 1, code: "left", value: 1 }],
+      maxTicks: 90,
+    }
+    game.mount({} as HTMLElement, watched)
+    expect(given[1]).toMatchObject({
+      mode: "watch",
+      maxTicks: 90,
+      inputs: [{ tick: 1, code: "left", value: 1 }],
+    })
+
+    // Got ready at once: it has no way to be got ready ahead.
+    const prepared = game.prepare({} as HTMLElement)
+    expect(await prepared.ready).toBeNull()
+    prepared.mount(run())
+    expect(given).toHaveLength(3)
+
+    // It cannot be watched without drawing, and is refused, not misread.
+    const errors: MountError[] = []
+    const handle = game.mount({} as HTMLElement, {
+      ...watched,
+      draw: false,
+      handlers: { ...run().handlers, onError: (error) => errors.push(error) },
+    })
+    expect(errors.map((e) => e.code)).toEqual(["E_ARG_INVALID"])
+    expect(handle.recorded()).toEqual(
+      watched.mode === "watch" ? watched.inputs : [],
+    )
+    expect(given).toHaveLength(3)
   })
 
   /** The module this package builds is one this package loads. */

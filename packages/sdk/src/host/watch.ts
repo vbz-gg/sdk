@@ -51,6 +51,7 @@ export async function watchRun(
   const game = await (options.load ?? loadGame)({
     presentUrl: run.presentUrl,
     manifestHash: run.manifestHash,
+    filesUrl: run.filesUrl,
   })
   const given = options.handlers ?? {}
   const handle = game.mount(element, {

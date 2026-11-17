@@ -1,14 +1,78 @@
-# The page: `@vbz-gg/sdk/platform` and `@vbz-gg/sdk/host`
+# The page: `@vbz-gg/sdk/host` and `@vbz-gg/sdk/platform`
 
-A studio serves its game from a page of its own. The page signs a player in,
-loads the game's page module, starts a run, sends the run to the platform as
-it goes, submits the recording and reads the board. `@vbz-gg/sdk/platform`
-does all of that against the platform's routes, and `@vbz-gg/sdk/host` loads
-the module, plays a run through it and adds two widgets. The platform's page
-guide, `docs/your-game-page.md` in vbz-gg/platform, is the protocol they
-follow.
+A game is played on a page. Played locally, the page loads the build beside
+it and plays it with `playLocal` from `@vbz-gg/sdk/host`, and talks to
+nobody. For ranked and practice runs, a studio's page signs a player in,
+loads the game's page module from the platform, starts a run, sends the run
+to the platform as it goes, submits the recording and reads the board:
+`@vbz-gg/sdk/platform` does that against the platform's routes, and
+`@vbz-gg/sdk/host` loads the module, plays a run through it and adds two
+widgets. The platform's page guide, `docs/your-game-page.md` in
+vbz-gg/platform, is the protocol they follow. The same build plays both.
+
+## Playing locally
+
+`vbz build` writes `dist/game.json` beside the build. A page serves `dist/`
+as it is, here as `game/`, maps the page module's two imports with an import
+map, and loads and plays it:
+
+```html
+<script type="importmap">{"imports":{"cw2:sim":"./game/sim.js","cw2:files/":"./game/files/"}}</script>
+```
+
+```ts
+import { loadGame, localAddress, playLocal } from "@vbz-gg/sdk/host"
+
+const url = new URL("game/game.json", document.baseURI).href
+const game = await loadGame(localAddress(await (await fetch(url)).json(), url))
+
+playButton.onclick = () => {
+  const run = playLocal(stage, {
+    game,
+    scripted: "ignore", // "record" lets a script of the page's own drive the game
+    title: "My game",
+    onEnded: (ended) => show(ended.counters, ended.recording),
+    onError: (error) => tell(error.message),
+    onNotice: (notice) => tell(notice.detail),
+  })
+  // run.end() when the player leaves; run.destroy() before the next run
+}
+```
+
+- It asks nothing of any platform: no client, no page key, no sign-in, no
+  lock across tabs and no request.
+- It plays a fresh seed and the module's served config, every declared
+  setting at its default, unless the page passes `seed` or `config`. The
+  seed always starts `local:`, and a seed the page kept from an earlier run,
+  `run.seed`, plays the same course again.
+- A run has no step limit. `onEnded` gets the recording, which replays to
+  the same counters against the build's rules code.
+- Its clock starts once the game can draw, so a device that cannot draw it
+  reaches `onError` with `E_PRESENTATION_FAILED` before tick 0. A game that
+  reads tilt asks for it in the click and starts nothing without it.
+- `playLocal` throws `E_LOCAL_PLAY_UNSUPPORTED` for a module built before
+  local play, and `E_CONFIG_REQUIRED` for a game with a required setting that
+  has no default when the page names no config.
+- `run.end()` while the tilt prompt is still open comes before any run
+  started: `onEnded` follows at once with an empty run, tick 0, no counters
+  and a `recording` of null, and whatever the prompt answers afterwards,
+  nothing is mounted and nothing more is reported, so the next run may take
+  the element at once.
+- A local run's recording can never pass for a ranked one. Its seed is no
+  seed the platform issued, so the platform refuses it as played on a seed
+  no run was issued (`E_PINNED_MISMATCH`) and stores nothing, and the
+  client's `submit` does not take its `LocalRecording`.
+- The page's Content-Security-Policy is `localPageCsp` from
+  `@vbz-gg/sdk/harness`, with the game's needs and the import map admitted
+  by the SHA-256 of its exact text.
+
+The template's `site/` is such a page while `site/config.json` says
+`{ "mode": "local" }`, which a new game ships with, and `vbz dev --site`
+serves it from the build.
 
 ## The client
+
+For ranked and practice runs, once the game is published:
 
 ```ts
 import { createPlatformClient } from "@vbz-gg/sdk/platform"
@@ -23,9 +87,30 @@ const page = await platform.game() // today's round, or null
 signInButton.onclick = () => platform.signIn() // from the click, nothing awaited first
 ```
 
-- `signIn()` opens the sign-in window before it awaits anything, because a
-  browser opens one only in the click's own turn. Call it straight from the
-  handler.
+- `signIn()` puts a box over the page holding the platform's sign-in in a
+  frame, before it awaits anything, so focus moves into the frame from the
+  click, which is when a phone opens its keyboard. Call it straight from the
+  handler. In WebKit, as Playwright builds it for Linux, focus stays on the
+  frame rather than on the sign-in's first control, so a player there taps
+  the field first; Safari itself is not measured. The box is a modal
+  `<dialog>`, so the page behind it is inert while it is up: Tab never
+  reaches your Play button. A second call while the box is up answers the
+  same promise.
+- The player closes the box with its Cancel button or Escape, and
+  `closeSignIn()` closes it from the page, even while the code is being
+  traded, when the page then keeps nobody; each rejects with
+  `E_SIGNIN_CANCELLED`.
+- The sign-in frames only for your page's exact origin, so the page's
+  policy names it in `frame-src`, and a page shown inside another page whose
+  origin is not its own, the same site's included, cannot show it. Either
+  way the box stays empty, and `signIn()` rejects with
+  `E_SIGNIN_UNREACHABLE` after 15 seconds, or the `signInReadyMs` the client
+  was made with. The client asks each page of the sign-in its frame loads
+  whether it works, so a later step the browser refuses gives up the same
+  way.
+- A player stays signed in to the sign-in on your site alone: signing in on
+  another studio's site asks for a code again. Safari may ask for one more
+  often.
 - The player's token is kept in `localStorage`, one entry per page key, and
   in memory, so a browser that keeps nothing still plays this visit. Every run
   start renews it. A token the platform stops honouring is dropped, and
@@ -35,14 +120,14 @@ signInButton.onclick = () => platform.signIn() // from the click, nothing awaite
   function that stops it. `mountSignIn` follows it, so the box never shows a
   player the client has let go, and the page needs no code for that.
 - `signOut()` forgets the player on this page. No route signs a player out;
-  the sign-in window's own page does that.
+  the sign-in's own page does that.
 
 ## A run
 
 ```ts
 import { loadGame, mountBoard, mountSignIn, playRun } from "@vbz-gg/sdk/host"
 
-mountSignIn(signInSlot, { client: platform }) // opens the window in the click
+mountSignIn(signInSlot, { client: platform }) // puts the box up in the click
 const board = mountBoard(boardSlot, { client: platform, period: "day" })
 await board.refresh()
 
@@ -68,18 +153,28 @@ playButton.onclick = () => {
 `loadGame` imports the module from its absolute `presentUrl` and checks it
 before anything is played: its contract, its parts, that its manifest hash is
 the version's, its own check of its mapping, and that no script on the page
-replaced a built-in the rules code calls. Load it before the click, so a
-failure spends no run.
+replaced a built-in the rules code calls. The version names its files folder
+too, `filesUrl`, and the loaded game hands it to the module with every run,
+so the page never names one. Load it before the click, so a failure spends no
+run.
 
 `playRun` runs inside the click. When the game reads tilt it asks for it
-first, before anything is awaited, then starts the run once tilt is granted.
-Any other answer fails the run before the platform is asked for one, with
-the engine's own code for it (`E_MOTION_DENIED` and the four after it under
-Codes below), and `detail` is a sentence that tells the player what happened
-and what to do: show it. A game that reads tilt therefore starts no run on a
-device or in a browser without it, a laptop included, even when it maps keys
-too. A resumed run plays the version it started on, and when that is not the
-module the page loaded, `playRun` loads the run's own. When that one reads
+first, before anything is awaited. Any answer but a grant fails the run
+before the platform is asked for one, with the engine's own code for it
+(`E_MOTION_DENIED` and the four after it under Codes below), and `detail` is
+a sentence that tells the player what happened and what to do: show it. A
+game that reads tilt therefore starts no run on a device or in a browser
+without it, a laptop included, even when it maps keys too.
+
+Once tilt is granted, `playRun` gets the game ready in `stage`, its
+presentation drawing and its start packs fetched, and only then asks the
+platform for the run, so a device the game cannot draw on spends no run: it
+fails with `E_PRESENTATION_FAILED`, and a pack that did not arrive with the
+engine's code for it. A run has no step limit; it goes until the game ends
+it or the player leaves. Its inputs come from the player's devices alone: an
+event a script on the page made is not recorded. A resumed run plays the
+version it started on, and when that is not the module the page loaded,
+`playRun` loads the run's own. When that one reads
 tilt the click did not ask for, the run stops with `E_MOTION_NEEDS_TAP`
 having sent nothing; call `playRun` again with `played.game` from the next
 tap and the same run carries on. It moves focus to `stage`, labelled with
@@ -101,15 +196,22 @@ ended the pause.
 
 The page's Content-Security-Policy has to let the game's code in and keep
 every other game's out. Name your game's own path on the platform's bundles
-origin, never the whole origin, and the API in `connect-src`:
+origin, never the whole origin, the API in `connect-src`, and the sign-in in
+`frame-src`, without which the sign-in's box stays empty:
 
 ```
-script-src 'self' https://files.vbz.gg/g/<game id>/; connect-src 'self' https://api.vbz.gg
+script-src 'self' https://files.vbz.gg/g/<game id>/; connect-src 'self' https://api.vbz.gg;
+frame-src https://signin.vbz.gg
 ```
 
-No `unsafe-eval` is needed, and none should be added. `vbz dev --site`
-serves a game's own page under that policy, against a stand-in for the
-platform; `references/harness.md` says what the stand-in does.
+No `unsafe-eval` is needed, and none should be added. A game that compiles
+WebAssembly adds `'wasm-unsafe-eval'` to `script-src`, one that starts
+workers, as pixi.js 8 does, adds `worker-src blob:` and its path, and one
+that fetches files of its folder adds its path to `connect-src`; `pageCsp` in
+`@vbz-gg/sdk/harness` builds the policy from what the game names it needs,
+and `references/files.md` has each need.
+`vbz dev --site` serves a ranked page under that policy, against a stand-in
+for the platform; `references/harness.md` says what the stand-in does.
 
 `watchRun(stage, { client: platform, runId })` reads a settled run, loads its
 own version's module and replays it to where the platform's replay stopped.
@@ -155,8 +257,8 @@ in `@vbz-gg/sdk/api`. A `PlatformClientError` is the client's:
 
 | Code | What it means |
 |---|---|
-| `E_POPUP_BLOCKED` | The browser blocked the sign-in window: `signIn()` ran outside a click, or after an await. |
-| `E_SIGNIN_CLOSED` | The window closed without handing a code over. If it closed by itself at once, the page sends `Cross-Origin-Opener-Policy: same-origin`, which cuts it off from the window. |
+| `E_SIGNIN_CANCELLED` | The sign-in's box was closed before a player signed in: its Cancel button, Escape, or the page's `closeSignIn()`. `mountSignIn` shows nothing for it. |
+| `E_SIGNIN_UNREACHABLE` | A page of the sign-in, the first or a later step, did not say it loaded in its box within 15 seconds of loading, or the `signInReadyMs` the client was made with. The browser refused to frame it, which it shows as an empty box and tells the page nothing of: the page's policy has no `frame-src` naming the sign-in origin, the page is shown inside another page whose origin is not its own, the page key is not the game's, or the page's origin is not one the game allows. `vbz dev --site` says in its terminal which, for the stand-in's sign-in. |
 | `E_NOT_SIGNED_IN` | A run route, and no player is signed in on this page. Nothing was sent. |
 | `E_UNREACHABLE` | No answer. The request may or may not have arrived; a run write can be sent again. |
 | `E_ANSWER_UNREADABLE` | An answer that is not JSON, or a failure without a code. |
@@ -176,5 +278,7 @@ in `@vbz-gg/sdk/api`. A `PlatformClientError` is the client's:
 | `E_BROWSER_UNSUPPORTED` | The browser has no Web Locks, so it cannot keep a run to one tab: Safari before 15.4, or a page not on https. Nothing was started. |
 | `E_RUN_OPEN_ELSEWHERE` | Another tab or window of this browser is playing this game in this mode. Nothing was started. |
 | `E_NOTHING_TO_WATCH` | The run's replay covers no ticks. |
-| `E_SIM_PACKS` | The manifest declares a data pack the simulation reads. The platform cannot store or replay one yet, and refuses such an upload too. |
+| `E_LOCAL_PLAY_UNSUPPORTED` | `playLocal` was handed a module built by a release from before local play, which cannot say its tick rate or its config and stops every run at its manifest's step limit. Build the game again. |
+| `E_CONFIG_REQUIRED` | `playLocal` was given no config, and the game declares a setting that is required and has no default, so there is none to serve. Give it one. |
+| `E_PRESENTATION_FAILED` | The engine's code for a game that cannot draw on this device, such as a renderer that finds no GPU it can use. The game gets ready before a run is asked for, so no run was started. |
 | `E_UNEXPECTED` | An error the client has no code for, or a game error without a code. It is a bug; report the `detail`. |

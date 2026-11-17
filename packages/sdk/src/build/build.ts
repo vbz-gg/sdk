@@ -1,5 +1,6 @@
 /**
- * Building a game's source into the two artifacts an upload carries.
+ * Building a game's source into the two artifacts an upload carries, and
+ * listing the files folder that goes with them.
  *
  * The platform takes built bundles and never source, so this is not a step it
  * runs - it is how an author produces what they upload, and how the harness
@@ -9,15 +10,17 @@
  */
 
 import {
-  assertPresentImportsOnlySim,
+  assertPresentImports,
   assertSimSelfContained,
   assertSize,
   decodeArtifact,
-  MAX_PRESENT_BYTES,
-  MAX_SIM_BYTES,
+  FILES_SPECIFIER,
+  type PresentImports,
   SIM_SPECIFIER,
 } from "./contract.js"
+import { EMPTY_LISTING, type ListedFolder, listFolder } from "./files.js"
 import { runGameProcess } from "./game-process.js"
+import { MAX_PRESENT_BYTES, MAX_SIM_BYTES } from "./limits.js"
 
 export interface GameSource {
   /** Absolute path to the game directory. */
@@ -33,11 +36,21 @@ export interface GameSource {
    * the page module imports it.
    */
   readonly captureEntry: string
+  /**
+   * The version's files folder, absolute, which the game's own tools built,
+   * or null for a game with none, whose folder lists nothing. A game names
+   * it in its `package.json`, as `"vbz": { "files": "<dir>" }`.
+   */
+  readonly filesDir: string | null
 }
 
 export interface GameArtifacts {
   readonly sim: Uint8Array
   readonly present: Uint8Array
+  /** What the page module imports, and how many workers it starts. */
+  readonly imports: PresentImports
+  /** The files folder, listed, and where each file is on disk. */
+  readonly files: ListedFolder
 }
 
 /**
@@ -70,21 +83,29 @@ export interface GameArtifacts {
 export async function buildGameArtifacts(
   source: GameSource,
 ): Promise<GameArtifacts> {
+  // Listed first: the page module is checked against what the folder holds.
+  const files: ListedFolder =
+    source.filesDir === null
+      ? { listing: EMPTY_LISTING, onDisk: new Map() }
+      : await listFolder(source.filesDir)
+
   const sim = await bundle(source.root, source.simEntry, [])
   const simText = decodeArtifact(sim, "simulation")
   assertSize(sim, MAX_SIM_BYTES, "simulation")
   assertSimSelfContained(simText)
 
   // Bun never resolves an external bare specifier, so the specifier reaches
-  // the output verbatim and no plugin is involved.
+  // the output verbatim and no plugin is involved. A file of the folder is
+  // external by its prefix, so it stays the import the folder answers.
   const present = await bundle(source.root, source.presentEntry, [
     SIM_SPECIFIER,
+    `${FILES_SPECIFIER}*`,
   ])
   const presentText = decodeArtifact(present, "page module")
   assertSize(present, MAX_PRESENT_BYTES, "page module")
-  assertPresentImportsOnlySim(presentText)
+  const imports = assertPresentImports(presentText, files.listing)
 
-  return { sim, present }
+  return { sim, present, imports, files }
 }
 
 /**

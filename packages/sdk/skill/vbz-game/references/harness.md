@@ -1,13 +1,14 @@
 # The harness
 
 `vbz dev ./my-game` is your game's page on a laptop. It builds the two real
-artifacts, serves them on one port at the paths and with the headers the
-platform's edge uses, and serves a page on another that loads the page module
-from there with `loadGame` and plays it through the module's own `mount`.
+artifacts and the files folder, serves them on one port at the paths and
+with the headers the platform's edge uses, and serves a page on another that
+loads the page module from there with `loadGame` and plays it with
+`playLocal`, through the module's own `mount`.
 
 ```
 http://127.0.0.1:4310   the page that loads the game
-http://127.0.0.1:4311   the game's two modules, under /g/<game id>/
+http://127.0.0.1:4311   the game's two modules and its files, under /g/<game id>/
 ```
 
 Two ports are two origins, which is the point: a studio's page imports the
@@ -15,14 +16,19 @@ page module from the platform's bundle origin, and meeting that import on a
 laptop is cheaper than meeting it on a studio's page. The page is served
 under the Content-Security-Policy a studio's page should send, with scripts
 from the page's own origin and the game's own path and nowhere else, and no
-`unsafe-eval`, so a page module that needs more is refused here first.
+`unsafe-eval`, plus what the game's `package.json` says it needs and the
+game's path in `connect-src` when its folder lists a file
+(`references/files.md`). A page module that needs more is refused here
+first.
 
 ## What the page gives you
 
 - **The checks a studio's page makes**, through the same `loadGame`: a module
   of another contract, another manifest, a mapping its manifest does not
   allow, or a page that replaced a built-in is refused, and the refusal is in
-  the status line.
+  the status line. So is a game this browser cannot draw: its presentation
+  fails to get ready, and the page says `E_PRESENTATION_FAILED` before a
+  tick runs.
 - **Start and End.** Start asks for tilt first when the game reads it, as a
   studio's Play button does, and without tilt starts no run, with the code
   and the player's sentence in the status line. On a laptop, give the page a
@@ -34,19 +40,29 @@ from the page's own origin and the game's own path and nowhere else, and no
   - `replayed:` whether the recording, replayed against the built rules code
     to the tick it ended, matches what the page reported. A run that differs
     names the first tick it differs from, and fails on the platform too.
-  - `inputs:` how many the recording holds, against the budget the platform
-    allows a run that long, or the code the platform would refuse them with.
+  - `inputs:` how many the recording holds, against the budget a ranked or
+    practice run that long is held to, or the code the platform would refuse
+    them with.
   - `recording:` its size in bytes, which is what a submit sends.
   The report turns red when the replay does not match or the inputs would be
-  refused.
+  refused. The budget binds only ranked and practice runs, so a run over it
+  turns the report red only under `vbz dev --ranked`.
 - **The recording**, with a link to save it. It is the same envelope the
   platform would replay.
 - **A status line** carrying what the game is saying: `ready`, the tick
   count, how the run ended and what it scored.
 
-The seed is a constant, so the run you are debugging is the run you had a
-moment ago. The platform's daily seed is a keyed HMAC of the game and the day,
-which does the same job for everybody at once.
+The seed is a constant, `local:harness`, so the run you are debugging is the
+run you had a moment ago. The platform's daily seed is a keyed HMAC of the game and the day,
+which does the same job for everybody at once. The config is what the
+platform serves a run: every setting the manifest declares, at its default.
+A setting that is required and has no default has none to serve, so the
+harness refuses the game, naming the setting, until `vbz dev --config
+<file>` names a JSON config of your own; a ranked run cannot play one, so
+`--config` with `--ranked` is refused, and the stand-in refuses the game. A
+run has no step limit, and the game's files folder is served beside its two
+modules, under `/g/<game id>/t/<listing sha256>/`, where the page module
+fetches its data packs.
 
 ## A phone
 
@@ -68,17 +84,40 @@ this machine's own (`127.0.0.1`, `localhost`, `::1`) is refused without
 
 `vbz dev . --site` serves the game's own `site/` instead of the harness page:
 `site/index.html`, `site/main.ts` bundled for the browser as `main.js`, and
-every other file in `site/` as it is, under the same policy with the API's
-origin added. The game is built and served from a bundles origin as above.
+every other file in `site/` as it is. `site/config.json` names the page's
+mode, and a file naming none is refused.
 
-The page talks to a stand-in for the platform, on origins of its own: the
-page routes and the sign-in window, as one local player. The harness answers
-the page's `config.json` with the stand-in's API, sign-in window and page
-key, so the file in `site/` is not read. The stand-in:
+- **`{ "mode": "local" }`**, which a new game ships with: the build is served
+  beside the page as `/game/`, and the page loads `game/game.json` with
+  `localAddress` and plays with `playLocal`. Nothing else runs, and the page
+  talks to nobody. The page's import map, which points the page module's
+  `cw2:sim` and `cw2:files/` at `./game/`, is admitted by its hash, under
+  `localPageCsp`.
+- **`{ "mode": "ranked", ... }`**: the game is built and served from a bundles
+  origin as above, under the harness page's policy with the API's origin
+  added and the sign-in's in `frame-src`, and the page talks to a stand-in
+  for the platform.
 
-- signs the player in through a window of its own, with the same code trade;
-- starts a run on the harness seed, and resumes it on a refresh until it has
-  committed a chunk;
+What the game's `package.json` names under `"vbz": { "needs": { ... } }`
+(`wasm`, `workers`) is added to the policy in both modes, and to the
+harness page's, and so is the game's path in `connect-src` whenever its
+files folder lists a file, which nobody names: the page module fetches its
+data packs from there.
+
+The stand-in runs on origins of its own: the page routes and the sign-in,
+as one local player. The harness answers the page's `config.json` with the
+mode, the stand-in's API, sign-in and page key, so the origins and key in
+`site/config.json` are not read. The stand-in:
+
+- signs the player in through the box `signIn()` puts over the page, its
+  sign-in framed exactly as the platform's is (framed for the site's exact
+  origin, with the headers that let it render under COOP and COEP, each
+  page answering the site's ping with its ready message, and the code
+  posted to the site's origin alone), with
+  a Continue button and the same code trade, and says in the terminal why
+  it refused a request, which the page's empty box cannot;
+- starts a run on the harness seed and the served config, and resumes it on
+  a refresh until it has committed a chunk;
 - holds chunks and the submit to the manifest the way the platform does:
   a chunk sent again unchanged, one that conflicts or reaches back, a
   checkpoint at a tick an earlier chunk reached, inputs the manifest does

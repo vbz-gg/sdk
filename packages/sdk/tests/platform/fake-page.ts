@@ -1,13 +1,15 @@
 /**
  * A page the client can run in without a browser: timers that move only
- * when a test says so, a popup a test closes, messages a test posts, a
- * `fetch` that answers from a script, and storage in a Map.
+ * when a test says so, a sign-in box a test closes and whose frame it posts
+ * from, messages a test posts, a `fetch` that answers from a script, and
+ * storage in a Map.
  */
 
 import type {
   MessageLike,
   PageEnvironment,
-  PopupWindow,
+  SignInBox,
+  SignInBoxHandlers,
 } from "../../src/platform/environment"
 
 export interface Sent {
@@ -23,11 +25,38 @@ export type Answer =
   | { readonly status: number; readonly text: string }
   | { readonly unreachable: true }
 
-export class FakePopup implements PopupWindow {
-  closed = false
-  location = { href: "" }
-  close(): void {
-    this.closed = true
+/** The sign-in's box, as a test sees it: where its frame points, and whether it is up. */
+export class FakeBox implements SignInBox {
+  /** Stands in for the frame's window, which a message's `source` is compared with. */
+  readonly frame = { name: "the sign-in's frame" }
+  url: string | null = null
+  removed = false
+  /** Every message posted to the page the frame holds, with its target origin. */
+  readonly posted: Array<{ readonly message: unknown; readonly to: string }> =
+    []
+
+  constructor(private readonly handlers: SignInBoxHandlers) {}
+
+  /** The player closing it from the page: Cancel, or Escape. */
+  cancel(): void {
+    this.handlers.onCancel()
+  }
+
+  /** The frame finishing a page, shown or refused alike. */
+  loaded(): void {
+    this.handlers.onFrameLoad()
+  }
+
+  load(url: string): void {
+    this.url = url
+  }
+
+  post(message: unknown, targetOrigin: string): void {
+    this.posted.push({ message, to: targetOrigin })
+  }
+
+  remove(): void {
+    this.removed = true
   }
 }
 
@@ -35,13 +64,12 @@ export class FakePage implements PageEnvironment {
   readonly origin = "https://lantern.example"
   readonly crypto = globalThis.crypto
   readonly sent: Sent[] = []
-  readonly opened: Array<{ url: string; target: string; features: string }> = []
-  popup: FakePopup | null = new FakePopup()
+  /** Every box put on the page, in order. */
+  readonly boxes: FakeBox[] = []
+  /** What putting a box on the page throws, when set. */
+  boxFails: Error | null = null
   private listeners = new Set<(event: MessageLike) => void>()
-  private timers = new Map<
-    number,
-    { at: number; every: number | null; run: () => void }
-  >()
+  private timers = new Map<number, { at: number; run: () => void }>()
   private nextTimer = 1
   private clock = 1_000_000
   readonly kept = new Map<string, string>()
@@ -70,9 +98,16 @@ export class FakePage implements PageEnvironment {
     return new Response(text, { status: answer.status })
   }) as typeof fetch
 
-  open(url: string, target: string, features: string): PopupWindow | null {
-    this.opened.push({ url, target, features })
-    return this.popup
+  mountSignInBox(handlers: SignInBoxHandlers): SignInBox {
+    if (this.boxFails !== null) throw this.boxFails
+    const box = new FakeBox(handlers)
+    this.boxes.push(box)
+    return box
+  }
+
+  /** The box last put on the page. */
+  get box(): FakeBox | undefined {
+    return this.boxes.at(-1)
   }
 
   addMessageListener(listener: (event: MessageLike) => void): void {
@@ -94,21 +129,11 @@ export class FakePage implements PageEnvironment {
 
   setTimeout(run: () => void, ms: number): unknown {
     const id = this.nextTimer++
-    this.timers.set(id, { at: this.clock + ms, every: null, run })
+    this.timers.set(id, { at: this.clock + ms, run })
     return id
   }
 
   clearTimeout(handle: unknown): void {
-    this.timers.delete(handle as number)
-  }
-
-  setInterval(run: () => void, ms: number): unknown {
-    const id = this.nextTimer++
-    this.timers.set(id, { at: this.clock + ms, every: ms, run })
-    return id
-  }
-
-  clearInterval(handle: unknown): void {
     this.timers.delete(handle as number)
   }
 
@@ -126,8 +151,7 @@ export class FakePage implements PageEnvironment {
       if (due === undefined) break
       const [id, timer] = due
       this.clock = timer.at
-      if (timer.every === null) this.timers.delete(id)
-      else timer.at += timer.every
+      this.timers.delete(id)
       timer.run()
     }
     this.clock = until

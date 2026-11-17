@@ -1,11 +1,13 @@
-# The two artifacts
+# The two artifacts and the files folder
 
-A game version is two files, each stored under the SHA-256 of its own bytes.
+A game version is two modules, each stored under the SHA-256 of its own
+bytes, and a folder of files, named by the SHA-256 of its listing.
 
-| File | Built from | Imports | Loaded by |
+| Part | Built from | Imports | Loaded by |
 |---|---|---|---|
 | the simulation | `src/sim/index.ts` | **nothing** | the browser and the validator |
-| the page module | `src/present.ts` | exactly `cw2:sim` | a studio's page |
+| the page module | `src/present.ts` | `cw2:sim`, and files of the folder as `cw2:files/<path>` | a page: a studio's, or the game's own played locally |
+| the files folder | the game's own tools, into the folder `package.json` names | whatever its code imports, inside the folder | the page module, and the validator for data packs |
 
 ## Why the page module imports rather than embeds
 
@@ -47,35 +49,69 @@ them. Nothing in the page module entry sets it.
 ## What is checked, on the bytes
 
 1. One ES module, decodable as strict UTF-8.
-2. The simulation's import list is empty. The page module's distinct import
-   set is exactly `{"cw2:sim"}`, every entry a static import statement.
+2. The simulation's import list is empty. The page module imports `cw2:sim`
+   (`E_PRESENT_IMPORT_MISSING` without it), and besides it only files of the
+   folder as `cw2:files/<path>` (`E_PRESENT_IMPORT_UNEXPECTED` for anything
+   else), every entry a static import statement. Each such path is one the
+   folder may hold (`E_FILE_PATH_INVALID`) and one its listing holds
+   (`E_FILE_UNLISTED`).
 3. The quoted literal `"cw2:sim"` occurs exactly as many times as there are
-   import entries. A higher count means the string is also data, so a text
-   rewrite would change something the game reads, and the upload is refused
-   rather than corrupted.
-4. Size: 2 MiB for the simulation, 8 MiB for the page module.
+   imports of it, and `cw2:files/` exactly as many times as there are file
+   imports. A higher count means the string is also data, so a text rewrite
+   would change something the game reads, and the upload is refused rather
+   than corrupted (`E_PRESENT_SPECIFIER_AMBIGUOUS`). A file the game reads at
+   run time, art or data, is found through the folder's address instead.
+4. Size: 4 MiB for the simulation, 16 MiB for the page module
+   (`E_ARTIFACT_TOO_LARGE`), and the folder's limits in
+   `references/files.md`.
 
-A dynamic `import("cw2:sim")` is refused: it chooses its module at runtime,
-past the scan.
+The page module loads nothing at run time by an address it decides then.
+Any `import()`, literal or computed, is refused with
+`E_PRESENT_DYNAMIC_IMPORT`, and `new SharedWorker` and `importScripts` with
+`E_PRESENT_WORKER`. It may start a worker with `new Worker`, as pixi.js 8
+does from a `blob:` URL of code it carries, or from a script in the files
+folder; the page's policy, `worker-src blob:` and the game's own path, bounds
+where one comes from. A game whose page module starts one says so in its
+`package.json`, `"vbz": { "needs": { "workers": true } }`, or `vbz build`
+stops and says to.
 
-## The rewritten path is root-relative
+## The files folder
 
-`/g/<game id>/sim/<64 hex>.js`, never a full URL. It resolves against the page
-module's own URL, so the stored bytes carry no domain and the bundle host can
-change without re-publishing anything, and it names the game, so a studio's
-Content-Security-Policy can allow its own game's path and no other.
+A game names its folder in `package.json`, as `"vbz": { "files": "files" }`,
+and `vbz build` lists every file by path, size and SHA-256 and names the
+folder by the SHA-256 of that listing. `references/files.md` has the folder
+whole: naming it, reaching it from the page module, data packs, what a
+page's policy needs for it, and every limit.
+
+## The rewritten paths are root-relative
+
+`/g/<game id>/sim/<64 hex>.js` for the simulation and
+`/g/<game id>/t/<64 hex>/` for the folder, whose name is the SHA-256 of its
+listing, never a full URL. Each resolves against the page module's own URL,
+so the stored bytes carry no domain and the bundle host can change without
+re-publishing anything, and each names the game, so a studio's
+Content-Security-Policy can allow its own game's path and no other. The
+listing names every file's bytes, so a page module naming the folder names
+every byte in it, forever.
 
 ## What `vbz build` writes
 
 ```
 dist/sim.js        the simulation
-dist/present.js    the page module, with cw2:sim still intact
+dist/present.js    the page module, with cw2:sim and cw2:files/ still intact
 dist/manifest.json the manifest, read out of the built simulation
+dist/files.json    the folder's listing, the text its name is the SHA-256 of
+dist/files/        a copy of the folder, by its listed paths
+dist/game.json     where each of those is and what they hash to, for a page
+                   that plays the game locally from dist/ as it is
 ```
+
+`vbz publish` sends the first five and never `game.json`, which only a page
+playing locally reads.
 
 The page module is written **unrewritten** on purpose. The rewrite belongs to
 the platform: a page module that arrived already pointing at an address would
-be one naming a module nobody checked.
+be one naming code nobody checked.
 
 `dist/manifest.json` is read by evaluating the built simulation in a
 subprocess, so what it holds is the manifest the code carries rather than a

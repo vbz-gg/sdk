@@ -11,7 +11,9 @@ This repository sits between two others. [clockwork2](https://github.com/vbz-gg/
 is the engine and owns determinism, the manifest, the host that runs a game
 in a page and the device helpers that record its inputs; the
 [platform](https://github.com/vbz-gg/platform) is the backend that checks an
-upload, replays a run and ranks it. A studio serves its game from its own page.
+upload, replays a run and ranks it. A game made with this kit is one build:
+played locally on its own page with no platform, and, opted in, played as
+ranked and practice runs on a studio's page.
 
 ## Commands
 
@@ -31,11 +33,12 @@ Never start a dev server. Ask the user to run it.
 
 ## The one rule
 
-**A studio's page and the harness load a game through `loadGame` and play it
-through the module's own `mount`.** They run the same code, so the game an
-author tried in the harness is the game a studio's page plays, and the engine
-that plays it is the one the game was built and checked with, bundled into
-its page module. Nothing on a page builds a `GameHost`, draws a control for a
+**Every page, a studio's, the game's own playing locally, and the harness,
+loads a game through `loadGame` and plays it through the module's own
+`mount`.** They run the same code, so the game an author tried in the
+harness is the game a studio's page plays and the game a local page plays,
+and the engine that plays it is the one the game was built and checked
+with, bundled into its page module. Nothing on a page builds a `GameHost`, draws a control for a
 game, or works out again what the module already decides.
 
 That is also why the page and the module pass each other plain data behind a
@@ -68,9 +71,24 @@ through `PageEnvironment` when a client is made, so a page may import the
 subpath while rendering on a server, and `check:publishable` imports it under
 plain node.
 
-**`signIn()` opens the window before it awaits anything.** Anything awaited
-first, even a resolved promise, moves the open out of the click's turn and the
-browser blocks it.
+**The sign-in's box is made before anything is awaited.** `signIn()` puts
+the box, a native `<dialog>` shown modal so the page behind it is inert,
+its empty frame and Cancel on the page, with focus in the frame, in the
+click's own turn; only then is the challenge made and the
+frame pointed at the sign-in. Anything awaited first, even a resolved
+promise, moves the focus out of the click's turn, and a phone opens its
+keyboard only from a gesture. A message is taken only from the frame the box
+holds, on the sign-in origin, carrying the state sent. **The sign-in's ready
+message is the only sign the box works**, for every page the frame shows: a
+frame the browser refused still fires `load`, so each load is pinged,
+`vbz.signin.ping` numbered by the load and aimed at the sign-in origin
+alone, and only a `vbz.signin.ready` echoing that number clears it. Never
+count readies against loads or take a ready nobody asked for: a page's own
+message can arrive before the iframe's `load` (Firefox under COOP and COEP,
+measured), and an extra one would leave a later refused page unowed. A
+page still unanswered the ready time after its load, `signInReadyMs` or
+`SIGN_IN_READY_MS`, is `E_SIGNIN_UNREACHABLE`, never a fallback to a window.
+Nothing calls `requestStorageAccess`.
 
 **Every read and write of the kept player goes through `kept`, `keep` and
 `forget` in `client.ts`**, which tell `onPlayerChange`'s listeners when the
@@ -91,8 +109,9 @@ new row in both.
 while changing it:
 
 **`./game` holds no DOM and no dynamic import.** It is bundled into every
-page module, which may import exactly one module by name, its rules code, and
-the platform refuses one with a dynamic import before it stores a byte.
+page module, which imports its rules code as `cw2:sim` and files of its
+folder as `cw2:files/<path>`, statically, and nothing else, and the platform
+refuses one with a dynamic import before it stores a byte.
 Nothing in it reads the browser until `mount` is called, and it imports
 nothing of `./host`, `./platform` or the CLI. `tests/game/subpath.test.ts`
 holds all three.
@@ -102,12 +121,21 @@ holds all three.
 release could not meet is a new contract version, which a page refuses by
 name until it learns it, never a new meaning for one already out.
 `e2e/frozen/contract-1/` is the template as the first contract-1 release
-built it, and the browser suite holds every later tree to playing it. Never
-rebuild it.
+built it, and `e2e/frozen/contract-2/` as the tree that introduced contract 2
+built it; the browser suite holds every later tree to playing both. Never
+rebuild one once its contract is released.
 
 **What crosses is plain data.** A failure is `{ code, message }`, never an
 error object, and an engine error is recognised by its mark, because the page
 holds no engine and the module's classes are not the page's.
+
+**No tick runs before the game is ready.** The module mounts the
+presentation, waits for its `prepare` and fetches the start packs, and only
+then builds the run's host and attaches the device helpers; a failure to
+get ready reaches `onError` before tick 0. A page that asks for a run, and
+so spends one, asks only once `ready` has settled with null: `playRun`
+prepares before `startRun`. Never start the clock, or a ranked run, on a
+game that has not said it can draw.
 
 ## The page's host
 
@@ -122,7 +150,7 @@ so a failure spends no run. A new check goes into that order with a code of
 its own in `CLIENT_ERROR`.
 
 **`playRun` asks for motion before it awaits anything**, when the game reads
-tilt, for the reason `signIn()` opens its window first: iOS grants it only in
+tilt, for the reason `signIn()` makes its box first: iOS grants it only in
 the click's own turn. **Anything but a grant starts no run**: the run fails
 with the engine's refusal code, a client code with a sentence for the player,
 before the platform is asked for one, and the lock is let go. Never add a
@@ -137,6 +165,14 @@ the platform has the run. A browser with no Web Locks starts nothing, with
 before the lock is held: two tabs on one run post chunks that conflict, and a
 second tab's start closes a run the first has committed to.
 
+**A local run's seed always carries its prefix.** `playLocal` plays
+`local:` and the page's seed, or a fresh one, through `localSeed`, and never
+a seed without it: every seed the platform issues is 64 hex characters, so
+the prefix is what makes a local recording one the platform refuses
+(`E_PINNED_MISMATCH`). The recording's type, `LocalRecording`, is the
+compile-time half; the seed is the half a page with devtools cannot get
+past. `playLocal` takes no client and makes no request.
+
 **The page never chooses a version.** A run plays what its start names, and
 `playRun` loads a resumed run's own module when its manifest hash is not the
 loaded module's. The hash names a module; its address can be written more
@@ -145,6 +181,46 @@ than one way.
 **The widgets are plain DOM with every colour a `--gb-widget-*` custom
 property**, and show a failure in the client's or the platform's own sentence
 for its code.
+
+## The files folder
+
+`packages/sdk/src/build/files.ts` lists it, and `contract.ts` and
+`loads.ts` hold the page module's loads to it. `docs/sdk.md` and the guide's `references/files.md`
+describe both. What to hold while changing either:
+
+**The folder is named by its listing's SHA-256 and nothing else.**
+`canonicalListing` writes the listing, `dist/files.json` holds exactly that
+text, and `listingSha256` of it is the folder's name in every address. No
+version, date, path of the author's machine or option reaches the name, so
+the same files are the same folder in every build and on the platform, and a
+page module naming the folder names every byte in it.
+
+**A page module loads only what its bytes name.** Its imports are static,
+`cw2:sim` and `cw2:files/<path>` with each path in the listing; `import()`,
+literal or computed, `importScripts` and `new SharedWorker` are refused,
+found by reading the text as tokens, because Bun's scanner sees only a
+literal `import()`. `new Worker` is counted and allowed only when the game
+says it needs workers. Code inside the folder is not read, and the page's
+policy, naming the game's own path and nothing else, is all that bounds it:
+never widen that policy past the game's path.
+
+**A need is named, and the files need is derived.** A game names `wasm` and
+`workers` in `"vbz": { "needs" }`; `versionNeeds` adds `files` whenever the
+listing holds a file and refuses a page module that starts a worker without
+`workers`. Nothing a game needs adds `unsafe-eval`.
+
+**Every limit is a constant in `build/limits.ts` or `/build`'s other
+exports**, which the platform imports, so a build that passes `vbz build`
+passes the upload. Each file of the folder is held to its limits by its size
+on disk before a byte is read. The tables in `docs/sdk.md` and the guide's
+`references/files.md` name every `MAX_` constant `/build` exports, at its
+value, and the guide's test holds both ways.
+
+**null3d is a recipe, never a dependency.** Nothing in `packages/sdk`
+imports null3d, which is not on npm. The recipe, the guide's
+`references/null3d.md`, says a vbz game creates null3d with
+`input: false`, and the guide's test holds the policy it prints and the
+mouse figures it quotes to the code and to the engine guide.
 
 ## What a game records
 
@@ -242,8 +318,10 @@ Never add a flag for it: a flag puts the key in shell history and the
 process list. The command sends no `Origin` header, and the platform
 refuses a secret key that arrives with one.
 
-**The upload is sent once; only the read-back retries.** A second upload of
-a version that did arrive is refused as `E_VERSION_EXISTS`.
+**The version is sent once; only what is safe to repeat retries.** A second
+upload of a version that did arrive is refused as `E_VERSION_EXISTS`. Asking
+which files the platform lacks, each file's upload, which is stored under
+the hash of its bytes, and the read-back are tried again.
 
 **The platform is `https://api.vbz.gg`** unless `--api` or `VBZ_API_ORIGIN`
 names another, and the key is sent only over https or to this machine.
@@ -268,7 +346,8 @@ that name as a lifecycle hook of `npm publish`.
 
 `packages/sdk/skill/vbz-game/` is prose an agent follows literally, so a
 stale sentence is worse than a missing one. It has one subject: everything
-between a conforming simulation and a game the platform can check and replay.
+between a conforming simulation and a game a page plays, locally or as runs
+the platform checks and replays.
 Determinism belongs to the engine's guide, `clockwork2`, which the engine
 package ships, and this one points at it rather than repeating it - two copies
 of that rulebook is how one of them goes quietly out of date.
@@ -279,7 +358,11 @@ taken from somewhere other than `init` and a stream of readings recorded every
 frame, and an author meets both before they think to open a second guide. So
 each says only what an author needs at that point, quotes only what the
 engine exports, and points at the engine guide's reference for the full
-rules. Nothing else in this guide restates a determinism rule.
+rules. Nothing else in this guide restates a determinism rule. The null3d
+recipe, `references/null3d.md`, comes closest: it quotes the engine guide's
+measured rows for a mouse under lock, which the test holds to the engine's
+copy, and says which of null3d's maths the rules code may import, which is
+null3d's to say and is quoted from its guide.
 
 The guide ships in the package, and its tests sit beside it at
 `packages/sdk/skill/tests/`, outside what ships. `vbz new` copies it into a
@@ -304,16 +387,25 @@ byte for byte and execute bit, and fails on anything else under `skill/` in
 the tarball, because npm packs the disk and not the commit.
 
 `packages/sdk/skill/tests/skill.test.ts` measures the drift a machine can
-see: the size caps match the code, every artifact refusal named exists and
-every one that exists is explained, `references/page.md` explains every
-client code and no other, every prose copy of what a release line fixes (in
-`SKILL.md`, `references/ingest.md` and `docs/sdk.md`) names exactly the
-fields `LINE_RULES` fixes, the commands are the CLI's, the layout it prints is
-the template's, and every reference is linked both ways. Every limit it quotes
-is the constant that decides it, every `Prng` method it quotes is on the
-engine's `Prng`, every file of the engine's guide it names is one the
-installed engine ships, and it calls that guide `clockwork2` and nothing
-older. Adding a client code fails it until `page.md` has a row.
+see: the limit tables in `references/files.md` and `docs/sdk.md` name every
+`MAX_` constant `/build` exports and no other, each at its value, and the
+package README's table matches too; every artifact refusal named anywhere in
+the guide, `docs/sdk.md` or the package README exists, and every one that
+exists is explained; `references/page.md` explains every client code and no
+other; every prose copy of what a release line fixes (in `SKILL.md`,
+`references/ingest.md` and `docs/sdk.md`) names exactly the fields
+`LINE_RULES` fixes; every need the prose shows a `package.json` naming is
+one `vbz` takes; the policy the null3d recipe and `docs/sdk.md` print for a
+game that needs everything is `pageCsp`'s, directive for directive; the
+recipe's mouse figures are the engine guide's measured row and its run
+lengths follow from `MAX_RUN_BYTES`; the commands are the CLI's, the layout
+it prints is the template's, and every reference is linked both ways. Every
+other limit it quotes is the constant that decides it, every `Prng` method
+it quotes is on the engine's `Prng`, every file of the engine's guide it
+names is one the installed engine ships, and it calls that guide
+`clockwork2` and nothing older. Adding a client code fails it until
+`page.md` has a row, and adding a limit fails it until both tables have
+one.
 
 ## Tests
 
@@ -342,23 +434,27 @@ older. Adding a client code fails it until `page.md` has a row.
 
 ## The browser suite
 
-`e2e/` drives what an author and a studio's page actually run. One process,
-`e2e/src/servers.ts`, builds the package and both subjects through the real
+`e2e/` drives what an author and a page actually run. One process,
+`e2e/src/servers.ts`, builds the package and every subject through the real
 CLI, so a stale `dist` cannot be what is tested, and serves: each subject's
 harness, as `vbz dev` serves it; the suite's studio page, `e2e/page/`, on an
-origin of its own under the policy the SDK recommends, against a stand-in for
-the platform per game; a bundles origin holding every game's modules under
-the game's own path; this package packed and installed apart; and a package
+origin of its own under the policy the SDK recommends with each game's
+needs, against a stand-in for the platform per game whose sign-in is on
+another site, or playing a game locally; a bundles origin holding every
+game's modules and files under the game's own path; this package packed and installed apart; and a package
 registry holding that tarball and one of the engine, packed from the copy
 installed here, which fetches every other package from npm. It keeps a
 request log per bundles origin and one for the registry, which a spec reads
 to see what was actually fetched.
 
-The subjects are the template, which draws its own two buttons, and the
-paddle fixture, which reads tilt and maps Space. Beside them, `e2e/frozen/`
-holds the template's two modules as the first release of contract 1 built
-them. They are never rebuilt: a page built from every later tree has to play
-them, and rebuilding them would test a release against itself.
+The subjects are the template, which draws its own two buttons, the
+paddle fixture, which reads tilt and maps Space, and the folder fixture,
+which carries a files folder and loads from it what an engine built into
+one loads, without one. Beside them, `e2e/frozen/`
+holds the template's two modules as the first release of each contract built
+them. They are never rebuilt once that contract is out: a page built from
+every later tree has to play them, and rebuilding them would test a release
+against itself.
 
 What only a browser can settle, and what each spec found:
 
@@ -376,14 +472,58 @@ What only a browser can settle, and what each spec found:
 - A second tab of the game and mode another tab is playing stops at the
   lock having asked the platform for nothing, before and after the first
   has committed a chunk.
-- The harness page keeps a refusal on its status line: a run the module
-  refuses at mount, and a tilt request that is refused, fails or throws,
-  which starts no run.
+- The harness page keeps a refusal on its status line: a game the browser
+  cannot draw, refused before a tick runs, and a tilt request that is
+  refused, fails or throws, which starts no run.
 - A tilt game on a studio's page starts no run without tilt, and asks the
   platform for nothing: a refusal as iOS gives it once the player taps
   "Cancel" on its motion prompt (the button's name, measured on iPadOS 26.7),
   answered by a stand-in for `requestPermission` because Chromium has none,
   and a laptop's Chromium, which has orientation events and no sensor.
+- A player signs in through the box over the page, the stand-in's sign-in
+  framed as the platform's is, with focus in the frame from the click and on
+  the sign-in's button once it loads, no window opened and nothing calling
+  `requestStorageAccess`; and on a page sent with COOP same-origin and COEP
+  require-corp, which stays `crossOriginIsolated` with the frame in it. The
+  sign-in is on another site from the page, `localhost` against
+  `127.0.0.1`, as the platform's is. Under COOP and COEP, Firefox 142
+  renders it and its ready reaches the page, but Playwright 1.56.1 cannot
+  reach into that frame there, so signing in through it is measured in the
+  other engines.
+  Cancel, and Escape pressed inside the frame or in the page, close the box
+  with `E_SIGNIN_CANCELLED`, and while it is up Tab never reaches the
+  page's controls, because the box is a modal dialog and the page is inert. A page whose policy has no `frame-src` never asks
+  for the frame, reports a `frame-src` violation and gets
+  `E_SIGNIN_UNREACHABLE` once the ready time runs out; the refused frame
+  fired `load` in Chromium and `error` in Firefox. A later page the browser
+  will not show, a form step the sign-in answers framed for nobody, gets
+  `E_SIGNIN_UNREACHABLE` too, because every page the frame loads owes a
+  ready. A studio's page shown inside a portal's page on another origin of
+  the same site asks for the sign-in and the browser refuses to show it,
+  since every ancestor is held to `frame-ancestors` by exact origin, so it
+  too gets `E_SIGNIN_UNREACHABLE`. Chromium and Firefox, measured; WebKit is in the
+  project and unmeasured here.
+- A game played locally on a studio's page with `playLocal` asks nothing
+  of any platform: every request goes to the page's own origin or the
+  game's. Its recording, posted to the stand-in as a ranked run's own by a
+  page that casts it past the compiler, is refused with
+  `E_PINNED_MISMATCH`, and the run stays open with nothing stored and no
+  board row.
+- The folder fixture's page module imports `cw2:files/entry.js`, which
+  fetches and compiles WebAssembly from the folder, starts a worker from a
+  blob that imports a module of the folder, and imports a module of the
+  folder by a computed name; its presentation is ready 600 ms after that;
+  and its rules code reads a data pack from the folder on demand. Under
+  the recommended policy with the game's needs, played locally, as a
+  ranked run and in the harness: no frame is drawn and no press recorded
+  before it is ready, the pack is fetched only once the rules code names
+  it, and the run replays to its counters with the pack and fails without
+  it. A device with no 2d canvas fails with `E_PRESENTATION_FAILED` before
+  the platform is asked for a run. Taken down while it gets ready, or
+  failing part-way, it leaves no worker running, counted through a
+  stand-in for `Worker`. Under the policy with the needs left
+  out, Chromium and Firefox refuse its core's fetch (`connect-src`) and its
+  worker (`worker-src`), and it never gets ready.
 - Watching an abandoned run stops at its end tick.
 - Tilt through Chromium's orientation override: the first reading is recorded
   as it is, and after that a level only when it changes. A spec that plays
@@ -411,9 +551,10 @@ What only a browser can settle, and what each spec found:
   it failed on a machine with nothing global. The spec holds TypeScript
   unreachable from the installed engine before `vbz new` runs.
 
-Chromium runs every spec; Firefox and WebKit run the one about the policy,
-which is each engine's to decide. The fingers and the sensor override are
-Chromium's own protocol.
+Chromium runs every spec; Firefox and WebKit run the ones about the
+policy, the sign-in's box and the files folder's loads, which are each
+engine's to decide. The fingers and the sensor override are Chromium's own
+protocol.
 
 One thing about the tools themselves, measured rather than read:
 
@@ -421,11 +562,6 @@ One thing about the tools themselves, measured rather than read:
   down, although the protocol describes `touchPoints` as "active touch
   points". With two fingers down, ending with the point that is still down
   releases that one. `e2e/src/fingers.ts` has the sequence that measured it.
-- **A window that closes itself inside a click can close before Chromium
-  answers the click's `mouseup`**, and Playwright then reports the click as
-  failed with the page closed. The stand-in's sign-in window does exactly
-  that, as the platform's does, so `signIn` in `e2e/src/studio.ts` takes a
-  click that failed because the window closed as the click working.
 
 Until engine 0.7.1 a spec could not import `@clockwork2/engine` at all, because
 its built output imported its own files without extensions and Playwright's
@@ -522,7 +658,7 @@ dispatch arrives immediately. A claim npm never confirms falls back to
 whatever npm does say is latest, so a wrong one costs two minutes and changes
 nothing.
 
-The bump itself is `scripts/bump-engine.ts`, which moves the version in all six
+The bump itself is `scripts/bump-engine.ts`, which moves the version in all seven
 places it is written - the root's pin, the peer range, the template's own
 dependency, the kernel version each example manifest declares, and the range
 `docs/sdk.md` quotes - and throws rather than skipping a file that does not

@@ -10,8 +10,9 @@
  *   reads is this build's and not one left in a working tree.
  * - **The suite's studio page**, on an origin of its own, standing in for a
  *   page a studio serves its game from, and a bundles origin standing in for
- *   the platform's, which holds every game's modules under its own path. The
- *   page plays runs against a stand-in for the platform per game.
+ *   the platform's, which holds every game's modules and files under its own
+ *   path. The page plays runs against a stand-in for the platform per game,
+ *   or plays one locally, asking no platform anything.
  * - **Page modules from other releases**: the template as the first release
  *   of contract 1 built it, committed and never rebuilt, and the template
  *   built against a packed copy of this package that says it speaks a
@@ -45,31 +46,41 @@ import { join } from "node:path"
 import { hashCanonical, type PlainValue } from "@clockwork2/engine"
 import { $ } from "bun"
 import {
+  EMPTY_LISTING,
+  filesBaseFor,
   type GameSource,
+  listingSha256,
   presentPathFor,
   sha256Hex,
   simPathFor,
 } from "../../packages/sdk/src/build/index"
 import { main } from "../../packages/sdk/src/cli/index"
+import { filesDirOf, needsOf } from "../../packages/sdk/src/cli/source"
 import {
   type BuiltGame,
   blobKeys,
   buildAndAddress,
+  type GameNeeds,
   HARNESS_SEED,
   LOOPBACK,
   pageCsp,
   type RunningStandIn,
   startHarness,
   startStandIn,
+  versionNeeds,
 } from "../../packages/sdk/src/harness"
 import { readBuiltManifest } from "../../packages/sdk/src/harness/dist-manifest"
 import { createBlobServer, JS_CONTENT_TYPE } from "../../packages/sdk/src/serve"
 import {
   CONTROL_PORT,
+  PORTAL_ORIGIN,
+  PORTAL_PORT,
+  SIGN_IN_HOST,
   STUDIO_BUNDLES_PORT,
   STUDIO_ORIGIN,
   STUDIO_PORT,
   SUBJECTS,
+  SUITE_SIGN_IN_READY_MS,
   type SubjectName,
 } from "./env"
 import { hold, startRegistry } from "./registry"
@@ -77,15 +88,16 @@ import { hold, startRegistry } from "./registry"
 const ROOT = join(import.meta.dir, "..", "..")
 const PAGE = join(import.meta.dir, "..", "page")
 
-/** Where the entries are in both subjects, as in every game `vbz new` makes. */
+/** Where the entries are in every subject, as in every game `vbz new` makes. */
 const ENTRIES = {
   simEntry: "src/sim/index.ts",
   presentEntry: "src/present.ts",
   captureEntry: "src/capture.ts",
 } as const
 
-function sourceAt(root: string): GameSource {
-  return { root, ...ENTRIES }
+/** A game's source, with the files folder its `package.json` names, if any. */
+async function sourceAt(root: string): Promise<GameSource> {
+  return { root, ...ENTRIES, filesDir: await filesDirOf(root) }
 }
 
 // The SDK's own `dist` first: the subjects' page modules bundle
@@ -132,10 +144,13 @@ for (const name of Object.keys(SUBJECTS) as SubjectName[]) {
   manifests.set(name, await readBuiltManifest(dir))
 
   const harness = await startHarness({
-    source: sourceAt(dir),
+    source: await sourceAt(dir),
+    needs: await needsOf(dir),
     hostPort: subject.hostPort,
     bundlesPort: subject.bundlesPort,
     onRequest: (path) => log.push(path),
+    // The specs' runs are held to a ranked run's input budget.
+    ranked: true,
   })
   const keys = blobKeys(harness.built)
   harnesses.set(name, {
@@ -211,7 +226,7 @@ async function templateBuiltApart(
   const after = edit(before)
   if (after === before) throw new Error(`${name}: the edit changed nothing`)
   await writeFile(file, after)
-  return await buildAndAddress(sourceAt(root), SUBJECTS.template.gameId)
+  return await buildAndAddress(await sourceAt(root), SUBJECTS.template.gameId)
 }
 
 /**
@@ -226,10 +241,21 @@ interface Held {
   readonly simKey: string
   readonly present: Uint8Array
   readonly presentKey: string
+  /** The files folder's base, without the leading slash. */
+  readonly filesKey: string
+  /** Each file of the folder, by its key on the bundles origin. */
+  readonly files: ReadonlyMap<string, Uint8Array>
+  /** What a page's policy has to allow for it beyond its two modules. */
+  readonly needs: GameNeeds
 }
 
-function held(game: SubjectName, built: BuiltGame): Held {
+/** A build, as the bundles origin holds it, with what its page's policy needs. */
+async function held(game: SubjectName, built: BuiltGame): Promise<Held> {
   const keys = blobKeys(built)
+  const files = new Map<string, Uint8Array>()
+  for (const [path, onDisk] of built.filesOnDisk) {
+    files.set(`${keys.files}${path}`, new Uint8Array(await readFile(onDisk)))
+  }
   return {
     game,
     manifest: manifests.get(game),
@@ -237,13 +263,19 @@ function held(game: SubjectName, built: BuiltGame): Held {
     simKey: keys.sim,
     present: built.present,
     presentKey: keys.present,
+    filesKey: keys.files,
+    files,
+    needs: versionNeeds(
+      await needsOf(join(ROOT, ...SUBJECTS[game].dir)),
+      built,
+    ),
   }
 }
 
 /**
- * The template's two modules as the first release of contract 1 built them,
+ * The template's two modules as the first release of a contract built them,
  * committed and never rebuilt, so a page built from this tree is held to
- * playing what an earlier release built. Its folder's README says more.
+ * playing what an earlier release built. Each folder's README says more.
  */
 async function frozen(folder: string): Promise<Held> {
   const dir = join(import.meta.dir, "..", "frozen", folder)
@@ -262,34 +294,40 @@ async function frozen(folder: string): Promise<Held> {
     simKey,
     present,
     presentKey: presentPathFor(gameId, sha256Hex(present)).slice(1),
+    // Neither frozen build has files: contract 1 knows no folder, and a
+    // page names one all the same.
+    filesKey: filesBaseFor(gameId, listingSha256(EMPTY_LISTING)).slice(1),
+    files: new Map(),
+    needs: {},
   }
+}
+
+/** A subject built for the studio's bundles origin, under its own game id. */
+async function subjectHeld(name: SubjectName): Promise<Held> {
+  return await held(
+    name,
+    await buildAndAddress(
+      await sourceAt(join(ROOT, ...SUBJECTS[name].dir)),
+      SUBJECTS[name].gameId,
+    ),
+  )
 }
 
 /** Every module the studio's bundles origin serves, by the name a page loads it with. */
 const studioModules = {
-  template: held(
-    "template",
-    await buildAndAddress(
-      sourceAt(join(ROOT, ...SUBJECTS.template.dir)),
-      SUBJECTS.template.gameId,
-    ),
-  ),
-  paddle: held(
-    "paddle",
-    await buildAndAddress(
-      sourceAt(join(ROOT, ...SUBJECTS.paddle.dir)),
-      SUBJECTS.paddle.gameId,
-    ),
-  ),
+  template: await subjectHeld("template"),
+  paddle: await subjectHeld("paddle"),
+  folder: await subjectHeld("folder"),
   "contract-1": await frozen("contract-1"),
+  "contract-2": await frozen("contract-2"),
   // A release that has moved on to a contract this tree's pages do not
   // drive, which is the one thing a page must refuse rather than misread.
-  "contract-2": held(
+  "contract-3": await held(
     "template",
-    await templateBuiltApart("contract-2", (text) =>
+    await templateBuiltApart("contract-3", (text) =>
       text.replace(
-        "export const PAGE_MODULE_CONTRACT = 1;",
         "export const PAGE_MODULE_CONTRACT = 2;",
+        "export const PAGE_MODULE_CONTRACT = 3;",
       ),
     ),
   ),
@@ -301,6 +339,7 @@ const studioBlobs = new Map<string, Uint8Array>()
 for (const module of Object.values(studioModules)) {
   studioBlobs.set(module.simKey, module.sim)
   studioBlobs.set(module.presentKey, module.present)
+  for (const [key, bytes] of module.files) studioBlobs.set(key, bytes)
 }
 const studioLog: string[] = []
 requests.set("studio", studioLog)
@@ -333,23 +372,27 @@ function presentUrlOf(name: ModuleName): string {
   return `${studioBundlesOrigin}/${studioModules[name].presentKey}`
 }
 
+function filesUrlOf(name: ModuleName): string {
+  return `${studioBundlesOrigin}/${studioModules[name].filesKey}`
+}
+
 interface Module {
   readonly presentUrl: string
   readonly manifestHash: string
+  readonly filesUrl: string
   readonly tickHz: number
-  readonly maxTicks: number
 }
 
 const modules: Record<string, Module> = {}
 for (const name of Object.keys(studioModules) as ModuleName[]) {
   const manifest = studioModules[name].manifest as {
-    readonly session: { readonly tickHz: number; readonly maxTicks: number }
+    readonly session: { readonly tickHz: number }
   }
   modules[name] = {
     presentUrl: presentUrlOf(name),
     manifestHash: hashCanonical(manifest as unknown as PlainValue),
+    filesUrl: filesUrlOf(name),
     tickHz: manifest.session.tickHz,
-    maxTicks: manifest.session.maxTicks,
   }
 }
 
@@ -360,10 +403,14 @@ for (const name of Object.keys(SUBJECTS) as SubjectName[]) {
     startStandIn({
       manifest: manifests.get(name),
       presentUrl: presentUrlOf(name),
+      filesUrl: filesUrlOf(name),
       gameId: SUBJECTS[name].gameId,
       siteOrigin: STUDIO_ORIGIN,
       seed: HARNESS_SEED,
       listen: LOOPBACK,
+      // Another site from the studio's page, as the platform's sign-in is
+      // from every studio's: localhost and 127.0.0.1 are two sites.
+      signInHost: SIGN_IN_HOST,
     }),
   )
 }
@@ -390,6 +437,23 @@ function subjectOf(url: URL): SubjectName | null {
 
 const NO_STORE = { "cache-control": "no-store" }
 
+/**
+ * The policy, letting the portal frame the page when `?portal=1` says it
+ * is: a studio's page shown inside a page of another origin, which the recommended
+ * policy's `frame-ancestors 'none'` would refuse outright.
+ */
+function framedBy(url: URL, csp: string): string {
+  return url.searchParams.get("portal") === "1"
+    ? csp.replace("frame-ancestors 'none'", `frame-ancestors ${PORTAL_ORIGIN}`)
+    : csp
+}
+
+/** Cross-origin isolation, which a game that shares memory between threads needs. */
+const ISOLATED = {
+  "cross-origin-opener-policy": "same-origin",
+  "cross-origin-embedder-policy": "require-corp",
+}
+
 Bun.serve({
   port: STUDIO_PORT,
   hostname: LOOPBACK.hostname,
@@ -406,12 +470,30 @@ Bun.serve({
           ...NO_STORE,
           "content-type": "text/html; charset=utf-8",
           // The policy the SDK recommends a studio's page sends, naming the
-          // one game this page plays.
-          "content-security-policy": pageCsp({
-            bundlesOrigin: studioBundlesOrigin,
-            gameId: SUBJECTS[name].gameId,
-            connect: [standIn.apiOrigin],
-          }),
+          // one game this page plays; or, `?frames=none`, the same with no
+          // frame-src, which a page that forgot the sign-in sends.
+          "content-security-policy": framedBy(
+            url,
+            pageCsp({
+              bundlesOrigin: studioBundlesOrigin,
+              gameId: SUBJECTS[name].gameId,
+              connect: [standIn.apiOrigin],
+              // What the game's build and its package.json say it needs:
+              // WebAssembly, workers and its folder's files, for `folder`;
+              // or, `?needs=none`, nothing, which a page that left them out
+              // sends.
+              needs:
+                url.searchParams.get("needs") === "none"
+                  ? {}
+                  : studioModules[name].needs,
+              signInOrigin:
+                url.searchParams.get("frames") === "none"
+                  ? null
+                  : standIn.signInOrigin,
+            }),
+          ),
+          // `?isolate=1`: what a page sends when its game needs threads.
+          ...(url.searchParams.get("isolate") === "1" ? ISOLATED : {}),
         },
       })
     }
@@ -431,6 +513,7 @@ Bun.serve({
           apiOrigin: standIn.apiOrigin,
           signInOrigin: standIn.signInOrigin,
           pageKey: standIn.pageKey,
+          signInReadyMs: SUITE_SIGN_IN_READY_MS,
           seed: HARNESS_SEED,
           modules,
         },
@@ -438,6 +521,30 @@ Bun.serve({
       )
     }
     return new Response("not found", { status: 404 })
+  },
+})
+
+// The portal: one page, framing the studio's page for one game.
+Bun.serve({
+  port: PORTAL_PORT,
+  hostname: LOOPBACK.hostname,
+  fetch: (request) => {
+    const url = new URL(request.url)
+    if (url.pathname !== "/") return new Response("not found", { status: 404 })
+    const framed = new URLSearchParams({
+      game: url.searchParams.get("game") ?? "template",
+      portal: "1",
+    })
+    return new Response(
+      `<!doctype html><title>A portal</title><iframe title="The game" src="${STUDIO_ORIGIN}/?${framed}" style="width: 900px; height: 900px; border: 0"></iframe>`,
+      {
+        headers: {
+          ...NO_STORE,
+          "content-type": "text/html; charset=utf-8",
+          "content-security-policy": `default-src 'none'; style-src 'unsafe-inline'; frame-src ${STUDIO_ORIGIN}`,
+        },
+      },
+    )
   },
 })
 

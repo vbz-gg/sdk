@@ -108,7 +108,8 @@ async function scriptedSession() {
     seed: "harness",
     config: {},
     tickHz: MANIFEST.session.tickHz,
-    maxTicks: MANIFEST.session.maxTicks,
+    scripted: "ignore",
+    files: "https://files.test/g/lane-runner/t/none/",
     expect: { manifestHash: game.manifestHash },
     handlers: {
       onCheckpoint: () => {},
@@ -180,6 +181,8 @@ async function scriptedSession() {
     }
   }
 
+  // The game gets ready before its clock starts.
+  await Bun.sleep(0)
   frames(1)
   let turn = 0
   for (let decision = 0; decision < 600 && last.ended === null; decision++) {

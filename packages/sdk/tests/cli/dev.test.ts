@@ -11,8 +11,15 @@ import { join } from "node:path"
 import { DEFAULT_ADDRESS, parseArgs } from "../../src/cli/args"
 import { devSettings } from "../../src/cli/dev"
 import { startHarness } from "../../src/harness"
+import { CONFIG_WITH_RANKED } from "../../src/harness/config"
+import { MANIFEST } from "../game/subject"
 
-const PEM = { "cert.pem": "CERTIFICATE", "key.pem": "PRIVATE KEY" }
+const PEM = {
+  "cert.pem": "CERTIFICATE",
+  "key.pem": "PRIVATE KEY",
+  "config.json": `{ "endAt": 5 }`,
+  "broken.json": "{ endAt: 5",
+}
 const read = async (path: string) => {
   const text = PEM[path as keyof typeof PEM]
   if (text === undefined) throw new Error(`ENOENT: ${path}`)
@@ -72,7 +79,57 @@ describe("where vbz dev listens", () => {
       hostPort: 9000,
       bundlesPort: 9001,
       site: true,
+      ranked: false,
+      config: undefined,
     })
+  })
+
+  /** A ranked run's budget is a figure on the harness page, red when asked. */
+  test("--ranked holds the harness page's runs to a ranked run's budget, and not --site's", async () => {
+    expect((await devSettings(parseArgs(["dev"]), read)).ranked).toBe(false)
+    expect(
+      (await devSettings(parseArgs(["dev", "--ranked"]), read)).ranked,
+    ).toBe(true)
+    expect(await refusal(["--site", "--ranked"])).toContain("give one")
+  })
+
+  /**
+   * A game with a setting that has no default can be played here only on a
+   * config its author names, which a ranked run never plays and a site
+   * names for itself.
+   */
+  test("--config reads a JSON config for the harness page's runs", async () => {
+    expect(
+      (await devSettings(parseArgs(["dev", "--config", "config.json"]), read))
+        .config,
+    ).toEqual({ endAt: 5 })
+    expect((await devSettings(parseArgs(["dev"]), read)).config).toBeUndefined()
+    expect(await refusal(["--config", "gone.json"])).toContain(
+      "--config gone.json could not be read",
+    )
+    expect(await refusal(["--config", "broken.json"])).toContain(
+      "--config broken.json is not JSON",
+    )
+    expect(await refusal(["--config", "config.json", "--site"])).toContain(
+      "give one",
+    )
+    // With --ranked it is refused before the file is read, and so before
+    // vbz dev builds anything, in the harness's own words.
+    const reads: string[] = []
+    let refused: unknown = null
+    try {
+      await devSettings(
+        parseArgs(["dev", "--config", "config.json", "--ranked"]),
+        async (path) => {
+          reads.push(path)
+          return await read(path)
+        },
+      )
+    } catch (error) {
+      refused = error
+    }
+    expect(String(refused)).toBe(`Error: ${CONFIG_WITH_RANKED}`)
+    expect(reads).toEqual([])
   })
 
   /**
@@ -154,11 +211,17 @@ describe("the harness over https", () => {
     await mkdir(join(dir, "game", "src", "sim"), { recursive: true })
     await writeFile(
       join(dir, "game", "src", "sim", "index.ts"),
-      "export const MANIFEST = {}\n",
+      `export const MANIFEST = ${JSON.stringify(MANIFEST)}\n`,
     )
     await writeFile(
       join(dir, "game", "src", "present.ts"),
       `import { MANIFEST } from "cw2:sim"\nexport default MANIFEST\n`,
+    )
+    // What `vbz build` writes beside the artifacts, which the harness plays.
+    await mkdir(join(dir, "game", "dist"), { recursive: true })
+    await writeFile(
+      join(dir, "game", "dist", "manifest.json"),
+      JSON.stringify(MANIFEST),
     )
   })
 
@@ -183,10 +246,12 @@ describe("the harness over https", () => {
         simEntry: "src/sim/index.ts",
         presentEntry: "src/present.ts",
         captureEntry: "src/capture.ts",
+        filesDir: null,
       },
       hostPort: 0,
       bundlesPort: 0,
       listen: settings.listen,
+      ranked: settings.ranked,
     })
     try {
       expect(harness.hostOrigin).toMatch(/^https:\/\/127\.0\.0\.1:\d+$/)

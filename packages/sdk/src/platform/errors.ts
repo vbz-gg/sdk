@@ -4,8 +4,8 @@
  * A `PlatformRefusal` is the platform's own answer: a code from
  * `PublicRefusalCode`, the status it always comes with, a sentence a person
  * can read and a detail for a log. A `PlatformClientError` is this client
- * failing before or around a request: a popup the browser blocked, a request
- * that got no answer, a game's code that did not load. Both carry a `code` a page
+ * failing before or around a request: a sign-in the browser would not
+ * frame, a request that got no answer, a game's code that did not load. Both carry a `code` a page
  * switches on, and the two code sets never overlap.
  */
 
@@ -39,12 +39,22 @@ export class PlatformRefusal extends Error {
 
 /** Every failure this client raises itself, with what it means. */
 export const CLIENT_ERROR = {
-  /** The browser did not open the sign-in window: `signIn()` ran outside a click. */
-  E_POPUP_BLOCKED:
-    "the browser blocked the sign-in window; call signIn() from a click handler, before anything is awaited",
-  /** The sign-in window closed without handing a code over. */
-  E_SIGNIN_CLOSED:
-    "the sign-in window closed before a player signed in; if it closed by itself at once, check the page does not send Cross-Origin-Opener-Policy: same-origin",
+  /**
+   * The sign-in was closed before a player signed in: its Cancel button,
+   * Escape, or the page's own `closeSignIn()`.
+   */
+  E_SIGNIN_CANCELLED: "the sign-in was closed before a player signed in",
+  /**
+   * The sign-in did not say it had loaded in its box in time. A browser that
+   * refuses to frame it shows nothing in the box and tells the page nothing,
+   * and the sign-in refuses a request it cannot check by framing its answer
+   * for nobody, so this is every refusal: a policy with no `frame-src` for
+   * the sign-in, a page shown inside another page whose origin is not its
+   * own, the same site's included, a page key that is not the
+   * game's, or a page origin the game does not allow.
+   */
+  E_SIGNIN_UNREACHABLE:
+    "the sign-in did not load in its box; check that the page's Content-Security-Policy has frame-src naming the sign-in origin, https://signin.vbz.gg, that the page is not shown inside another page whose origin is not its own, that the page key is the game's, and that the page's origin is one the game allows",
   /** A player route, and no player is signed in on this page. */
   E_NOT_SIGNED_IN: "no player is signed in on this page",
   /** `fetch` threw: the request may or may not have reached the platform. */
@@ -111,9 +121,25 @@ export const CLIENT_ERROR = {
     "a run of this game in this mode is being played in another tab or window; finish it there first",
   /** The run's replay covers no ticks, so there is nothing to show. */
   E_NOTHING_TO_WATCH: "the run has nothing to replay",
-  /** The manifest declares a data pack the simulation reads. */
-  E_SIM_PACKS:
-    "the game's manifest declares a data pack its simulation reads, which the platform cannot store or replay yet",
+  /**
+   * `playLocal` was handed a contract-1 module, which cannot say its tick
+   * rate or its config, and stops every run at its manifest's step limit.
+   */
+  E_LOCAL_PLAY_UNSUPPORTED:
+    "the game's page module was built by a release of @vbz-gg/sdk from before local play; build it again with a current one",
+  /**
+   * `playLocal` was given no config, and the game declares a setting that is
+   * required and has no default, so there is none to serve.
+   */
+  E_CONFIG_REQUIRED:
+    "the game declares a setting with no default, so a local run needs the page to give it a config",
+  /**
+   * The engine's code for a presentation that cannot get ready to draw on
+   * this device, such as a renderer that finds no GPU it can use. A page
+   * gets the game ready before it asks for a run, so nothing was started.
+   */
+  E_PRESENTATION_FAILED:
+    "this game cannot draw on this device, so no run was started; try a current browser on another device, or tell the game's studio",
   /** An error this client has no code for: a bug to report, with its detail. */
   E_UNEXPECTED: "the run met an error the client has no code for",
 } as const

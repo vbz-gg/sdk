@@ -1,6 +1,6 @@
 /**
  * The stand-in for the platform, driven by the page's own client over real
- * HTTP: a player signed in through its window, a run started, committed in
+ * HTTP: a player signed in through its framed sign-in, a run started, committed in
  * chunks, submitted and settled, read back to watch, and the board. And the
  * refusals a page has to handle, each with the code the platform answers it
  * with, so a page built against the stand-in handles what production sends.
@@ -14,6 +14,7 @@ import {
 } from "@clockwork2/engine"
 import { ManualScheduler } from "@clockwork2/engine/host"
 import type { RunChunk } from "../../src/api/index"
+import { MAX_CHUNK_BYTES, MAX_RUN_BYTES } from "../../src/build/limits"
 import type { MountHandlers } from "../../src/game/contract"
 import { definePageModule } from "../../src/game/define"
 import { LOOPBACK } from "../../src/harness/servers"
@@ -26,8 +27,12 @@ import {
   type StandInOptions,
   startStandIn,
 } from "../../src/harness/stand-in"
-import { createPlatformClient } from "../../src/platform/client"
-import { PlatformRefusal } from "../../src/platform/errors"
+import { localSeed } from "../../src/host/local"
+import {
+  createPlatformClient,
+  type RunRecording,
+} from "../../src/platform/client"
+import { CLIENT_ERROR, PlatformRefusal } from "../../src/platform/errors"
 import { RUN_PHASE, Run, type RunState } from "../../src/platform/run"
 import {
   type Config,
@@ -42,6 +47,7 @@ import { FakePage, settle } from "../platform/fake-page"
 
 const GAME_ID = "00000000-0000-4000-8000-000000000000"
 const PRESENT = `http://127.0.0.1:1/g/${GAME_ID}/present/${"a".repeat(64)}.js`
+const FILES = `http://127.0.0.1:1/g/${GAME_ID}/t/${"b".repeat(64)}/`
 const HASH = hashCanonical(MANIFEST as unknown as PlainValue)
 
 /** What the platform answers for a run a reader may not have, or that does not exist. */
@@ -74,6 +80,7 @@ function standIn(extra: Partial<StandInOptions> = {}) {
   const started = startStandIn({
     manifest: MANIFEST,
     presentUrl: PRESENT,
+    filesUrl: FILES,
     gameId: GAME_ID,
     siteOrigin: page.origin,
     seed: "harness",
@@ -90,26 +97,99 @@ function standIn(extra: Partial<StandInOptions> = {}) {
   return { page, client, started }
 }
 
-/** Signs the local player in through the stand-in's own window. */
+/**
+ * A sign-in request for the page at `page`, as a query or a form carries
+ * it, with each override set, or left out where it is null.
+ */
+function signInQuery(
+  page: string,
+  overrides: Readonly<Record<string, string | null>>,
+): URLSearchParams {
+  const fields = new URLSearchParams({
+    client_id: STAND_IN_PAGE_KEY,
+    redirect_uri: page,
+    state: "s",
+    code_challenge: "c",
+    code_challenge_method: "S256",
+  })
+  for (const [name, value] of Object.entries(overrides)) {
+    if (value === null) fields.delete(name)
+    else fields.set(name, value)
+  }
+  return fields
+}
+
+/** What a sign-in page carries for its script, as data. */
+interface SignInRead {
+  readonly origin?: string
+  readonly state?: string
+  readonly handoff?: { readonly type: string; readonly code: string }
+}
+
+function signInRead(html: string): SignInRead {
+  const block =
+    /<script type="application\/json" id="signin">(.*?)<\/script>/s.exec(html)
+  return JSON.parse(block?.[1] ?? "null") as SignInRead
+}
+
+/** The form a sign-in page posts to `/continue`, as its fields. */
+function formOf(html: string): URLSearchParams {
+  const fields = new URLSearchParams()
+  for (const match of html.matchAll(
+    /<input type="hidden" name="([a-z_]+)" value="([^"]*)" \/>/g,
+  )) {
+    fields.set(match[1] as string, match[2] as string)
+  }
+  return fields
+}
+
+/** The form posted back to the sign-in, as its own page in the frame posts it. */
+function continueWith(
+  signInOrigin: string,
+  fields: URLSearchParams,
+  origin: string | null = signInOrigin,
+): Promise<Response> {
+  return fetch(`${signInOrigin}/continue`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/x-www-form-urlencoded",
+      ...(origin === null ? {} : { origin }),
+    },
+    body: fields,
+  })
+}
+
+/**
+ * Signs the local player in through the stand-in's framed sign-in: the page
+ * puts its box up, the frame loads `/authorize` and says it is ready, the
+ * player continues, and the hand-off posts the code from the frame.
+ */
 async function signIn(made: ReturnType<typeof standIn>) {
   const signing = made.client.signIn()
   await settle()
-  const href = made.page.popup?.location.href ?? ""
+  const href = made.page.box?.url ?? ""
   expect(href.startsWith(`${made.started.signInOrigin}/authorize?`)).toBe(true)
-  const html = await (await fetch(href)).text()
-  const hand =
-    /<script type="application\/json" id="hand">(.*?)<\/script>/s.exec(html)
-  const parsed = JSON.parse(hand?.[1] ?? "null") as {
-    origin: string
-    message: unknown
-  }
-  // The window posts to the page that opened it, and to that origin alone.
-  expect(parsed.origin).toBe(made.page.origin)
-  made.page.post({
-    origin: made.started.signInOrigin,
-    source: made.page.popup,
-    data: parsed.message,
-  })
+  const asked = await (await fetch(href)).text()
+  const read = signInRead(asked)
+  // Posted to the page that framed it, and to that origin alone.
+  expect(read.origin).toBe(made.page.origin)
+  const fromFrame = (data: unknown) =>
+    made.page.post({
+      origin: made.started.signInOrigin,
+      source: made.page.box?.frame,
+      data,
+    })
+  // The page asks the page its frame loaded, and the sign-in answers.
+  made.page.box?.loaded()
+  const pinged = made.page.box?.posted.at(-1)?.message as
+    | { readonly load?: unknown }
+    | undefined
+  fromFrame({ type: "vbz.signin.ready", state: read.state, load: pinged?.load })
+  const handed = signInRead(
+    await (await continueWith(made.started.signInOrigin, formOf(asked))).text(),
+  )
+  expect(handed.origin).toBe(made.page.origin)
+  fromFrame(handed.handoff)
   return await signing
 }
 
@@ -141,6 +221,7 @@ const PLATFORM_STATUS: Readonly<Record<string, number>> = {
   E_INPUT_RANGE: 400,
   E_INPUT_BUDGET: 400,
   E_RECORDING_MALFORMED: 400,
+  E_PINNED_MISMATCH: 400,
 }
 
 /** Holds a refusal's status to the platform's for its code. */
@@ -173,8 +254,11 @@ async function refusedCode(response: Response): Promise<string> {
   return error
 }
 
-/** A run of the probe game with two presses, as its page records it. */
-function played(seed: string): Recording {
+/**
+ * A run of the probe game with two presses, as its page records it, handed
+ * over as `Run` hands a recording to `submit`.
+ */
+async function played(seed: string): Promise<RunRecording> {
   const keys = devices()
   const scheduler = new ManualScheduler()
   const game = definePageModule<View, Config>({
@@ -191,7 +275,8 @@ function played(seed: string): Recording {
       seed,
       config: {},
       tickHz: 60,
-      maxTicks: 600,
+      scripted: "ignore",
+      files: FILES,
       expect: { manifestHash: HASH },
       handlers: {
         onCheckpoint: () => {},
@@ -207,6 +292,8 @@ function played(seed: string): Recording {
       environment: keys,
     },
   )
+  // The game gets ready before its clock starts.
+  await Bun.sleep(0)
   scheduler.run(1, FRAME_MS)
   for (let press = 0; press < 2; press += 1) {
     keys.press("ArrowLeft", true)
@@ -217,7 +304,7 @@ function played(seed: string): Recording {
   handle.stop("abandoned")
   const made = recording as Recording | null
   if (made === null) throw new Error("the run never ended")
-  return made
+  return made as RunRecording
 }
 
 function chunkOf(recording: Recording, seq = 0): RunChunk {
@@ -230,7 +317,7 @@ function chunkOf(recording: Recording, seq = 0): RunChunk {
 }
 
 describe("signing in", () => {
-  test("the window hands the page a code, which trades for the local player", async () => {
+  test("the sign-in hands the page a code, which trades for the local player", async () => {
     const made = standIn()
     const player = await signIn(made)
     expect(player).toEqual(LOCAL_PLAYER)
@@ -249,20 +336,339 @@ describe("signing in", () => {
     expect(refused.status).toBe(400)
   })
 
-  test("a window asked by another page, or with no challenge, hands nothing", async () => {
+  /**
+   * Framed exactly as the platform's sign-in is: a page carrying a checked
+   * request for the one origin that asked, with what lets it render in a
+   * page sent with COOP and COEP; every other answer for nobody. Walked as
+   * a table, so a new answer has to say which it is.
+   */
+  test("each answer is framed for the page that asked, or for nobody", async () => {
     const made = standIn()
-    const base = `${made.started.signInOrigin}/authorize?client_id=${STAND_IN_PAGE_KEY}&state=s&code_challenge_method=S256`
-    for (const query of [
-      `${base}&redirect_uri=https://elsewhere.example&code_challenge=c`,
-      `${base}&redirect_uri=${made.page.origin}`,
-      `${made.started.signInOrigin}/authorize?client_id=vbz_pk_other&redirect_uri=${made.page.origin}&state=s&code_challenge=c&code_challenge_method=S256`,
-      `${made.started.signInOrigin}/authorize?client_id=${STAND_IN_PAGE_KEY}&redirect_uri=${made.page.origin}&code_challenge=c&code_challenge_method=S256`,
-    ]) {
-      const response = await fetch(query)
-      expect(response.status).toBe(400)
-      expect(await response.text()).not.toContain('id="hand"')
+    const sign = made.started.signInOrigin
+    const page = made.page.origin
+    const query = (overrides: Record<string, string | null>) =>
+      signInQuery(page, overrides)
+    const rows: ReadonlyArray<
+      readonly [string, () => Promise<Response>, number, string | null]
+    > = [
+      ["authorize", () => fetch(`${sign}/authorize?${query({})}`), 200, page],
+      [
+        "authorize for another page",
+        () =>
+          fetch(
+            `${sign}/authorize?${query({ redirect_uri: "https://elsewhere.example" })}`,
+          ),
+        400,
+        null,
+      ],
+      [
+        "authorize with no challenge",
+        () => fetch(`${sign}/authorize?${query({ code_challenge: null })}`),
+        400,
+        null,
+      ],
+      [
+        "authorize with another page key",
+        () =>
+          fetch(`${sign}/authorize?${query({ client_id: "vbz_pk_other" })}`),
+        400,
+        null,
+      ],
+      [
+        "authorize with no state",
+        () => fetch(`${sign}/authorize?${query({ state: null })}`),
+        400,
+        null,
+      ],
+      ["continue", () => continueWith(sign, query({})), 200, page],
+      [
+        "continue posted from the page itself",
+        () => continueWith(sign, query({}), page),
+        400,
+        null,
+      ],
+      [
+        "continue with no origin",
+        () => continueWith(sign, query({}), null),
+        400,
+        null,
+      ],
+      [
+        "continue for another page",
+        () =>
+          continueWith(
+            sign,
+            query({ redirect_uri: "https://elsewhere.example" }),
+          ),
+        400,
+        null,
+      ],
+      [
+        "continue with a body that is not a form",
+        () =>
+          fetch(`${sign}/continue`, {
+            method: "POST",
+            headers: { origin: sign, "content-type": "text/plain" },
+            body: "client_id=x",
+          }),
+        400,
+        null,
+      ],
+      ["the script", () => fetch(`${sign}/signin.js`), 200, null],
+      ["the stylesheet", () => fetch(`${sign}/signin.css`), 200, null],
+      ["the root", () => fetch(`${sign}/`), 404, null],
+      [
+        "authorize posted",
+        () => fetch(`${sign}/authorize?${query({})}`, { method: "POST" }),
+        404,
+        null,
+      ],
+    ]
+    for (const [what, ask, status, framedFor] of rows) {
+      const answer = await ask()
+      const headers = Object.fromEntries(answer.headers)
+      const policy = headers["content-security-policy"] ?? ""
+      expect({ what, status: answer.status }).toEqual({ what, status })
+      if (framedFor === null) {
+        expect({ what, policy }).toEqual({
+          what,
+          policy: expect.stringContaining("frame-ancestors 'none'"),
+        })
+        expect({ what, xfo: headers["x-frame-options"] }).toEqual({
+          what,
+          xfo: "DENY",
+        })
+        expect({ what, coep: headers["cross-origin-embedder-policy"] }).toEqual(
+          { what, coep: undefined },
+        )
+      } else {
+        expect({ what, policy }).toEqual({
+          what,
+          policy: expect.stringContaining(`frame-ancestors ${framedFor}`),
+        })
+        expect(policy.split("frame-ancestors")).toHaveLength(2)
+        expect({ what, xfo: headers["x-frame-options"] }).toEqual({
+          what,
+          xfo: undefined,
+        })
+        expect(headers["cross-origin-embedder-policy"]).toBe("require-corp")
+        expect(headers["cross-origin-resource-policy"]).toBe("cross-origin")
+      }
+      expect(headers["cache-control"]).toBe("no-store")
+      expect(headers["set-cookie"]).toBeUndefined()
+      await answer.text()
     }
-    expect((await fetch(`${made.started.signInOrigin}/`)).status).toBe(404)
+  })
+
+  /**
+   * A studio's page and the platform's sign-in are two sites, and the
+   * browser suite puts the stand-in's on another one too: listening where
+   * the rest does, written with another name for this machine.
+   */
+  test("can be reached by another name for this machine, on another site from the page", async () => {
+    const made = standIn({ signInHost: "localhost" })
+    const sign = made.started.signInOrigin
+    expect(new URL(sign).hostname).toBe("localhost")
+    expect(new URL(made.started.apiOrigin).hostname).toBe("127.0.0.1")
+    const answer = await fetch(`${sign}/signin.css`)
+    expect(answer.status).toBe(200)
+    await answer.text()
+  })
+
+  test("a refused request hands nothing over, and its page runs no script", async () => {
+    const made = standIn()
+    const answer = await fetch(
+      `${made.started.signInOrigin}/authorize?client_id=vbz_pk_other`,
+    )
+    const html = await answer.text()
+    expect(html).toContain(
+      "Refused: the page key &quot;vbz_pk_other&quot; is not the stand-in&#39;s",
+    )
+    expect(html).not.toContain('id="signin"')
+    expect(html).not.toContain("<script")
+  })
+
+  /**
+   * A refused request's page is framed for nobody, so the page that asked
+   * shows an empty box and hears only E_SIGNIN_UNREACHABLE. The reason goes
+   * to the terminal `vbz dev` runs in, where an author reads it.
+   */
+  test("says why it refused a request in the terminal, which the page cannot show", async () => {
+    const lines: string[] = []
+    const made = standIn({ log: (line) => lines.push(line) })
+    const sign = made.started.signInOrigin
+    const query = (overrides: Record<string, string | null>) =>
+      signInQuery(made.page.origin, overrides)
+    const asked = [
+      query({ client_id: "vbz_pk_other" }),
+      query({ redirect_uri: "https://elsewhere.example" }),
+      query({ code_challenge_method: "plain" }),
+      query({ state: "" }),
+    ]
+    for (const search of asked) {
+      await (await fetch(`${sign}/authorize?${search}`)).text()
+    }
+    await (
+      await fetch(`${sign}/continue`, {
+        method: "POST",
+        headers: { origin: "https://elsewhere.example" },
+        body: query({}),
+      })
+    ).text()
+    expect(lines).toHaveLength(5)
+    for (const line of lines) {
+      expect(line).toStartWith(
+        "stand-in sign-in: refused, so the page's box stays empty and signIn() ends in E_SIGNIN_UNREACHABLE: ",
+      )
+    }
+    expect(lines[0]).toContain('the page key "vbz_pk_other"')
+    expect(lines[0]).toContain(STAND_IN_PAGE_KEY)
+    expect(lines[1]).toContain('"https://elsewhere.example"')
+    expect(lines[1]).toContain("http://127.0.0.1:4310")
+    expect(lines[2]).toContain("no S256 challenge")
+    expect(lines[3]).toContain("no state")
+    expect(lines[4]).toContain("not posted from the sign-in's own page")
+  })
+
+  /**
+   * The script every framed page runs, against a window and a document of
+   * its own: what it posts, and to whom.
+   */
+  describe("the framed page's script", () => {
+    /** A message to the page's window, as the browser delivers one. */
+    interface Delivered {
+      readonly source: unknown
+      readonly origin: string
+      readonly data: unknown
+    }
+
+    async function run(
+      read: SignInRead,
+      framed: boolean,
+    ): Promise<{
+      posted: Array<readonly [unknown, string]>
+      status: string
+      keys: Array<(event: { key: string }) => void>
+      /** A message reaching the sign-in's page, from whoever sends it. */
+      deliver: (message: Delivered) => void
+      /** The parent's window, the one source a ping is taken from. */
+      parent: unknown
+      load: () => void
+    }> {
+      const made = standIn()
+      const script = await (
+        await fetch(`${made.started.signInOrigin}/signin.js`)
+      ).text()
+      const posted: Array<readonly [unknown, string]> = []
+      const keys: Array<(event: { key: string }) => void> = []
+      const status = { textContent: "" }
+      const parent = {
+        postMessage: (message: unknown, origin: string) =>
+          posted.push([message, origin]),
+      }
+      const onLoad: Array<() => void> = []
+      const onMessage: Array<(event: Delivered) => void> = []
+      const page: {
+        parent?: unknown
+        addEventListener?: (
+          type: string,
+          listener: (event: Delivered) => void,
+        ) => void
+      } = {
+        addEventListener: (type, listener) => {
+          if (type === "load") onLoad.push(() => listener({} as Delivered))
+          if (type === "message") onMessage.push(listener)
+        },
+      }
+      page.parent = framed ? parent : page
+      const document = {
+        getElementById: (id: string) =>
+          id === "signin" ? { textContent: JSON.stringify(read) } : status,
+        addEventListener: (
+          _: string,
+          listener: (event: { key: string }) => void,
+        ) => keys.push(listener),
+        querySelector: () => ({ focus: () => {} }),
+      }
+      new Function("window", "document", script)(page, document)
+      // Nothing is posted before the page has loaded and been asked.
+      if (posted.length !== 0) throw new Error("posted before anything")
+      return {
+        posted,
+        status: status.textContent,
+        keys,
+        parent,
+        deliver: (message) => {
+          for (const listener of onMessage) listener(message)
+        },
+        load: () => {
+          for (const listener of onLoad) listener()
+        },
+      }
+    }
+
+    const PAGE = "http://127.0.0.1:4310"
+    const ping = (load: unknown, state = "s") => ({
+      type: "vbz.signin.ping",
+      state,
+      load,
+    })
+
+    /**
+     * It answers the ping for the load the page is asking about, echoing
+     * it, and only a ping from its parent, on the page's origin, for its
+     * state: a ready nobody asked for would say nothing to the page.
+     */
+    test("answers its parent's ping, echoing the load, to the page's origin alone, and Escape closes it", async () => {
+      const ran = await run({ origin: PAGE, state: "s" }, true)
+      ran.load()
+      expect(ran.posted).toEqual([])
+      ran.deliver({ source: {}, origin: PAGE, data: ping(1) })
+      ran.deliver({
+        source: ran.parent,
+        origin: "https://elsewhere.example",
+        data: ping(1),
+      })
+      ran.deliver({ source: ran.parent, origin: PAGE, data: ping(1, "other") })
+      ran.deliver({ source: ran.parent, origin: PAGE, data: ping("1") })
+      ran.deliver({ source: ran.parent, origin: PAGE, data: null })
+      expect(ran.posted).toEqual([])
+      ran.deliver({ source: ran.parent, origin: PAGE, data: ping(3) })
+      expect(ran.posted).toEqual([
+        [{ type: "vbz.signin.ready", state: "s", load: 3 }, PAGE],
+      ])
+      for (const listener of ran.keys) listener({ key: "Enter" })
+      expect(ran.posted).toHaveLength(1)
+      for (const listener of ran.keys) listener({ key: "Escape" })
+      expect(ran.posted.at(-1)).toEqual([
+        { type: "vbz.signin.cancel", state: "s" },
+        PAGE,
+      ])
+    })
+
+    test("hands the code to the page's origin alone on load, and answers a ping too", async () => {
+      const handoff = { type: "vbz.signin", code: "c", state: "s" }
+      const ran = await run({ origin: PAGE, state: "s", handoff }, true)
+      ran.load()
+      ran.deliver({ source: ran.parent, origin: PAGE, data: ping(2) })
+      expect(ran.posted).toEqual([
+        [handoff, PAGE],
+        [{ type: "vbz.signin.ready", state: "s", load: 2 }, PAGE],
+      ])
+    })
+
+    test("opened on its own, in no frame, it posts nothing and says where to go", async () => {
+      const ran = await run(
+        {
+          origin: "http://127.0.0.1:4310",
+          state: "s",
+          handoff: { type: "vbz.signin", code: "c" },
+        },
+        false,
+      )
+      expect(ran.posted).toEqual([])
+      expect(ran.status).toContain("Go back to the page you were signing in to")
+    })
   })
 })
 
@@ -287,7 +693,8 @@ describe("the game and a run", () => {
     const made = standIn()
     await signIn(made)
     const started = await made.client.startRun()
-    expect(started.seed).toBe("harness")
+    // Shaped as the platform's are, so no local seed can be one.
+    expect(started.seed).toMatch(/^[0-9a-f]{64}$/)
     expect(started.limits).toEqual(STAND_IN_LIMITS)
     expect(started.game.manifestHash).toBe(HASH)
 
@@ -296,7 +703,7 @@ describe("the game and a run", () => {
       client: made.client,
       onState: (state) => states.push(state),
     })
-    const recording = played(started.seed)
+    const recording = await played(started.seed)
     run.play(started, (options) => {
       // The mount a page module would make, reporting what it played.
       for (const checkpoint of recording.checkpoints) {
@@ -331,12 +738,13 @@ describe("the game and a run", () => {
     expect(watched.inputs).toEqual(recording.inputs)
     expect(watched.replayTicks).toBe(recording.endTick)
     expect(watched.presentUrl).toBe(PRESENT)
+    expect(watched.filesUrl).toBe(FILES)
 
     // And the board holds it, as the reader's own row.
     const board = await made.client.board()
     expect(board.rows.map((row) => row.sessionId)).toEqual([started.sessionId])
     expect(board.you?.sessionId).toBe(started.sessionId)
-    expect(board.rankBy).toEqual(MANIFEST.rankBy)
+    expect(board.rankBy).toEqual(["presses"])
   })
 
   /**
@@ -348,7 +756,7 @@ describe("the game and a run", () => {
     const made = standIn()
     await signIn(made)
     const started = await made.client.startRun()
-    const recording = played(started.seed)
+    const recording = await played(started.seed)
     // Something to cut, and checkpoints on both sides of a cut.
     expect(recording.inputs.length).toBeGreaterThanOrEqual(4)
     expect(recording.checkpoints.length).toBeGreaterThanOrEqual(2)
@@ -406,7 +814,7 @@ describe("the game and a run", () => {
     await signIn(made)
     const started = await made.client.startRun({ practice: true })
     expect(started.mode).toBe("practice")
-    const recording = played(started.seed)
+    const recording = await played(started.seed)
     await made.client.submit(started, recording)
     const result = await made.client.result(started.sessionId)
     expect(result.state).toBe("settled")
@@ -420,7 +828,7 @@ describe("the game and a run", () => {
     await signIn(made)
     const first = await made.client.startRun()
     expect((await made.client.startRun()).sessionId).toBe(first.sessionId)
-    const recording = played(first.seed)
+    const recording = await played(first.seed)
     await made.client.sendChunk(first, chunkOf(recording))
     const second = await made.client.startRun()
     expect(second.sessionId).not.toBe(first.sessionId)
@@ -527,7 +935,7 @@ describe("the refusals a page has to handle", () => {
     const made = standIn()
     await signIn(made)
     const run = await made.client.startRun()
-    const recording = played(run.seed)
+    const recording = await played(run.seed)
     const first = {
       ...chunkOf(recording),
       throughTick: 30,
@@ -623,7 +1031,7 @@ describe("the refusals a page has to handle", () => {
     const made = standIn()
     await signIn(made)
     const run = await made.client.startRun()
-    const recording = played(run.seed)
+    const recording = await played(run.seed)
     await made.client.sendChunk(run, {
       ...chunkOf(recording),
       throughTick: 10,
@@ -644,7 +1052,10 @@ describe("the refusals a page has to handle", () => {
     expect(
       (
         await refusalOf(
-          made.client.submit(run, { ...recording, counters: { presses: 99 } }),
+          made.client.submit(run, {
+            ...recording,
+            counters: { presses: 99 },
+          } as RunRecording),
         )
       ).code,
     ).toBe("E_SESSION_CLOSED")
@@ -658,9 +1069,15 @@ describe("the refusals a page has to handle", () => {
     await signIn(made)
     const run = await made.client.startRun()
     expect(
-      (await refusalOf(made.client.submit(run, { format: "nope" }))).code,
+      (
+        await refusalOf(
+          made.client.submit(run, {
+            format: "nope",
+          } as unknown as RunRecording),
+        )
+      ).code,
     ).toBe("E_RECORDING_MALFORMED")
-    const recording = played(run.seed)
+    const recording = await played(run.seed)
     const tampered = {
       ...recording,
       inputs: [
@@ -668,9 +1085,46 @@ describe("the refusals a page has to handle", () => {
         { tick: recording.endTick, code: "jump", value: 1 },
       ],
     }
-    expect((await refusalOf(made.client.submit(run, tampered))).code).toBe(
-      "E_INPUT_UNDECLARED",
-    )
+    expect(
+      (await refusalOf(made.client.submit(run, tampered as RunRecording))).code,
+    ).toBe("E_INPUT_UNDECLARED")
+  })
+
+  /**
+   * A local run plays `local:` and a seed, and every seed the platform
+   * issues is 64 hex characters, so a local recording posted as a run's is
+   * refused, and the run is settled by nothing.
+   */
+  test("a local run's recording is refused as one played on a seed the run was not issued", async () => {
+    const made = standIn()
+    await signIn(made)
+    const run = await made.client.startRun()
+    const local = await played(localSeed(run.seed))
+    expect(local.seed).toBe(`local:${run.seed}`)
+    const refused = await refusalOf(made.client.submit(run, local))
+    expect(refused.code).toBe("E_PINNED_MISMATCH")
+    expect(refused.message).toContain("seed")
+    expect((await made.client.result(run.sessionId)).state).toBe("open")
+    // The run's own recording is still taken.
+    expect(
+      (await made.client.submit(run, await played(run.seed))).sessionId,
+    ).toBe(run.sessionId)
+  })
+
+  test("a recording played on another config, or at another rate, is refused", async () => {
+    const made = standIn()
+    await signIn(made)
+    const run = await made.client.startRun()
+    const recording = await played(run.seed)
+    for (const edited of [
+      { ...recording, config: { endAt: 1 } },
+      { ...recording, tickHz: 30 },
+      { ...recording, manifestHash: "other" },
+    ]) {
+      expect(
+        (await refusalOf(made.client.submit(run, edited as RunRecording))).code,
+      ).toBe("E_PINNED_MISMATCH")
+    }
   })
 
   /**
@@ -684,7 +1138,7 @@ describe("the refusals a page has to handle", () => {
     const made = standIn({ now: () => now })
     await signIn(made)
     const started = await made.client.startRun()
-    const recording = played(started.seed)
+    const recording = await played(started.seed)
     await made.client.submit(started, recording)
     expect((await made.client.watch(started.sessionId)).inputs).toEqual(
       recording.inputs,
@@ -731,4 +1185,121 @@ describe("the refusals a page has to handle", () => {
       expect([refused.code, refused.status, refused.message]).toEqual(NOT_THERE)
     }
   })
+})
+
+/** A body's size as the wire carries it. */
+const wire = (body: unknown) =>
+  new TextEncoder().encode(JSON.stringify(body)).byteLength
+
+/** A chunk of nothing, padded to exactly `bytes` on the wire. */
+function padded(seq: number, throughTick: number, bytes: number): RunChunk {
+  const base = { seq, throughTick, checkpoints: [], inputs: [], note: "" }
+  return {
+    ...base,
+    note: "x".repeat(bytes - wire(base)),
+  } as unknown as RunChunk
+}
+
+describe("what the stand-in serves, and the platform's limits", () => {
+  /** The checks play the served config, so a run has to as well, never `{}`. */
+  test("a run plays every declared setting at its default", async () => {
+    const manifest = {
+      ...MANIFEST,
+      params: { endAt: { type: "int", label: "End", default: 90 } },
+    }
+    const made = standIn({ manifest })
+    await signIn(made)
+    expect((await made.client.startRun()).config).toEqual({ endAt: 90 })
+  })
+
+  test("a game that declares no way to rank is refused, as the platform's checks refuse it", () => {
+    const { rankBy: _, tiePolicy: __, ...unranked } = MANIFEST
+    expect(() => standIn({ manifest: unranked })).toThrow(
+      /rankBy and tiePolicy/,
+    )
+  })
+
+  /** A ranked or practice run plays the served config, which this has none of. */
+  test("a game with a required setting that has no default is refused, naming it", () => {
+    const manifest = {
+      ...MANIFEST,
+      params: { endAt: { type: "int", label: "End" } },
+    }
+    expect(() => standIn({ manifest })).toThrow(
+      `E_CONFIG_REQUIRED: ${CLIENT_ERROR.E_CONFIG_REQUIRED} (params.endAt); a ranked or practice run plays every setting at its default`,
+    )
+  })
+
+  test("its limits are the platform's", () => {
+    expect(STAND_IN_LIMITS).toEqual({
+      chunkBytes: MAX_CHUNK_BYTES,
+      runBytes: MAX_RUN_BYTES,
+    })
+  })
+
+  test("a chunk at its limit is taken, and one a byte larger is refused", async () => {
+    const made = standIn()
+    await signIn(made)
+    const run = await made.client.startRun()
+    const at = padded(0, 10, MAX_CHUNK_BYTES)
+    expect(wire(at)).toBe(MAX_CHUNK_BYTES)
+    expect(await made.client.sendChunk(run, at)).toEqual({
+      seq: 0,
+      throughTick: 10,
+    })
+    const over = padded(1, 20, MAX_CHUNK_BYTES + 1)
+    expect((await refusalOf(made.client.sendChunk(run, over))).code).toBe(
+      "E_BODY_TOO_LARGE",
+    )
+  })
+
+  /** Every chunk at its own limit, so only the run's total can refuse. */
+  async function committed(total: number) {
+    const made = standIn()
+    await signIn(made)
+    const run = await made.client.startRun()
+    const sizes: number[] = []
+    let left = total
+    while (left > MAX_CHUNK_BYTES + 100) {
+      sizes.push(MAX_CHUNK_BYTES)
+      left -= MAX_CHUNK_BYTES
+    }
+    sizes.push(left - 100, 100)
+    let last: unknown = null
+    for (const [seq, size] of sizes.entries()) {
+      try {
+        last = await made.client.sendChunk(run, padded(seq, seq + 1, size))
+      } catch (error) {
+        last = error
+      }
+    }
+    return last
+  }
+
+  test("a run's chunks are taken up to its limit, and refused one byte past it", async () => {
+    expect(await committed(MAX_RUN_BYTES)).toMatchObject({ seq: 31 })
+    const refused = await committed(MAX_RUN_BYTES + 1)
+    expect(refused).toBeInstanceOf(PlatformRefusal)
+    expect((refused as PlatformRefusal).code).toBe("E_RUN_TOO_LARGE")
+  }, 60_000)
+
+  test("a recording at its limit is read, and one a byte larger is refused unread", async () => {
+    const made = standIn()
+    await signIn(made)
+    const run = await made.client.startRun()
+    const body = (pad: number) => ({ recording: { pad: "x".repeat(pad) } })
+    const at = MAX_RUN_BYTES - wire(body(0))
+    expect(wire(body(at))).toBe(MAX_RUN_BYTES)
+    expect(
+      (await refusalOf(made.client.submit(run, body(at).recording as never)))
+        .code,
+    ).toBe("E_RECORDING_MALFORMED")
+    expect(
+      (
+        await refusalOf(
+          made.client.submit(run, body(at + 1).recording as never),
+        )
+      ).code,
+    ).toBe("E_BODY_TOO_LARGE")
+  }, 60_000)
 })
