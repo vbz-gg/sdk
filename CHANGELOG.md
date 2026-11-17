@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [0.7.2](https://github.com/vbz-gg/sdk/compare/v0.7.1...v0.7.2) (2026-11-17)
+
+
+### Bug Fixes
+
+* the replay service's load refusal, upload checks that play nothing, patch replays of at most 3 runs ([#25](https://github.com/vbz-gg/sdk/issues/25)) ([1110fe5](https://github.com/vbz-gg/sdk/commit/1110fe507eefb64301aa4774ea90fb315451b789))
+
 ## [0.7.1](https://github.com/vbz-gg/sdk/compare/v0.7.0...v0.7.1) (2026-11-17)
 
 
