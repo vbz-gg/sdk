@@ -161,22 +161,36 @@ export const PUBLISH_ERROR = {
 export type PublishErrorCode =
   (typeof PUBLISH_ERROR)[keyof typeof PUBLISH_ERROR]
 
+/** What a `PublishError` says beyond its code and its sentence, each when there is one. */
+export interface PublishErrorOptions {
+  /** The platform's own code, when it refused. */
+  readonly refusal?: string | undefined
+  /** The HTTP status the platform answered with, when it answered. */
+  readonly status?: number | undefined
+  /** What the refusal was about, when the platform said. */
+  readonly detail?: Readonly<Record<string, unknown>> | undefined
+  /** What to do next, a line each, printed after the reason. */
+  readonly next?: readonly string[] | undefined
+}
+
 export class PublishError extends Error {
   override readonly name = "PublishError"
+  readonly refusal: string | undefined
+  readonly status: number | undefined
+  readonly detail: Readonly<Record<string, unknown>> | undefined
+  readonly next: readonly string[]
 
   constructor(
     readonly code: PublishErrorCode,
     message: string,
-    /** The platform's own code, when it refused. */
-    readonly refusal?: string,
-    /** The HTTP status the platform answered with, when it answered. */
-    readonly status?: number,
-    /** What the refusal was about, when the platform said. */
-    readonly detail?: Readonly<Record<string, unknown>>,
-    /** What to do next, a line each, printed after the reason. */
-    readonly next: readonly string[] = [],
+    options: PublishErrorOptions = {},
   ) {
+    const { refusal } = options
     super(`${message} (${code}${refusal === undefined ? "" : `, ${refusal}`})`)
+    this.refusal = refusal
+    this.status = options.status
+    this.detail = options.detail
+    this.next = options.next ?? []
   }
 }
 
@@ -460,13 +474,12 @@ function stillChecking(
   return new PublishError(
     PUBLISH_ERROR.STILL_CHECKING,
     `version ${uploaded.version} (${uploaded.gameVersionId}) is still pending after ${CHECK_WAIT_MS / 60_000} minutes: the platform has it and its checks have not decided, so this exits 1 with no verdict`,
-    undefined,
-    undefined,
-    undefined,
-    [
-      `read its state later with the studio's secret key, GET ${versionUrl}: pending until the checks decide, then published or rejected`,
-      `do not publish ${uploaded.version} again: the platform has it, and a second upload is refused as E_VERSION_EXISTS`,
-    ],
+    {
+      next: [
+        `read its state later with the studio's secret key, GET ${versionUrl}: pending until the checks decide, then published or rejected`,
+        `do not publish ${uploaded.version} again: the platform has it, and a second upload is refused as E_VERSION_EXISTS`,
+      ],
+    },
   )
 }
 
@@ -706,8 +719,7 @@ async function call(
     throw new PublishError(
       PUBLISH_ERROR.ANSWER_UNREADABLE,
       `the platform answered ${response.status} with something that is not JSON`,
-      undefined,
-      response.status,
+      { status: response.status },
     )
   }
   if (!response.ok) {
@@ -715,16 +727,13 @@ async function call(
       throw new PublishError(
         PUBLISH_ERROR.REFUSED,
         `the platform refused: ${body.message}`,
-        body.error,
-        response.status,
-        body.detail,
+        { refusal: body.error, status: response.status, detail: body.detail },
       )
     }
     throw new PublishError(
       PUBLISH_ERROR.ANSWER_UNREADABLE,
       `the platform answered ${response.status} without saying why`,
-      undefined,
-      response.status,
+      { status: response.status },
     )
   }
   return body

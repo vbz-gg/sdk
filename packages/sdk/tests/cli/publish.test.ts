@@ -780,13 +780,11 @@ describe("what a refusal's detail says", () => {
     refusal: string,
     detail?: Readonly<Record<string, unknown>>,
   ): PublishError {
-    return new PublishError(
-      PUBLISH_ERROR.REFUSED,
-      "the platform refused: no",
+    return new PublishError(PUBLISH_ERROR.REFUSED, "the platform refused: no", {
       refusal,
-      409,
+      status: 409,
       detail,
-    )
+    })
   }
 
   test("a patch that changes its line's rules names the fields and the minor to use", () => {
@@ -850,9 +848,7 @@ describe("what a refusal's detail says", () => {
     const error = new PublishError(
       PUBLISH_ERROR.REFUSED,
       "the platform refused: files missing",
-      "E_FILES_MISSING",
-      409,
-      { missing },
+      { refusal: "E_FILES_MISSING", status: 409, detail: { missing } },
     )
     expect(failureLines(error)[1]).toBe(
       `the platform does not hold 2 of the folder's files: ${missing.join(", ")}; publish again to upload them`,
@@ -860,8 +856,10 @@ describe("what a refusal's detail says", () => {
     // Not a list of hashes: printed as sent.
     expect(
       failureLines(
-        new PublishError(PUBLISH_ERROR.REFUSED, "m", "E_FILES_MISSING", 409, {
-          missing: ["../x"],
+        new PublishError(PUBLISH_ERROR.REFUSED, "m", {
+          refusal: "E_FILES_MISSING",
+          status: 409,
+          detail: { missing: ["../x"] },
         }),
       )[1],
     ).toBe(`detail: {"missing":["../x"]}`)
