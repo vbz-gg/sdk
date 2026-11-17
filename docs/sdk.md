@@ -159,8 +159,9 @@ rather than misreading it. A page on this release drives contract 1 as it was
 built: its module stops a run at its own manifest's step limit, whatever the
 page passes, knows no files folder and no word on scripted events, cannot be
 watched without drawing, and is ready at once. The browser suite holds the
-first half to a module the first release of contract 1 built, committed and
-never rebuilt.
+first half to a module the first release of contract 1 built, and a page to
+playing a module of contract 2 as the tree that introduced it built it, each
+committed under `e2e/frozen/` and never rebuilt once its contract is out.
 
 `/game` is a value subpath, bundled into every page module, so it holds to
 what a page module may do. It reads nothing from the browser when it loads,

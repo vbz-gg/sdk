@@ -102,8 +102,9 @@ holds all three.
 release could not meet is a new contract version, which a page refuses by
 name until it learns it, never a new meaning for one already out.
 `e2e/frozen/contract-1/` is the template as the first contract-1 release
-built it, and the browser suite holds every later tree to playing it. Never
-rebuild it.
+built it, and `e2e/frozen/contract-2/` as the tree that introduced contract 2
+built it; the browser suite holds every later tree to playing both. Never
+rebuild one once its contract is released.
 
 **What crosses is plain data.** A failure is `{ code, message }`, never an
 error object, and an engine error is recognised by its mark, because the page
@@ -358,9 +359,10 @@ to see what was actually fetched.
 
 The subjects are the template, which draws its own two buttons, and the
 paddle fixture, which reads tilt and maps Space. Beside them, `e2e/frozen/`
-holds the template's two modules as the first release of contract 1 built
-them. They are never rebuilt: a page built from every later tree has to play
-them, and rebuilding them would test a release against itself.
+holds the template's two modules as the first release of each contract built
+them. They are never rebuilt once that contract is out: a page built from
+every later tree has to play them, and rebuilding them would test a release
+against itself.
 
 What only a browser can settle, and what each spec found:
 
@@ -378,9 +380,9 @@ What only a browser can settle, and what each spec found:
 - A second tab of the game and mode another tab is playing stops at the
   lock having asked the platform for nothing, before and after the first
   has committed a chunk.
-- The harness page keeps a refusal on its status line: a run the module
-  refuses at mount, and a tilt request that is refused, fails or throws,
-  which starts no run.
+- The harness page keeps a refusal on its status line: a game the browser
+  cannot draw, refused before a tick runs, and a tilt request that is
+  refused, fails or throws, which starts no run.
 - A tilt game on a studio's page starts no run without tilt, and asks the
   platform for nothing: a refusal as iOS gives it once the player taps
   "Cancel" on its motion prompt (the button's name, measured on iPadOS 26.7),

@@ -290,7 +290,7 @@ test("a game made from the packed kit installs, refreshes its guides, checks and
     )
 
     const checked = await run("bun", ["run", "check"], game, env)
-    expect(checked.stdout).toContain("all checks passed")
+    expect(checked.stdout).toContain("all checks in the every-game set passed")
     expect(checked.stdout).toContain("release line 1.0")
 
     // The harness, with no studio key, on ports of its own.

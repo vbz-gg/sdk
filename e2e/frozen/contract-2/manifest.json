@@ -1,0 +1,97 @@
+{
+  "schemaVersion": 3,
+  "id": "lane-runner",
+  "version": "1.0.0",
+  "name": "Lane Runner",
+  "kernel": {
+    "version": "0.10.0"
+  },
+  "session": {
+    "tickHz": 60,
+    "hasEnding": true
+  },
+  "inputs": {
+    "left": {
+      "min": 0,
+      "max": 1,
+      "label": "Left"
+    },
+    "right": {
+      "min": 0,
+      "max": 1,
+      "label": "Right"
+    },
+    "stick": {
+      "min": -1,
+      "max": 1,
+      "label": "Stick"
+    },
+    "touch0": {
+      "min": 0,
+      "max": 1,
+      "label": "First finger"
+    },
+    "touch0X": {
+      "min": 0,
+      "max": 16
+    },
+    "touch0Y": {
+      "min": 0,
+      "max": 24
+    },
+    "touch1": {
+      "min": 0,
+      "max": 1,
+      "label": "Second finger"
+    },
+    "touch1X": {
+      "min": 0,
+      "max": 16
+    },
+    "touch1Y": {
+      "min": 0,
+      "max": 24
+    }
+  },
+  "counters": [
+    {
+      "name": "motes",
+      "direction": "up",
+      "monotonic": true,
+      "label": "Motes"
+    },
+    {
+      "name": "ticksSurvived",
+      "direction": "up",
+      "monotonic": true,
+      "label": "Ticks"
+    }
+  ],
+  "rankBy": [
+    "motes",
+    "ticksSurvived"
+  ],
+  "tiePolicy": "shared",
+  "params": {
+    "speed": {
+      "type": "int",
+      "label": "Speed",
+      "min": 1,
+      "max": 3,
+      "default": 1
+    }
+  },
+  "display": {
+    "orientation": "any",
+    "minViewport": {
+      "width": 320,
+      "height": 480
+    }
+  },
+  "capabilities": {
+    "deterministic": true,
+    "physics": "none",
+    "renderer": "canvas2d",
+    "multiplayer": false
+  }
+}

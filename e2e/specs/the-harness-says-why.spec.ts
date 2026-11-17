@@ -13,31 +13,26 @@ import { CLIENT_ERROR } from "../../packages/sdk/src/platform/errors"
 import { open } from "../src/run"
 import { answerTilt, tiltAsked } from "../src/tilt"
 
-test("a run the module refuses at mount says why, and is not said to be playing", async ({
+/**
+ * A run's clock starts only once the game's presentation is ready, so a
+ * device the game cannot draw on is told before a tick runs. Here the
+ * browser hands the template's canvas no 2d context, as one with canvas
+ * switched off does.
+ */
+test("a game this browser cannot draw says why before a tick, and is not said to be playing", async ({
   page,
 }) => {
-  // The page asks for a run at another rate from the game's, which the page
-  // module refuses on the spot, before a tick runs. The config is edited as
-  // the parser inserts it, before the page's module script reads it.
   await page.addInitScript(() => {
-    new MutationObserver((_, observer) => {
-      const block = document.getElementById("harness-config")
-      if (block === null) return
-      const config = JSON.parse(block.textContent ?? "{}") as {
-        tickHz: number
-      }
-      block.textContent = JSON.stringify({ ...config, tickHz: 30 })
-      observer.disconnect()
-    }).observe(document, { childList: true, subtree: true })
+    HTMLCanvasElement.prototype.getContext = () => null
   })
   await open(page, "template")
   await page.getByRole("button", { name: "Start" }).click()
   await expect(page.locator("body")).toHaveAttribute(
     "data-refused",
-    "E_WRONG_GAME",
+    "E_PRESENTATION_FAILED",
   )
   await expect(page.locator("#status")).toHaveText(
-    /^E_WRONG_GAME: the run ticks at 30 Hz/,
+    /^E_PRESENTATION_FAILED: .*no 2d canvas context/,
   )
 })
 

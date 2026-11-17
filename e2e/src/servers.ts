@@ -250,9 +250,9 @@ function held(game: SubjectName, built: BuiltGame): Held {
 }
 
 /**
- * The template's two modules as the first release of contract 1 built them,
+ * The template's two modules as the first release of a contract built them,
  * committed and never rebuilt, so a page built from this tree is held to
- * playing what an earlier release built. Its folder's README says more.
+ * playing what an earlier release built. Each folder's README says more.
  */
 async function frozen(folder: string): Promise<Held> {
   const dir = join(import.meta.dir, "..", "frozen", folder)
@@ -271,7 +271,8 @@ async function frozen(folder: string): Promise<Held> {
     simKey,
     present,
     presentKey: presentPathFor(gameId, sha256Hex(present)).slice(1),
-    // A contract-1 module knows no folder; a page names one all the same.
+    // Neither frozen build has files: contract 1 knows no folder, and a
+    // page names one all the same.
     filesKey: filesBaseFor(gameId, listingSha256(EMPTY_LISTING)).slice(1),
   }
 }
@@ -293,6 +294,7 @@ const studioModules = {
     ),
   ),
   "contract-1": await frozen("contract-1"),
+  "contract-2": await frozen("contract-2"),
   // A release that has moved on to a contract this tree's pages do not
   // drive, which is the one thing a page must refuse rather than misread.
   "contract-3": held(
