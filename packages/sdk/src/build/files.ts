@@ -264,10 +264,26 @@ export interface ListedFolder {
   readonly onDisk: ReadonlyMap<string, string>
 }
 
+/** How many of a folder's files are read and hashed at once. */
+export const HASH_CONCURRENCY = 8
+
+/**
+ * The hash a file is listed under before its bytes are read: a listing of
+ * what the folder holds by path and size alone, which is everything the
+ * folder's limits look at.
+ */
+const UNREAD = "0".repeat(64)
+
 /**
  * Every file under `dir`, listed and held to the folder's limits. A symbolic
  * link is refused rather than followed, because what it names is not in the
  * folder; an empty directory lists nothing.
+ *
+ * The folder is held to every limit by the size each file says it has
+ * before a byte is read, so one over 512 MiB, or holding a file a version
+ * cannot, is refused without reading it. Then the files are read and hashed,
+ * `HASH_CONCURRENCY` at a time, and one that changed size meanwhile is an
+ * error rather than a listing of two different folders.
  */
 export async function listFolder(dir: string): Promise<ListedFolder> {
   const onDisk = new Map<string, string>()
@@ -295,18 +311,43 @@ export async function listFolder(dir: string): Promise<ListedFolder> {
       `${dir} holds ${onDisk.size} files, over the ${MAX_FILES} a version may hold`,
     )
   }
-  const files: FileEntry[] = []
+  const sized: FileEntry[] = []
   for (const [path, full] of onDisk) {
-    const size = (await stat(full)).size
-    // Refused before it is read whole.
-    if (size > MAX_FILE_BYTES) {
-      refuse(
-        "E_FILE_TOO_LARGE",
-        `${path} is ${size} bytes, over the ${MAX_FILE_BYTES} one file may hold`,
+    sized.push({ path, bytes: (await stat(full)).size, sha256: UNREAD })
+  }
+  // Every limit, on the sizes alone, before anything is read.
+  assertListing({ files: sized })
+  const files = await boundedMap(sized, HASH_CONCURRENCY, async (entry) => {
+    const bytes = new Uint8Array(
+      await readFile(onDisk.get(entry.path) as string),
+    )
+    if (bytes.byteLength !== entry.bytes) {
+      throw new Error(
+        `${entry.path} changed while the folder was listed: it was ${entry.bytes} bytes and read as ${bytes.byteLength}`,
       )
     }
-    const bytes = new Uint8Array(await readFile(full))
-    files.push({ path, bytes: bytes.byteLength, sha256: sha256Hex(bytes) })
-  }
+    return { path: entry.path, bytes: entry.bytes, sha256: sha256Hex(bytes) }
+  })
   return { listing: assertListing({ files }), onDisk }
+}
+
+/** `work` over every item, at most `limit` at once, the answers in order. */
+async function boundedMap<T, R>(
+  items: readonly T[],
+  limit: number,
+  work: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const answers: R[] = new Array(items.length)
+  let next = 0
+  const worker = async (): Promise<void> => {
+    while (next < items.length) {
+      const index = next
+      next += 1
+      answers[index] = await work(items[index] as T)
+    }
+  }
+  await Promise.all(
+    Array.from({ length: Math.min(limit, items.length) }, worker),
+  )
+  return answers
 }

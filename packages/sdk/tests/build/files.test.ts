@@ -3,7 +3,8 @@
  * held to the platform's limits, at each limit and one past it.
  */
 
-import { describe, expect, test } from "bun:test"
+import { describe, expect, spyOn, test } from "bun:test"
+import * as fs from "node:fs/promises"
 import {
   mkdir,
   mkdtemp,
@@ -26,6 +27,7 @@ import {
   EMPTY_LISTING,
   type FileEntry,
   type FilesListing,
+  HASH_CONCURRENCY,
   listFolder,
   listingSha256,
   missingFiles,
@@ -433,6 +435,84 @@ describe("listing a folder on disk", () => {
     await folder(async (dir) => {
       await writeFile(join(dir, "a b.js"), "x")
       expect(await codeOf(() => listFolder(dir))).toBe("E_FILE_PATH_INVALID")
+    })
+  })
+
+  /**
+   * Nine sparse files of 60 MiB, each under the one-file limit and together
+   * over the folder's 512 MiB. Refused on their sizes alone: reading 540 MiB
+   * to refuse it would be the whole cost of the refusal.
+   */
+  test("a folder past its total is refused before any file is read", async () => {
+    await folder(async (dir) => {
+      const each = 60 * 1024 * 1024
+      const count = Math.floor(MAX_FILES_BYTES / each) + 1
+      expect(each).toBeLessThan(MAX_FILE_BYTES)
+      for (let index = 0; index < count; index += 1) {
+        const path = join(dir, `part-${index}.bin`)
+        await writeFile(path, "")
+        await truncate(path, each)
+      }
+      const read = spyOn(fs, "readFile")
+      try {
+        expect(await codeOf(() => listFolder(dir))).toBe("E_FILES_TOO_LARGE")
+        expect(read).not.toHaveBeenCalled()
+      } finally {
+        read.mockRestore()
+      }
+    })
+  })
+
+  test("many files are read a few at a time, each hashed as it was read", async () => {
+    await folder(async (dir) => {
+      const count = HASH_CONCURRENCY * 3 + 1
+      for (let index = 0; index < count; index += 1) {
+        await writeFile(join(dir, `f-${index}.txt`), String(index))
+      }
+      const original = fs.readFile
+      let reading = 0
+      let most = 0
+      const read = spyOn(fs, "readFile").mockImplementation((async (
+        ...args: Parameters<typeof fs.readFile>
+      ) => {
+        reading += 1
+        most = Math.max(most, reading)
+        await Bun.sleep(1)
+        try {
+          return await original(...args)
+        } finally {
+          reading -= 1
+        }
+      }) as typeof fs.readFile)
+      try {
+        const listed = await listFolder(dir)
+        expect(read).toHaveBeenCalledTimes(count)
+        expect(most).toBe(HASH_CONCURRENCY)
+        expect(listed.listing.files).toHaveLength(count)
+        for (const file of listed.listing.files) {
+          const index = file.path.slice(2, -4)
+          expect(file.sha256).toBe(sha256Hex(new TextEncoder().encode(index)))
+          expect(file.bytes).toBe(index.length)
+        }
+      } finally {
+        read.mockRestore()
+      }
+    })
+  })
+
+  /** Listed by one size and read as another is two folders, not one listing. */
+  test("a file that changed size between its size and its read is an error", async () => {
+    await folder(async (dir) => {
+      await writeFile(join(dir, "grows.txt"), "abc")
+      const read = spyOn(fs, "readFile").mockImplementation((async () =>
+        Buffer.from("abcd")) as unknown as typeof fs.readFile)
+      try {
+        await expect(listFolder(dir)).rejects.toThrow(
+          "grows.txt changed while the folder was listed: it was 3 bytes and read as 4",
+        )
+      } finally {
+        read.mockRestore()
+      }
     })
   })
 

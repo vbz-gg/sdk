@@ -543,7 +543,8 @@ What the contract checks, on the bytes rather than on the source:
 5. Every limit in `limits.ts`: the rules code at most `MAX_SIM_BYTES`
    (4 MiB) and the page module `MAX_PRESENT_BYTES` (16 MiB); each file of the
    folder `MAX_FILE_BYTES` (64 MiB), all of them `MAX_FILES_BYTES` (512 MiB)
-   in at most `MAX_FILES` (10,000); and each data pack the manifest declares
+   in at most `MAX_FILES` (10,000), each held by its size on disk before a
+   byte is read; and each data pack the manifest declares
    is a file of the folder of its declared size and hash, at most
    `MAX_PACK_BYTES` (16 MiB), all of them `MAX_PACKS_BYTES` (48 MiB)
    together. `MAX_RUN_BYTES` (31 MiB) and `MAX_CHUNK_BYTES` (1 MiB) are a
