@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [0.7.0](https://github.com/vbz-gg/sdk/compare/v0.6.0...v0.7.0) (2026-11-17)
+
+
+### ⚠ BREAKING CHANGES
+
+* one game build, local play, files folder and data packs, the sign-in box, new limits (#23)
+
+### Features
+
+* one game build, local play, files folder and data packs, the sign-in box, new limits ([#23](https://github.com/vbz-gg/sdk/issues/23)) ([417ed20](https://github.com/vbz-gg/sdk/commit/417ed20f30b1e83b4eedbe04db6a8c65643799f5))
+
 ## [0.6.0](https://github.com/vbz-gg/sdk/compare/v0.5.1...v0.6.0) (2026-11-17)
 
 
