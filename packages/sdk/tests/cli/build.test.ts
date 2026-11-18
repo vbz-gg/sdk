@@ -1,25 +1,37 @@
 /**
  * `vbz build`: a version a release line cannot hold is refused before a file
  * is written, through the function the platform runs on an upload, and what
- * is written is what an upload carries.
+ * is written is what an upload carries. With `--addressed`, the build at its
+ * content addresses too, as the harness serves it, for the root of an origin.
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
+import { existsSync } from "node:fs"
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { hashCanonical, type PlainValue } from "@clockwork2/engine"
+import { $ } from "bun"
+import { blobKeys, buildAndAddress, gameIdOf } from "../../src/build/address"
 import { BuildRefusal } from "../../src/build/errors"
 import { canonicalListing, listingSha256 } from "../../src/build/files"
 import { MAX_MANIFEST_BYTES } from "../../src/build/limits"
 import {
+  addressBuild,
+  addressedLines,
+  addressingOf,
   buildGame,
   buildLines,
   releaseOf,
+  writeAddressed,
   writeBuild,
 } from "../../src/cli/build"
 import { failureLine } from "../../src/cli/failure"
+import { OWN_ROOT } from "../../src/cli/guides"
+import { pageCsp } from "../../src/harness/csp"
+import { startBundleServer } from "../../src/harness/servers"
 import { localAddress } from "../../src/host/local"
+import { createBlobServer, isServedPath } from "../../src/serve/blobs"
 
 const SOURCE = {
   simEntry: "src/sim/index.ts",
@@ -266,32 +278,32 @@ describe("building", () => {
   })
 })
 
+const PACK = new TextEncoder().encode(`{"level":1}`)
+const packSha = new Bun.CryptoHasher("sha256").update(PACK).digest("hex")
+
+/** A game whose page module imports its engine from the folder. */
+async function writeFilesGame(manifest: Record<string, unknown>) {
+  await writeGame(manifest)
+  await writeFile(
+    join(root, "src", "present.ts"),
+    `import { MANIFEST } from "cw2:sim"\nimport { engine } from "cw2:files/engine/entry.js"\nexport default { name: MANIFEST.id, engine }\n`,
+  )
+  await mkdir(join(root, "files", "engine"), { recursive: true })
+  await mkdir(join(root, "files", "packs"), { recursive: true })
+  await writeFile(
+    join(root, "files", "engine", "entry.js"),
+    "export const engine = 1\n",
+  )
+  await writeFile(join(root, "files", "packs", "one.json"), PACK)
+}
+
+const withFiles = () => ({
+  root,
+  ...SOURCE,
+  filesDir: join(root, "files"),
+})
+
 describe("a game with a files folder", () => {
-  const PACK = new TextEncoder().encode(`{"level":1}`)
-  const packSha = new Bun.CryptoHasher("sha256").update(PACK).digest("hex")
-
-  /** A game whose page module imports its engine from the folder. */
-  async function writeFilesGame(manifest: Record<string, unknown>) {
-    await writeGame(manifest)
-    await writeFile(
-      join(root, "src", "present.ts"),
-      `import { MANIFEST } from "cw2:sim"\nimport { engine } from "cw2:files/engine/entry.js"\nexport default { name: MANIFEST.id, engine }\n`,
-    )
-    await mkdir(join(root, "files", "engine"), { recursive: true })
-    await mkdir(join(root, "files", "packs"), { recursive: true })
-    await writeFile(
-      join(root, "files", "engine", "entry.js"),
-      "export const engine = 1\n",
-    )
-    await writeFile(join(root, "files", "packs", "one.json"), PACK)
-  }
-
-  const withFiles = () => ({
-    root,
-    ...SOURCE,
-    filesDir: join(root, "files"),
-  })
-
   test("lists the folder, and dist/ carries it and its listing", async () => {
     await writeFilesGame({
       id: "probe",
@@ -364,5 +376,281 @@ describe("a game with a files folder", () => {
       thrown = error
     }
     expect((thrown as BuildRefusal).code).toBe("E_FILE_UNLISTED")
+  })
+})
+
+/** A game with a files folder whose rules code reads a data pack from it. */
+function packed(id = "probe"): Record<string, unknown> {
+  return {
+    id,
+    version: "1.0.0",
+    name: "Probe",
+    assets: [
+      {
+        path: "packs/one.json",
+        sha256: packSha,
+        bytes: PACK.byteLength,
+        requiredForSim: true,
+        license: "CC0",
+      },
+    ],
+  }
+}
+
+/** A game id of the author's own, as `--game` names one. */
+const NAMED_GAME = "11111111-2222-4333-8444-555555555555"
+
+/** Every file under `dir`, by its path from there, `/` between segments. */
+async function filesUnder(dir: string): Promise<string[]> {
+  const found: string[] = []
+  for await (const path of new Bun.Glob("**/*").scan({
+    cwd: dir,
+    onlyFiles: true,
+  })) {
+    found.push(path.split("\\").join("/"))
+  }
+  return found.sort()
+}
+
+/** Every file under `dir`, by its path from there, with its bytes. */
+async function bytesUnder(dir: string): Promise<Record<string, Uint8Array>> {
+  const bytes: Record<string, Uint8Array> = {}
+  for (const path of await filesUnder(dir)) {
+    bytes[path] = new Uint8Array(await readFile(join(dir, path)))
+  }
+  return bytes
+}
+
+/** `dist/addressed/` in the game under test. */
+const addressedDir = () => join(root, "dist", "addressed")
+
+describe("the build at its content addresses", () => {
+  /**
+   * The folder is what a host puts at the root of an origin, so every file
+   * in it has to be at the path `createBlobServer` answers for it, and hold
+   * what the harness, which `vbz dev` serves a game with, serves there for
+   * the same build: no file missing, none more, and the same bytes.
+   */
+  test("every file is where createBlobServer answers it, byte for byte what the harness serves", async () => {
+    await writeFilesGame(packed())
+    const built = await buildGame(withFiles())
+    const addressed = addressBuild(built, null)
+    await writeBuild(root, built)
+    await writeAddressed(root, addressed)
+    const written = await filesUnder(addressedDir())
+
+    const harness = await buildAndAddress(withFiles(), addressed.page.gameId)
+    const keys = blobKeys(harness)
+    expect(written).toEqual(
+      [
+        keys.sim,
+        keys.present,
+        `${keys.files}engine/entry.js`,
+        `${keys.files}packs/one.json`,
+      ].sort(),
+    )
+
+    const fromFolder = createBlobServer(async (key) =>
+      existsSync(join(addressedDir(), key))
+        ? new Uint8Array(await readFile(join(addressedDir(), key)))
+        : undefined,
+    )
+    const server = startBundleServer({ port: 0, built: harness })
+    try {
+      for (const key of written) {
+        expect(isServedPath(`/${key}`)).toBe(true)
+        const ours = await fromFolder(new Request(`http://host.invalid/${key}`))
+        const theirs = await fetch(`${server.origin}/${key}`)
+        expect({ key, ours: ours.status, theirs: theirs.status }).toEqual({
+          key,
+          ours: 200,
+          theirs: 200,
+        })
+        expect(new Uint8Array(await ours.arrayBuffer())).toEqual(
+          new Uint8Array(await theirs.arrayBuffer()),
+        )
+      }
+    } finally {
+      await server.stop()
+    }
+    // The data pack is the folder's own bytes, which its manifest pins.
+    expect(
+      new Uint8Array(
+        await readFile(join(addressedDir(), `${keys.files}packs/one.json`)),
+      ),
+    ).toEqual(PACK)
+  })
+
+  /**
+   * Served from the root of an origin, the page module's imports resolve
+   * against its own URL there, so each has to be root-relative, under the
+   * game's path, and a file the folder holds.
+   */
+  test("the page module names only root-relative /g/<id>/ paths, each one the folder holds", async () => {
+    await writeFilesGame(packed())
+    const addressed = addressBuild(await buildGame(withFiles()), null)
+    await writeAddressed(root, addressed)
+    const present = await readFile(
+      join(addressedDir(), addressed.page.present),
+      "utf8",
+    )
+    const imports = new Bun.Transpiler({ loader: "js" })
+      .scanImports(present)
+      .map((found) => found.path)
+    expect(imports.sort()).toEqual(
+      [addressed.page.sim, `${addressed.page.files}engine/entry.js`].sort(),
+    )
+    for (const path of imports) {
+      expect(path).toStartWith(`/g/${addressed.page.gameId}/`)
+      expect(existsSync(join(addressedDir(), path))).toBe(true)
+    }
+    expect(present).not.toContain("cw2:")
+  })
+
+  test("--game names the id in every path and in addressed.json, and without it the manifest's id makes one", async () => {
+    await writeFilesGame(packed("probe"))
+    const built = await buildGame(withFiles())
+    const made = addressBuild(built, null)
+    expect(made.page.gameId).toBe(gameIdOf({ id: "probe" }))
+
+    const named = addressBuild(built, NAMED_GAME)
+    await writeAddressed(root, named)
+    const written = await filesUnder(addressedDir())
+    expect(written).toHaveLength(4)
+    for (const key of written) expect(key).toStartWith(`g/${NAMED_GAME}/`)
+    const keys = blobKeys(named.game)
+    expect(
+      JSON.parse(
+        await readFile(join(root, "dist", "addressed.json"), "utf8"),
+      ) as unknown,
+    ).toEqual({
+      name: "Probe",
+      gameId: NAMED_GAME,
+      present: `/${keys.present}`,
+      sim: `/${keys.sim}`,
+      files: `/${keys.files}`,
+      manifestHash: hashCanonical(built.manifest as PlainValue),
+      needs: { files: true },
+    })
+
+    // Written again under the made id, the folder holds that one alone.
+    await writeAddressed(root, made)
+    for (const key of await filesUnder(addressedDir())) {
+      expect(key).toStartWith(`g/${made.page.gameId}/`)
+    }
+  })
+
+  /**
+   * Content addressing: an unchanged game builds to the same bytes, so a
+   * host that already holds a path never needs it again, and a page naming
+   * one keeps working after the next build.
+   */
+  test("a second build of an unchanged game writes the same paths and bytes", async () => {
+    await writeFilesGame(packed())
+    const first = addressBuild(await buildGame(withFiles()), null)
+    await writeAddressed(root, first)
+    const before = await bytesUnder(addressedDir())
+    const second = addressBuild(await buildGame(withFiles()), null)
+    await writeAddressed(root, second)
+    expect(Object.keys(before)).toHaveLength(4)
+    expect(await bytesUnder(addressedDir())).toEqual(before)
+    expect(second.page).toEqual(first.page)
+  })
+
+  /**
+   * Each path is from the root of the origin serving the folder, so the
+   * address `loadGame` takes is that origin and the path, whatever page the
+   * origin is named from, and `pageCsp` takes the id and the needs as they
+   * are.
+   */
+  test("addressed.json is what loadGame and pageCsp take, with the origin serving the folder", async () => {
+    await writeGame({ id: "probe", version: "1.0.0", name: "Probe" })
+    const built = await buildGame({ root, ...SOURCE })
+    const { page } = addressBuild(built, null)
+    const origin = "https://files.example"
+    expect(new URL(page.present, `${origin}/a/page/`).href).toBe(
+      `${origin}${page.present}`,
+    )
+    expect(page.files).toEndWith("/")
+    expect(page.needs).toEqual({})
+    expect(page.manifestHash).toBe(hashCanonical(built.manifest as PlainValue))
+    expect(
+      pageCsp({
+        bundlesOrigin: origin,
+        gameId: page.gameId,
+        needs: page.needs,
+        signInOrigin: null,
+      }),
+    ).toContain(`script-src 'self' ${origin}/g/${page.gameId}/;`)
+  })
+
+  test("says where the folder is, under which id, and what a page loads", async () => {
+    await writeFilesGame(packed())
+    const withFolder = addressBuild(await buildGame(withFiles()), null)
+    expect(addressedLines(withFolder)).toEqual([
+      `dist/addressed/ for the root of an origin, under game id ${withFolder.page.gameId}`,
+      `page module ${withFolder.page.present}`,
+      `files folder ${withFolder.page.files}`,
+      `manifest hash ${withFolder.page.manifestHash}`,
+      "needs files",
+      "dist/addressed.json says the same, for a page",
+    ])
+    await writeGame({ id: "probe", version: "1.0.0" })
+    const plain = addressBuild(await buildGame({ root, ...SOURCE }), null)
+    expect(addressedLines(plain)[4]).toBe(
+      "needs nothing beyond its two modules",
+    )
+  })
+})
+
+describe("what --addressed and --game ask of vbz build", () => {
+  test("nothing without --addressed, and the made id or the named one with it", () => {
+    expect(addressingOf({ addressed: false, game: undefined })).toBeNull()
+    expect(addressingOf({ addressed: true, game: undefined })).toEqual({
+      gameId: null,
+    })
+    expect(addressingOf({ addressed: true, game: NAMED_GAME })).toEqual({
+      gameId: NAMED_GAME,
+    })
+  })
+
+  test("a --game that names nothing the build writes, or is not a game id, is refused", () => {
+    expect(() => addressingOf({ addressed: false, game: NAMED_GAME })).toThrow(
+      "add --addressed, or leave --game out",
+    )
+    for (const game of [
+      "lane-runner",
+      gameIdOf({ id: "probe" }).toUpperCase(),
+      "",
+    ]) {
+      expect(() => addressingOf({ addressed: true, game })).toThrow(
+        `--game takes a game id, a UUID written lowercase`,
+      )
+    }
+  })
+
+  /**
+   * The command works out the addressed build before it writes anything, so
+   * a game id it cannot make leaves the last build where it was.
+   */
+  test("a game id that cannot be made writes nothing, and the last build stays", async () => {
+    const cli = join(OWN_ROOT, "src", "cli", "index.ts")
+    await writeGame({ id: "probe", version: "1.0.0" })
+    const first = await $`bun ${cli} build ${root} --addressed`
+      .quiet()
+      .nothrow()
+    expect(first.exitCode).toBe(0)
+    expect(first.stdout.toString()).toContain(
+      `under game id ${gameIdOf({ id: "probe" })}`,
+    )
+    const before = await bytesUnder(join(root, "dist"))
+
+    await writeGame({ version: "1.0.1" })
+    const second = await $`bun ${cli} build ${root} --addressed`
+      .quiet()
+      .nothrow()
+    expect(second.exitCode).toBe(1)
+    expect(second.stderr.toString()).toStartWith("E_MANIFEST_INVALID: ")
+    expect(await bytesUnder(join(root, "dist"))).toEqual(before)
   })
 })

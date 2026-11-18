@@ -233,6 +233,31 @@ imports null3d, which is not on npm. The recipe, the guide's
 `input: false`, and the guide's test holds the policy it prints and the
 mouse figures it quotes to the code and to the engine guide.
 
+## The addressed build
+
+`vbz build --addressed` writes `dist/addressed/`, the build at the
+content-addressed paths a page on another origin loads it from, and
+`dist/addressed.json` beside it. `docs/sdk.md` under "Serving" describes it.
+What to hold while changing it:
+
+**The layout has one implementation, `src/build/address.ts`.** The harness
+serves `layoutOf` and the command writes it, and nothing else rewrites a page
+module. It reaches nothing of `/harness`, `/host`, `/platform`, `/serve` or
+the CLI. `tests/build/address.test.ts` holds both.
+
+**`dist/addressed/` holds nothing but content-addressed files**, so a host
+may give all of it the year-long immutable cache the guide tells it to.
+Anything that changes from one build to the next, `addressed.json` among it,
+goes beside the folder, never in it.
+
+**It is for the root of an origin.** The page module's imports are
+root-relative, and there is no base-path option: a host that serves only
+under a sub-path serves `dist/` from the page's own origin instead.
+
+**`GAME_ID_NAMESPACE` never changes.** The default game id is the version 5
+UUID of the manifest's `id` in it, which a page's policy names; a new
+namespace moves every game's path and refuses every page already deployed.
+
 ## What a game records
 
 `docs/sdk.md` under "Choosing what to record" is the design: the manifest

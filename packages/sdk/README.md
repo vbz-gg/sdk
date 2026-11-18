@@ -48,18 +48,20 @@ your page gives them one.
 ```bash
 vbz new     <dir>   copy a game that already conforms, and rename it
 vbz guides  <dir>   replace the game's agent guides with the installed ones
-vbz build   <dir>   write dist/: the two modules, the manifest and the files folder
+vbz build   <dir>   write dist/: the two modules, the manifest and the files folder;
+                    --addressed adds dist/addressed/, for the root of another origin
 vbz check   <dir>   run the engine's checks and hold src/capture.ts to the manifest;
                     --ranked adds what a ranked or practice run on vbz.gg needs
 vbz dev     <dir>   load the game the way a page on another origin does, and play it
 vbz publish <dir> --game <id>   on vbz.gg: upload dist/ and wait for the verdict
 ```
 
-`build` refuses a version that is not plain `MAJOR.MINOR.PATCH`. `check`
-runs the engine's checks every game needs, a recording replaying to the
-state it recorded among them, and prints the version, its release line and
-the line's contract hash, so two builds of a line can be compared.
-`check --ranked` adds the two checks ranked play on vbz.gg needs.
+`build` refuses a version that is not plain `MAJOR.MINOR.PATCH`, and with
+`--addressed` writes the build for a page on another origin too ("Shipping
+it" below). `check` runs the engine's checks every game needs, a recording
+replaying to the state it recorded among them, and prints the version, its
+release line and the line's contract hash, so two builds of a line can be
+compared. `check --ranked` adds the two checks ranked play on vbz.gg needs.
 
 `dev` is your game's page on your laptop. The game's two modules and its
 files folder are served on one port with the headers a host serving them to
@@ -209,17 +211,40 @@ template's `site/` is such a page.
 
 `dist/` is the whole game, and any host that serves files serves it, as long
 as it sends every `.js` file as JavaScript and a `.wasm` file as
-`application/wasm`, with `X-Content-Type-Options: nosniff`, and when the
-page is on another origin, `Access-Control-Allow-Origin` on every file and
-`Cross-Origin-Resource-Policy: cross-origin`: the headers `createBlobServer`
-in `@vbz-gg/sdk/serve` sends, which `vbz dev` serves the game with.
-`dist/sim.js` and `dist/present.js` keep their names from one build to the
-next, so cache them as files that change in place. A page that loads the
-game from another origin sends `pageCsp` from `@vbz-gg/sdk/harness` in place
-of `localPageCsp`, naming `/g/<game id>/` there, the paths
-`createBlobServer` answers, so the build is served under them rather than
-as `dist/` holds it. The agent guide's
-`SKILL.md` has it under "Distributing the build".
+`application/wasm`, with `X-Content-Type-Options: nosniff`. Served beside
+the page, as above, `dist/sim.js` and `dist/present.js` keep their names
+from one build to the next, so cache them as files that change in place.
+
+For a page on another origin, such as a CDN or a files subdomain, run
+`vbz build --addressed`. It also writes `dist/addressed/`, every file at a
+content-addressed path under `g/<game id>/` with the page module rewritten
+to import them, and `dist/addressed.json` beside it, which says what a page
+needs. Copy the folder as it is to the root of that origin: the paths are
+root-relative, so a host that serves only under a sub-path serves `dist/`
+beside the page instead. With every file the host sends
+`Access-Control-Allow-Origin: *` and
+`Cross-Origin-Resource-Policy: cross-origin`, on every file that is not
+JavaScript `Content-Security-Policy: default-src 'none'; sandbox`, and may
+send `Cache-Control: public, max-age=31536000, immutable`, since a path
+never names other bytes. Those are the headers `createBlobServer` in
+`@vbz-gg/sdk/serve` sends, and `vbz dev` serves the game with it.
+
+The page then needs no import map. It loads the game at that origin and
+`addressed.json`'s `present` and `files`:
+
+```ts
+const game = await loadGame({
+  presentUrl: new URL(build.present, origin).href,
+  manifestHash: build.manifestHash,
+  filesUrl: new URL(build.files, origin).href,
+})
+```
+
+and sends `pageCsp` from `@vbz-gg/sdk/harness` in place of `localPageCsp`,
+with that origin, `gameId` and `needs`, which admits `/g/<game id>/` there
+and nothing else on it. The game id is a UUID made from the manifest's id,
+the same for every version, unless `--game <id>` names one of your own. The
+agent guide's `SKILL.md` has it under "Distributing the build".
 
 ## If you use vbz.gg: ranked play
 

@@ -26,9 +26,9 @@ import {
   type ParamValues,
   type PlainValue,
 } from "@clockwork2/engine"
+import { type BuiltGame, blobKeys, buildAndAddress } from "../build/address.js"
 import { DIST_DIR, DIST_FILES } from "../build/dist.js"
 import type { GameSource } from "../build/index.js"
-import { type BuiltGame, blobKeys, buildAndAddress } from "./artifacts.js"
 import { CONFIG_WITH_RANKED, givenConfig, servedOrRefused } from "./config.js"
 import { type DeclaredNeeds, pageCsp, versionNeeds } from "./csp.js"
 import { readBuiltManifest } from "./dist-manifest.js"
@@ -282,7 +282,7 @@ export {
   type BuiltGame,
   blobKeys,
   buildAndAddress,
-} from "./artifacts.js"
+} from "../build/address.js"
 export {
   type DeclaredNeeds,
   type GameNeeds,

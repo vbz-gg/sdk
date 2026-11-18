@@ -12,14 +12,14 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test"
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { buildGameArtifacts } from "../../src/build/build"
-import { sha256Hex } from "../../src/build/digest"
-import { readManifestFromSim } from "../../src/cli/manifest"
 import {
   type BuiltGame,
   blobKeys,
   buildAndAddress,
-} from "../../src/harness/artifacts"
+} from "../../src/build/address"
+import { buildGameArtifacts } from "../../src/build/build"
+import { sha256Hex } from "../../src/build/digest"
+import { readManifestFromSim } from "../../src/cli/manifest"
 import { escapeHtml, harnessPage } from "../../src/harness/page/document"
 import { startBundleServer } from "../../src/harness/servers"
 

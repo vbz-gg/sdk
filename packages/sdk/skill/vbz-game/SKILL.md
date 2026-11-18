@@ -248,9 +248,49 @@ recording, which replays to the same counters. Its seed always starts
 
 `dist/` is the whole game, and any host that serves files serves it: your
 own site, a static host, a CDN, a game portal, or a folder on a disk opened
-through a local server. Serve it beside the page that plays it, as the
-template's `site/` does with `dist/` as `game/`, or from an origin of its
-own. What the host sends with each file:
+through a local server. It is served one of two ways.
+
+**Beside the page that plays it**, on the page's own origin, as the
+template's `site/` does with `dist/` as `game/`. The page maps the page
+module's `cw2:sim` and `cw2:files/` with an import map and loads
+`game/game.json` ("Playing it on a page" above). `dist/sim.js` and
+`dist/present.js` keep their names from one build to the next, so a host
+caches them as any file that changes in place, or renames them by their
+hash.
+
+**From another origin**, such as a CDN or a files subdomain:
+`vbz build <dir> --addressed` builds as `vbz build` does and also writes
+`dist/addressed/`, the build at the content-addressed paths a page on
+another origin loads it from, and `dist/addressed.json` beside it, which
+says what the page needs. The folder holds the rules code at
+`g/<game id>/sim/<sha256>.js`, the page module at
+`g/<game id>/present/<sha256>.js`, its imports rewritten to name those
+paths, and each file of the files folder under
+`g/<game id>/t/<listing sha256>/`. Copy the folder as it is to the root of
+the origin. Its imports are root-relative, so it works only at the root: a
+host that serves only under a sub-path serves `dist/` beside the page
+instead. The game id is a UUID made from the manifest's `id`, the same for
+every version, so the page names one path for good. On a host that serves
+other people's games too, name a fresh UUID of your own with
+`--game <id>`, so no other game can share the path. The page then:
+
+- loads the game with `loadGame` from `@vbz-gg/sdk/host`, at that origin
+  and `addressed.json`'s `present` and `files`, with its `manifestHash`,
+  and needs no import map, since the page module names its own paths;
+- sends `pageCsp` from `@vbz-gg/sdk/harness` with that origin, the game id
+  and the needs `addressed.json` names, which admits that game's path on
+  the origin and nothing else there.
+
+`references/page.md` has both calls.
+
+Every file in `dist/addressed/` is named by its bytes, a module by its own
+digest and a file of the folder by the digest of a listing that names its
+bytes, so a host may cache all of it for a year as immutable, with
+`Cache-Control: public, max-age=31536000, immutable`. A build that changed
+anything writes new paths beside the old, and a page still naming an old
+one keeps working while the host keeps it.
+
+What the host sends with each file, either way:
 
 - every `.js` file as JavaScript, `text/javascript`, because a browser
   refuses a module script of any other type, and a `.wasm` file as
@@ -258,7 +298,7 @@ own. What the host sends with each file:
   it streams;
 - `X-Content-Type-Options: nosniff`, so a wrong type is a refusal in every
   browser rather than a guess;
-- from an origin other than the page's, `Access-Control-Allow-Origin` on
+- from an origin other than the page's, `Access-Control-Allow-Origin: *` on
   every file and on a missing one, because every module import is a CORS
   request, and `Cross-Origin-Resource-Policy: cross-origin`, which a page
   that is cross-origin isolated needs;
@@ -267,22 +307,16 @@ own. What the host sends with each file:
   holding a script, runs nothing there.
 
 Those are the headers `createBlobServer` in `@vbz-gg/sdk/serve` sends, and
-`vbz dev` serves the game with it, so a game you try in the harness is
-served as such a host serves it. That handler answers the content-addressed
-paths `vbz dev` uses, where a year-long immutable cache is safe because a
-name changes when its bytes do. `dist/sim.js` and `dist/present.js` keep
-their names from one build to the next, so a host serving `dist/` as it is
-caches them as any file that changes in place, or renames them by their
-hash.
+`vbz dev` serves the game with it in the layout `--addressed` writes, so a
+game you try in the harness is served as such a host serves it. The browser
+suite holds the list to a plain file server sending only these headers, by
+each file's extension, from which a page on another origin under `pageCsp`
+plays `dist/addressed/` in Chromium, Firefox and WebKit.
 
-The page sends a Content-Security-Policy that admits the game and nothing
-else: `localPageCsp` from `@vbz-gg/sdk/harness` for a game served from the
-page's own origin, or `pageCsp` for one served from another origin, each
-with what the game needs (`references/files.md`) and the page's import map
-admitted by the SHA-256 of its exact text. `pageCsp` admits only
-`/g/<game id>/` on that origin, the content-addressed paths
-`createBlobServer` answers, so a build served from another origin is served
-under them rather than as `dist/` holds it.
+A page beside its build sends `localPageCsp` from `@vbz-gg/sdk/harness`
+instead, under which everything the game loads is `'self'`, with the
+import map admitted by the SHA-256 of its exact text. Either policy takes
+what the game needs (`references/files.md`).
 
 ## Testing it
 
@@ -540,7 +574,9 @@ end a version in these:
   installed `@vbz-gg/sdk` and `@clockwork2/engine` ship. It stops, writing
   nothing, when either package or its guide is missing.
 - `vbz build <dir>` - the two modules, the manifest and the files folder a
-  page plays and a host serves.
+  page plays and a host serves. `--addressed` also writes `dist/addressed/`
+  and `dist/addressed.json`, the build for the root of another origin,
+  under the game id `--game <id>` names or one made from the manifest's id.
 - `vbz check <dir>` - the engine's checks every game needs, record and
   replay among them, and the input mapping, with the version, its release
   line and the line's contract hash. `--ranked` adds what a ranked or

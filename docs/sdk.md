@@ -609,7 +609,8 @@ with the page's import map admitted by its hash, below. A page whose build is
 served from another origin sends `pageCsp`, which names the game's own path
 there, `/g/<game id>/`, never the whole origin when it serves anything else,
 so such a host serves the build at the content-addressed paths
-`createBlobServer` answers, below, rather than as `dist/` holds it. On vbz.gg every
+`createBlobServer` answers, which `vbz build --addressed` writes ("Serving"
+below), rather than as `dist/` holds it. On vbz.gg every
 studio's games are served from `files.vbz.gg`, so a ranked page names its
 game's path there, the API and the sign-in:
 
@@ -825,8 +826,11 @@ code and one folder. A page module can name exactly one rules code and one
 set of files, forever, which is what makes "the browser and the validator
 ran the same code" checkable rather than asserted.
 
-`buildAndAddress` in `/harness` performs that whole sequence, which is the
-same one vbz.gg performs on an upload. `vbz build` writes the page module
+`addressGame` in `src/build/address.ts` performs that sequence on a build,
+the same one vbz.gg performs on an upload, and it is the one place the kit
+performs it: `vbz dev` serves its result through `buildAndAddress`, which
+`/harness` exports, and `vbz build --addressed` writes it to
+`dist/addressed/` ("Serving" below). `vbz build` writes the page module
 **unrewritten**, with its specifiers intact, beside `dist/sim.js`,
 `dist/manifest.json`, the listing as `dist/files.json`, exactly the text its
 name is the hash of, and a copy of the folder as `dist/files/`, so a page
@@ -968,10 +972,52 @@ Any host that serves files serves a build: the author's own site, a static
 host, a CDN, a game portal, or a local server for a page that is never
 online. `dist/` holds the build as `vbz build` wrote it. A page beside it
 maps the page module's `cw2:sim` and `cw2:files/` with an import map, as the
-template's `site/` does with `dist/` served as `game/`, and a page on
-another origin loads it from there. `/serve`'s `createBlobServer` sends the
-headers a host needs, and the harness serves the game with it, so a page
-meets on a laptop what it meets from a careful host:
+template's `site/` does with `dist/` served as `game/`.
+
+A page on another origin loads the build at its content addresses, which
+`vbz build --addressed` writes to `dist/addressed/`: the rules code at
+`g/<game id>/sim/<sha256>.js`, the page module, rewritten by
+`rewritePresentImports` to import it and the folder, at
+`g/<game id>/present/<sha256>.js`, and each file of the folder at
+`g/<game id>/t/<listing sha256>/<path>`, and nothing else. The host serves
+the folder as it is from the root of an origin. The page module's imports
+are root-relative, so there is no base path to give it, and a host that
+serves only under a sub-path serves `dist/` beside the page instead. Beside
+the folder, `dist/addressed.json` says what the page needs, each path from
+that root:
+
+```json
+{
+  "name": "Lane Runner",
+  "gameId": "0b123291-582d-52f5-a2d5-877342fd8596",
+  "present": "/g/0b123291-582d-52f5-a2d5-877342fd8596/present/<sha256>.js",
+  "sim": "/g/0b123291-582d-52f5-a2d5-877342fd8596/sim/<sha256>.js",
+  "files": "/g/0b123291-582d-52f5-a2d5-877342fd8596/t/<listing sha256>/",
+  "manifestHash": "<the engine's hash of the manifest>",
+  "needs": {}
+}
+```
+
+The page hands `loadGame` the origin and `present`, the manifest hash, and
+the origin and `files`, and sends `pageCsp` with the origin, `gameId` and
+`needs`. The game id is the version 5 UUID of the manifest's `id` in the
+kit's own namespace, `GAME_ID_NAMESPACE`, so every version of a game is
+under one path and a page's policy names it once; `--game <id>` names a
+UUID of the author's own instead, which a host serving other people's games
+too gives each game, since a policy admitting a game's path admits whatever
+is served under it. It is a UUID because `rewritePresentImports` and
+`createBlobServer` hold every path's game id to one.
+
+`/serve`'s `createBlobServer` sends the headers a host needs, and the
+harness serves the game with it, in the layout `--addressed` writes, so a
+page meets on a laptop what it meets from a careful host. The browser suite
+holds a host to no more than the guide's list: a plain file server of its
+own, sharing no code with `createBlobServer`, sends by each file's
+extension the type, `nosniff`, the two cross-origin headers, the year-long
+cache and, on what is not JavaScript, the sandbox policy, and no `ETag`,
+and a page on another origin under `pageCsp` loads `dist/addressed/` from
+it and plays the template with `playLocal`, in Chromium, Firefox and
+WebKit. What `createBlobServer` sends:
 
 - `Access-Control-Allow-Origin: *`, because a page on another origin
   imports the page module, and every module import is a CORS request. What
@@ -986,9 +1032,11 @@ meets on a laptop what it meets from a careful host:
   `/g/<game id>/sim/<sha256>.js`, `/g/<game id>/present/<sha256>.js` and
   `/g/<game id>/t/<listing sha256>/<path>`, because each module is named by
   the digest of its own bytes, and each file by the digest of a listing that
-  names its bytes, so neither ever changes. `dist/sim.js` and
-  `dist/present.js` keep their names from one build to the next, so a host
-  serving `dist/` as it is caches them as files that change in place.
+  names its bytes, so neither ever changes. Every file in `dist/addressed/`
+  is at one of them, and `addressed.json`, which changes, is beside the
+  folder rather than in it. `dist/sim.js` and `dist/present.js` keep their
+  names from one build to the next, so a host serving `dist/` as it is
+  caches them as files that change in place.
 - An `ETag` of the digest, or for a file of the folder's name and its path,
   and `304` for a request that names it.
 - A module as JavaScript, and a file as the type its extension names in

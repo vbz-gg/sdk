@@ -89,37 +89,49 @@ folder by the SHA-256 of that listing. `references/files.md` has the folder
 whole: naming it, reaching it from the page module, data packs, what a
 page's policy needs for it, and every limit.
 
-## If you use vbz.gg: the rewritten paths are root-relative
+## The rewritten paths are root-relative
 
-The rewrite `vbz dev` and the platform make: `/g/<game id>/sim/<64 hex>.js`
-for the simulation and `/g/<game id>/t/<64 hex>/` for the folder, whose name
-is the SHA-256 of its listing, never a full URL. Each resolves against the
-page module's own URL, so the stored bytes carry no domain and the bundle
-host can change without re-publishing anything, and each names the game, so
-a studio's Content-Security-Policy can allow its own game's path and no
-other. The listing names every file's bytes, so a page module naming the
-folder names every byte in it, forever.
+The rewrite `vbz build --addressed` and `vbz dev` make, and, if you use
+vbz.gg, the platform on an upload: `/g/<game id>/sim/<64 hex>.js` for the
+simulation and `/g/<game id>/t/<64 hex>/` for the folder, whose name is the
+SHA-256 of its listing, never a full URL. Each resolves against the page
+module's own URL, so the bytes carry no domain and the host serving them can
+change without a rebuild, and each names the game, so a page's
+Content-Security-Policy can allow its own game's path and no other. The
+listing names every file's bytes, so a page module naming the folder names
+every byte in it, forever. Root-relative is also why `dist/addressed/` is
+served from the root of an origin and nowhere else.
 
 ## What `vbz build` writes
 
 ```
-dist/sim.js        the simulation
-dist/present.js    the page module, with cw2:sim and cw2:files/ still intact
-dist/manifest.json the manifest, read out of the built simulation
-dist/files.json    the folder's listing, the text its name is the SHA-256 of
-dist/files/        a copy of the folder, by its listed paths
-dist/game.json     where each of those is and what they hash to, for a page
-                   that plays the game locally from dist/ as it is
+dist/sim.js          the simulation
+dist/present.js      the page module, with cw2:sim and cw2:files/ still intact
+dist/manifest.json   the manifest, read out of the built simulation
+dist/files.json      the folder's listing, the text its name is the SHA-256 of
+dist/files/          a copy of the folder, by its listed paths
+dist/game.json       where each of those is and what they hash to, for a page
+                     that plays the game locally from dist/ as it is
+dist/addressed/      with --addressed: the two modules and the folder at their
+                     content addresses, the page module rewritten to name them,
+                     for the root of another origin
+dist/addressed.json  with --addressed: the game id, where the page module and
+                     the folder are from that root, the manifest hash and the
+                     game's needs, for a page loading it from there
 ```
 
-A page of your own serves all six, and reads `game.json` to find the rest.
-If you publish to vbz.gg, `vbz publish` sends the first five and never
-`game.json`.
+A page beside the build serves the first six, and reads `game.json` to find
+the rest. A host on another origin serves `dist/addressed/` alone, at its
+root, and the page reads `addressed.json` ("Distributing the build" in
+`SKILL.md`). If you publish to vbz.gg, `vbz publish` sends the first five
+and nothing else.
 
-The page module is written **unrewritten** on purpose. A page of your own
+`dist/present.js` is written **unrewritten** on purpose. A page beside it
 maps its specifiers with an import map, and the rewrite to content
-addresses belongs to the platform: a page module that arrived already
-pointing at an address would be one naming code nobody checked.
+addresses is made on a copy: in `dist/addressed/` by `--addressed`, and on
+vbz.gg by the platform as an upload arrives, since a page module that
+arrived already pointing at an address would be one naming code nobody
+checked.
 
 `dist/manifest.json` is read by evaluating the built simulation in a
 subprocess, so what it holds is the manifest the code carries rather than a

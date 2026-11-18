@@ -37,7 +37,7 @@ export const VALUE_FLAGS = [
 ] as const
 
 /** The flags that take none. */
-export const SWITCH_FLAGS = ["https", "site", "ranked"] as const
+export const SWITCH_FLAGS = ["https", "site", "ranked", "addressed"] as const
 
 type ValueFlag = (typeof VALUE_FLAGS)[number]
 type SwitchFlag = (typeof SWITCH_FLAGS)[number]
@@ -66,7 +66,15 @@ export interface Options {
    * a run's inputs to the budget a ranked or practice run is held to.
    */
   readonly ranked: boolean
-  /** `publish`: the game to upload to. */
+  /**
+   * `build`: also write the build at its content addresses, for the root of
+   * an origin a page on another origin loads it from.
+   */
+  readonly addressed: boolean
+  /**
+   * `build --addressed`: the game id the paths name. `publish`: the game to
+   * upload to.
+   */
   readonly game: string | undefined
   /** `publish`: the platform's origin, over the environment and the default. */
   readonly api: string | undefined
@@ -140,6 +148,7 @@ export function parseArgs(argv: readonly string[]): Options {
     site: switches.has("site"),
     config: values.get("config"),
     ranked: switches.has("ranked"),
+    addressed: switches.has("addressed"),
     game: values.get("game"),
     api: values.get("api"),
   }

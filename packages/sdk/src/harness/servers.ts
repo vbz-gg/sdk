@@ -10,8 +10,8 @@
  * cross-origin module import such a page makes in front of players.
  */
 
+import { type AddressedGame, layoutOf } from "../build/address.js"
 import { type BlobReader, createBlobServer } from "../serve/index.js"
-import { type BuiltGame, blobKeys } from "./artifacts.js"
 
 /** A certificate and its private key, as PEM text. */
 export interface Tls {
@@ -55,7 +55,7 @@ export function serveOptions(
 
 export interface BundleServerOptions {
   readonly port: number
-  readonly built: BuiltGame
+  readonly built: AddressedGame
   /** Every path the browser asked for, so a test can read the network. */
   readonly log?: (path: string) => void
   readonly listen?: Listen
@@ -68,19 +68,13 @@ export interface RunningServer {
 
 /** Serves the game's two modules and its files, as a host serving them to another origin does. */
 export function startBundleServer(options: BundleServerOptions): RunningServer {
-  const keys = blobKeys(options.built)
-  const blobs = new Map<string, Uint8Array>([
-    [keys.sim, options.built.sim],
-    [keys.present, options.built.present],
-  ])
-  const read: BlobReader = async (key) => {
-    const module = blobs.get(key)
-    if (module !== undefined) return module
-    if (!key.startsWith(keys.files)) return undefined
-    // Read from the folder each time, as listed when the game was built.
-    const onDisk = options.built.filesOnDisk.get(key.slice(keys.files.length))
-    return onDisk === undefined ? undefined : await Bun.file(onDisk).bytes()
-  }
+  // The layout `vbz build --addressed` writes, so the harness serves what a
+  // host holding that folder serves. A file of the folder is read each time,
+  // as listed when the game was built.
+  const layout = new Map(
+    layoutOf(options.built).map((entry) => [entry.key, entry]),
+  )
+  const read: BlobReader = async (key) => await layout.get(key)?.read()
   const serveBlob = createBlobServer(read)
   const listen = options.listen ?? LOOPBACK
 

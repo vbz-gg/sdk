@@ -74,6 +74,45 @@ The template's `site/` is such a page while `site/config.json` says
 `{ "mode": "local" }`, which a new game ships with, and `vbz dev --site`
 serves it from the build.
 
+### From another origin
+
+`vbz build --addressed` writes `dist/addressed/`, which a host serves as it
+is from the root of another origin, and `dist/addressed.json` beside it
+(`SKILL.md`, "Distributing the build"). The page module there already names
+its rules code and its folder by path, so the page needs no import map. The
+page loads it at that origin:
+
+```ts
+import { loadGame, playLocal } from "@vbz-gg/sdk/host"
+
+const origin = "https://files.example.com" // where dist/addressed/ is served
+const build = await (await fetch("/addressed.json")).json() // shipped with the page
+const game = await loadGame({
+  presentUrl: new URL(build.present, origin).href,
+  manifestHash: build.manifestHash,
+  filesUrl: new URL(build.files, origin).href,
+})
+// then playLocal(stage, { game, ... }) in the click, as above
+```
+
+and whatever sends the page sends its policy, naming that origin, the game
+id and what the game needs:
+
+```ts
+import { pageCsp } from "@vbz-gg/sdk/harness"
+
+const build = JSON.parse(await Bun.file("dist/addressed.json").text())
+const policy = pageCsp({
+  bundlesOrigin: "https://files.example.com",
+  gameId: build.gameId,
+  needs: build.needs,
+  signInOrigin: null, // the page frames nothing
+})
+```
+
+The policy admits `https://files.example.com/g/<game id>/` and nothing else
+on that origin, so another game served there stays out of the page.
+
 ## If you use vbz.gg: the client
 
 For ranked and practice runs, once the game is published:

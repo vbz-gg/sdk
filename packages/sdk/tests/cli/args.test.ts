@@ -37,6 +37,8 @@ describe("what the command line said", () => {
     expect(options.key).toBeUndefined()
     expect(options.site).toBe(false)
     expect(options.ranked).toBe(false)
+    expect(options.addressed).toBe(false)
+    expect(options.game).toBeUndefined()
     expect(options.config).toBeUndefined()
   })
 
@@ -81,6 +83,19 @@ describe("what the command line said", () => {
     expect(options.cert).toBe("cert.pem")
     expect(options.key).toBe("key.pem")
     expect(options.site).toBe(true)
+  })
+
+  test("--addressed is a switch for build, and --game the id its paths name", () => {
+    const options = parseArgs([
+      "build",
+      "--addressed",
+      "./game",
+      "--game",
+      "11111111-2222-4333-8444-555555555555",
+    ])
+    expect(options.addressed).toBe(true)
+    expect(options.game).toBe("11111111-2222-4333-8444-555555555555")
+    expect(options.dir).toMatch(/game$/)
   })
 
   test("--ranked is a switch, for check and dev", () => {

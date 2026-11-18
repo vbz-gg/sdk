@@ -9,9 +9,10 @@
  * rather than in front of players. Naming the game's path rather than the
  * whole origin is what keeps any other game's code out of the page. The
  * game's path is `/g/<game id>/` on the origin serving it, the layout
- * `createBlobServer` answers, so a host serving `dist/` as `vbz build`
- * wrote it, under any other path, is not one `pageCsp` admits. On vbz.gg
- * the bundles origin is `https://files.vbz.gg`, so a studio's page names
+ * `createBlobServer` answers and `vbz build --addressed` writes to
+ * `dist/addressed/`, so a host serving `dist/` as it is, under any other
+ * path, is not one `pageCsp` admits. On vbz.gg the bundles origin is
+ * `https://files.vbz.gg`, so a studio's page names
  * `https://files.vbz.gg/g/<game id>/`.
  *
  * A version may need more than its two modules, and each need is named, so

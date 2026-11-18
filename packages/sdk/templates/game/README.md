@@ -128,6 +128,16 @@ the rest under "Distributing the build", with the policy the page sends.
 `dist/sim.js` and `dist/present.js` keep their names from one build to the
 next, so cache them as files that change in place.
 
+To serve the game from another origin than the page, such as a CDN or a
+files subdomain, `bun run build --addressed` also writes `dist/addressed/`,
+every file at a content-addressed path, to copy as it is to the root of
+that origin, and `dist/addressed.json`, which says what the page needs. The
+page then loads the game from there with no import map, in place of
+`game/game.json`, and sends `pageCsp` naming that origin in place of
+`localPageCsp`. The host sends the headers the kit's guide lists under
+"Distributing the build", and may cache everything in `dist/addressed/` for
+a year, since a path there never names other bytes.
+
 ## If you use vbz.gg
 
 vbz.gg serves each ranked run its seed and settings, this same build plays

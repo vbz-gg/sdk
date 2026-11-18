@@ -27,11 +27,11 @@
 import { existsSync } from "node:fs"
 import { readFile } from "node:fs/promises"
 import { join, normalize, sep } from "node:path"
+import { type BuiltGame, blobKeys, buildAndAddress } from "../build/address.js"
 import { bundle } from "../build/build.js"
 import { DIST_DIR, DIST_FILES } from "../build/dist.js"
 import type { GameSource } from "../build/index.js"
 import { contentTypeFor } from "../serve/blobs.js"
-import { type BuiltGame, blobKeys, buildAndAddress } from "./artifacts.js"
 import {
   type DeclaredNeeds,
   localPageCsp,

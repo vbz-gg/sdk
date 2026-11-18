@@ -2,7 +2,7 @@
 /**
  * `vbz`, the commands an author runs.
  *
- * `build` produces the three files an upload carries. `dev` serves the game
+ * `build` produces what a page plays and a host serves. `dev` serves the game
  * the way production serves it, on two origins, so the first time a game's
  * page module is imported from another origin is on a laptop.
  *
@@ -19,7 +19,15 @@ import {
   startSite,
 } from "../harness/index.js"
 import { DEFAULT_ADDRESS, type Options, parseArgs } from "./args.js"
-import { buildGame, buildLines, writeBuild } from "./build.js"
+import {
+  addressBuild,
+  addressedLines,
+  addressingOf,
+  buildGame,
+  buildLines,
+  writeAddressed,
+  writeBuild,
+} from "./build.js"
 import { type Command, usageText } from "./commands.js"
 import { devSettings } from "./dev.js"
 import { failureLine } from "./failure.js"
@@ -41,6 +49,10 @@ import { needsOf, sourceOf } from "./source.js"
 const FLAGS = `  --sim <path>       the simulation's entry   (default src/sim/index.ts)
   --present <path>   the page module's entry  (default src/present.ts)
   --capture <path>   the input mapping        (default src/capture.ts)
+  --addressed        build: also write dist/addressed/, every file at the
+                     content-addressed path a page on another origin loads
+                     it from, to serve as it is from the root of that origin,
+                     and dist/addressed.json, what such a page needs to load it
   --host <port>      dev: the page that loads it   (default ${DEFAULT_HOST_PORT})
   --bundles-port <p> dev: the game's code origin   (default ${DEFAULT_BUNDLES_PORT})
   --address <host>   dev: where both listen, and the host their origins name
@@ -56,9 +68,12 @@ const FLAGS = `  --sim <path>       the simulation's entry   (default src/sim/in
                      dev: hold each run to a vbz.gg ranked run's input budget
   --config <file>    dev: a JSON config for the page's runs to play, in place
                      of every setting at its default
-  --game <id>      publish: the game on vbz.gg to upload to
-  --api <origin>   publish: the platform    (default ${DEFAULT_API_ORIGIN},
-                   or ${API_ORIGIN_VARIABLE})
+  --game <id>        build --addressed: the game id its paths name, a UUID
+                     written lowercase; by default one made from the
+                     manifest's id, the same for every version
+                     publish: the game on vbz.gg to upload to
+  --api <origin>     publish: the platform    (default ${DEFAULT_API_ORIGIN},
+                     or ${API_ORIGIN_VARIABLE})
 
   publish is for a game on vbz.gg alone; nothing else needs it. It reads the
   studio's secret key from ${STUDIO_KEY_VARIABLE}, and exits 0 when the version
@@ -71,6 +86,27 @@ async function build(options: Options): Promise<void> {
   const built = await buildGame(await sourceOf(options))
   await writeBuild(options.dir, built)
   for (const line of buildLines(built)) process.stdout.write(`${line}\n`)
+}
+
+/**
+ * `vbz build`: the build, and with `--addressed` the build at its content
+ * addresses too. Both are worked out before anything is written, so a game
+ * id that cannot be made leaves the last build as it was.
+ */
+async function buildCommand(options: Options): Promise<number> {
+  const addressing = addressingOf(options)
+  const built = await buildGame(await sourceOf(options))
+  const addressed =
+    addressing === null ? null : addressBuild(built, addressing.gameId)
+  await writeBuild(options.dir, built)
+  for (const line of buildLines(built)) process.stdout.write(`${line}\n`)
+  if (addressed !== null) {
+    await writeAddressed(options.dir, addressed)
+    for (const line of addressedLines(addressed)) {
+      process.stdout.write(`${line}\n`)
+    }
+  }
+  return 0
 }
 
 async function dev(options: Options): Promise<void> {
@@ -214,12 +250,10 @@ export const COMMANDS: readonly Command[] = [
     args: "[dir]",
     summary: [
       "write dist/sim.js, dist/present.js, dist/manifest.json, and the",
-      "files folder package.json names as dist/files/, listed in dist/files.json",
+      "files folder package.json names as dist/files/, listed in dist/files.json;",
+      "with --addressed, dist/addressed/ too, for the root of another origin",
     ],
-    run: async (options) => {
-      await build(options)
-      return 0
-    },
+    run: buildCommand,
   },
   {
     name: "check",
