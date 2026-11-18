@@ -28,45 +28,60 @@ jobs:
 
   browser:
     name: the browser suite
-    # Playwright 1.56.1 installs no browsers on Ubuntu 26.04, which ubuntu-latest
-    # now is, so a job that drives a browser names the release it supports.
+    # The host only starts the container below. It stays on 24.04, the
+    # release the image is built from.
     runs-on: ubuntu-24.04
+
+    # Playwright's own image carries Chromium, Firefox and WebKit and every
+    # system library they load, so this job downloads no browser and installs
+    # nothing with apt. Installing those libraries from Ubuntu's mirrors on
+    # every run sat for 15 to 25 minutes twice on 17 and 18 November, against
+    # under 4 minutes for the whole suite.
+    #
+    # The tag names the Playwright that bun.lock installs, because the image
+    # holds the browser builds of one version and any other looks for builds
+    # that are not there. scripts/release-version.test.ts holds the two
+    # together.
+    #
+    # The options are Playwright's for GitHub Actions and for Docker. --user
+    # 1001 is the runner's own user, which owns the checkout and the home
+    # GitHub mounts; as root, Firefox refuses to start in a home another user
+    # owns, measured in this image. --ipc=host because without it Chromium can
+    # run out of shared memory and crash, and --init so a process a spec
+    # leaves behind is reaped rather than kept as a zombie.
+    container:
+      image: mcr.microsoft.com/playwright:v1.56.1-noble
+      options: --user 1001 --ipc=host --init
 
     env:
       CI: "true"
 
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.3.11
+
+      # Not oven-sh/setup-bun, which unpacks bun's zip with `unzip`, and the
+      # image has none and the job no root to install it ("Unable to locate
+      # executable file: unzip", measured in this image). npm carries the same
+      # binary, byte for byte, and the image's own npm checks it against the
+      # registry's integrity hash. The version is the one setup-bun installs in
+      # every other job, and scripts/release-version.test.ts holds them equal.
+      - name: bun
+        run: |
+          set -euo pipefail
+          npm install --prefix "$RUNNER_TEMP/bun" --no-save --no-audit --no-fund \
+            --no-update-notifier @oven/bun-linux-x64@1.3.11
+          mkdir -p "$HOME/.bun/bin"
+          ln -sf "$RUNNER_TEMP/bun/node_modules/@oven/bun-linux-x64/bin/bun" "$HOME/.bun/bin/bun"
+          ln -sf bun "$HOME/.bun/bin/bunx"
+          echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
+          "$HOME/.bun/bin/bun" --revision
 
       - run: bun install --frozen-lockfile
 
-      # Chromium, Firefox and WebKit are several hundred megabytes, so they
-      # are cached by the version the lockfile pins rather than downloaded on
-      # every run. Firefox and WebKit run the specs each engine decides for
-      # itself: whether a studio's policy lets a game's modules and its files
-      # folder's loads in, and the sign-in's box. This is the only place
-      # WebKit runs.
-      - name: cache the browsers
-        id: browser-cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ hashFiles('bun.lock') }}
-
-      # Through the workspace's own binary, never `bunx playwright`, which
-      # resolves the newest `playwright` from the registry and downloads a
-      # browser build the pinned version does not look for.
-      - if: steps.browser-cache.outputs.cache-hit != 'true'
-        run: bun run --cwd e2e install:browsers
-
-      # The system libraries even on a cache hit: the browsers need them and
-      # the cache does not carry them.
-      - if: steps.browser-cache.outputs.cache-hit == 'true'
-        run: bun run --cwd e2e install:browser-deps
-
+      # Firefox and WebKit run the specs each engine decides for itself:
+      # whether a studio's policy lets a game's modules and its files folder's
+      # loads in, the sign-in's box, and a build on another origin. This is
+      # the only place WebKit runs.
       - run: bun run test:e2e
 
       - if: failure()
