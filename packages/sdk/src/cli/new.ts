@@ -91,9 +91,9 @@ export const TEMPLATE_TITLE = "Lane Runner"
 /**
  * A game's id, derived from the directory it was made in.
  *
- * An id is immutable once published - changing it is a different game with a
- * different board - so it is settled here rather than left as a placeholder
- * somebody forgets.
+ * On vbz.gg an id is immutable once published - changing it is a different
+ * game with a different board - so it is settled here rather than left as a
+ * placeholder somebody forgets.
  */
 export function gameIdFrom(name: string): string {
   const id = name

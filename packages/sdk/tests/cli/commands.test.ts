@@ -27,7 +27,7 @@ describe("the usage", () => {
         "flags\n",
       ),
     ).toBe(
-      "vbz - build and run a game for vbz.gg\n\n" +
+      "vbz - make, build and play a Clockwork 2 game, on any page\n\n" +
         "  vbz new     [dir]   copy a game\n" +
         "  vbz publish [dir]   upload it\n" +
         "                      and wait\n\n" +
@@ -48,7 +48,7 @@ describe("the usage", () => {
     const result = await $`bun ${CLI} deploy`.quiet().nothrow()
     expect(result.exitCode).toBe(1)
     expect(result.stdout.toString()).toStartWith(
-      "vbz - build and run a game for vbz.gg\n",
+      "vbz - make, build and play a Clockwork 2 game, on any page\n",
     )
   })
 

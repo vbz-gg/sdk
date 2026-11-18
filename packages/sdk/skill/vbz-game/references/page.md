@@ -1,16 +1,19 @@
-# The page: `@vbz-gg/sdk/host` and `@vbz-gg/sdk/platform`
+# The page: `@vbz-gg/sdk/host`, and `@vbz-gg/sdk/platform` on vbz.gg
 
-A game is played on a page. Played locally, the page loads the build beside
-it and plays it with `playLocal` from `@vbz-gg/sdk/host`, and talks to
-nobody. For ranked and practice runs, a studio's page signs a player in,
-loads the game's page module from the platform, starts a run, sends the run
-to the platform as it goes, submits the recording and reads the board:
-`@vbz-gg/sdk/platform` does that against the platform's routes, and
-`@vbz-gg/sdk/host` loads the module, plays a run through it and adds two
-widgets. The platform's page guide, `docs/your-game-page.md` in
+A game is played on a page. The page loads the build, from beside it or
+from wherever it is served, plays it with `playLocal` from
+`@vbz-gg/sdk/host`, and talks to nobody. A player has no identity there
+unless the page's author adds one.
+
+If you use vbz.gg, a studio's page plays ranked and practice runs too: it
+signs a player in, loads the game's page module from the platform, starts
+a run, sends the run to the platform as it goes, submits the recording and
+reads the board. `@vbz-gg/sdk/platform` does that against the platform's
+routes, and `@vbz-gg/sdk/host` loads the module, plays a run through it and
+adds two widgets. The platform's page guide, `docs/your-game-page.md` in
 vbz-gg/platform, is the protocol they follow. The same build plays both.
 
-## Playing locally
+## Playing a game on a page
 
 `vbz build` writes `dist/game.json` beside the build. A page serves `dist/`
 as it is, here as `game/`, maps the page module's two imports with an import
@@ -58,19 +61,20 @@ playButton.onclick = () => {
   and a `recording` of null, and whatever the prompt answers afterwards,
   nothing is mounted and nothing more is reported, so the next run may take
   the element at once.
-- A local run's recording can never pass for a ranked one. Its seed is no
-  seed the platform issued, so the platform refuses it as played on a seed
-  no run was issued (`E_PINNED_MISMATCH`) and stores nothing, and the
-  client's `submit` does not take its `LocalRecording`.
+- If you use vbz.gg, a local run's recording can never pass for a ranked
+  one. Its seed is no seed the platform issued, so the platform refuses it
+  as played on a seed no run was issued (`E_PINNED_MISMATCH`) and stores
+  nothing, and the client's `submit` does not take its `LocalRecording`.
 - The page's Content-Security-Policy is `localPageCsp` from
-  `@vbz-gg/sdk/harness`, with the game's needs and the import map admitted
-  by the SHA-256 of its exact text.
+  `@vbz-gg/sdk/harness` for a build served from the page's own origin, or
+  `pageCsp` for one served from another, with the game's needs and the
+  import map admitted by the SHA-256 of its exact text.
 
 The template's `site/` is such a page while `site/config.json` says
 `{ "mode": "local" }`, which a new game ships with, and `vbz dev --site`
 serves it from the build.
 
-## The client
+## If you use vbz.gg: the client
 
 For ranked and practice runs, once the game is published:
 
@@ -122,7 +126,7 @@ signInButton.onclick = () => platform.signIn() // from the click, nothing awaite
 - `signOut()` forgets the player on this page. No route signs a player out;
   the sign-in's own page does that.
 
-## A run
+## If you use vbz.gg: a run
 
 ```ts
 import { loadGame, mountBoard, mountSignIn, playRun } from "@vbz-gg/sdk/host"
@@ -252,8 +256,10 @@ A run can also fail with one of the engine's own codes, such as
 
 ## Codes
 
-A `PlatformRefusal` carries the platform's own code, from `PublicRefusalCode`
-in `@vbz-gg/sdk/api`. A `PlatformClientError` is the client's:
+A `PlatformClientError` is the code `playLocal`, `loadGame` and, on
+vbz.gg, the client and `playRun` fail with. A `PlatformRefusal`, which only a
+page playing on vbz.gg meets, carries the platform's own code, from
+`PublicRefusalCode` in `@vbz-gg/sdk/api`. The client's codes:
 
 | Code | What it means |
 |---|---|

@@ -20,8 +20,8 @@
  * from one.
  *
  * Swap `present/canvas.ts` for a renderer of your own and nothing here
- * changes. That is the point of the boundary, and it is what lets the
- * platform replay your game on a server that has no canvas at all.
+ * changes. That is the point of the boundary, and it is what lets a replay,
+ * the harness's or a server's, run your game with no canvas at all.
  */
 
 import {
@@ -111,7 +111,7 @@ export type View = {
 }
 
 export class LaneRunner implements GameModule<View, Config> {
-  /** The platform reads this without running the game. */
+  /** The game's manifest, which a host reads before a tick runs. */
   readonly manifest = MANIFEST
   private config: Config = DEFAULT_CONFIG
   private rng!: Prng
@@ -246,12 +246,9 @@ export class LaneRunner implements GameModule<View, Config> {
   }
 
   /**
-   * Rocks arrive faster as the run goes on.
-   *
-   * Some form of this is not optional: check 3 replays the game with an idle
-   * player, a chaos log and the platform's bot, and every one of them has to
-   * reach an ending. A game that a good player can hold forever is a game the
-   * platform cannot bound what it pays to replay.
+   * Rocks arrive faster as the run goes on, so every run ends. A game that a
+   * good player can hold forever has a recording, and a replay, that grow
+   * for as long as they play.
    */
   private spawnInterval(): number {
     return Math.max(

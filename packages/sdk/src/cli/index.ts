@@ -48,20 +48,22 @@ const FLAGS = `  --sim <path>       the simulation's entry   (default src/sim/in
   --https            dev: serve https, with --cert <file> and --key <file> (PEM)
   --site             dev: serve the game's site/ in the mode its config.json
                      names: local, with the build beside it as /game/, or
-                     ranked, against a stand-in for the platform, which
-                     plays one local player and ranks nothing
-  --ranked           check: also what a ranked or practice run needs: the seed
-                     changes the state, and the manifest says how a run ranks
-                     dev: hold each run to a ranked run's input budget
+                     ranked on vbz.gg, against a stand-in for the platform,
+                     which plays one local player and ranks nothing
+  --ranked           check: also what a ranked or practice run on vbz.gg needs:
+                     the seed changes the state, and the manifest says how a
+                     run ranks
+                     dev: hold each run to a vbz.gg ranked run's input budget
   --config <file>    dev: a JSON config for the page's runs to play, in place
                      of every setting at its default
-  --game <id>      publish: the game to upload to
+  --game <id>      publish: the game on vbz.gg to upload to
   --api <origin>   publish: the platform    (default ${DEFAULT_API_ORIGIN},
                    or ${API_ORIGIN_VARIABLE})
 
-  publish reads the studio's secret key from ${STUDIO_KEY_VARIABLE}. It exits 0
-  when the version passed its checks and is published, and prints which runs
-  it serves; anything else, a version an operator took down included, is 1.
+  publish is for a game on vbz.gg alone; nothing else needs it. It reads the
+  studio's secret key from ${STUDIO_KEY_VARIABLE}, and exits 0 when the version
+  passed its checks and is published, printing which runs it serves; anything
+  else, a version an operator took down included, is 1.
 `
 
 /** Writes what an upload carries, and says what it wrote. */
@@ -121,7 +123,8 @@ async function newGame(options: Options): Promise<number> {
   const made = await createGame({ dir: options.dir })
   process.stdout.write(
     `${made.dir}\n\n` +
-      `  ${made.id}, which is the id its board will be kept under\n\n` +
+      `  ${made.id}, the game's id, from the directory name; a board on vbz.gg\n` +
+      "  keeps it for good if you publish the game there\n\n" +
       guideLines(made.guides)
         .map((line) => `  ${line}\n`)
         .join("") +
@@ -222,21 +225,21 @@ export const COMMANDS: readonly Command[] = [
     name: "check",
     args: "[dir]",
     summary: [
-      "run the engine's checks every game needs, or with --ranked the",
-      "ranked set, and hold src/capture.ts to the manifest",
+      "run the engine's checks every game needs, or with --ranked the set",
+      "ranked play on vbz.gg needs, and hold src/capture.ts to the manifest",
     ],
     run: check,
   },
   {
     name: "dev",
     args: "[dir]",
-    summary: ["serve the game the way production does, and play it locally"],
+    summary: ["serve the game to a page on another origin, and play it there"],
     run: serve,
   },
   {
     name: "publish",
     args: "[dir]",
-    summary: ["upload dist/ and wait for the platform's verdict"],
+    summary: ["for vbz.gg: upload dist/ and wait for the platform's verdict"],
     run: upload,
   },
 ]

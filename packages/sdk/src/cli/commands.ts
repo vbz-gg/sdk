@@ -26,7 +26,10 @@ const NAME_WIDTH = 7
 
 /** The usage's opening line, every command's lines, then `rest`. */
 export function usageText(commands: readonly Command[], rest: string): string {
-  const lines = ["vbz - build and run a game for vbz.gg", ""]
+  const lines = [
+    "vbz - make, build and play a Clockwork 2 game, on any page",
+    "",
+  ]
   for (const command of commands) {
     const lead = `  vbz ${command.name.padEnd(NAME_WIDTH)} ${command.args}   `
     const indent = " ".repeat(lead.length)

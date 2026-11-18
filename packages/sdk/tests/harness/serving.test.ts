@@ -597,16 +597,20 @@ describe("the policy and the origins", () => {
   })
 
   /**
-   * The docs recommend this policy to every studio, and the browser suite
-   * measured it in three engines. A copy in the docs that drifted from the
-   * function would be recommending something nothing measured.
+   * The docs recommend these policies, one to a page serving its game from
+   * its own origin and one to a ranked page on vbz.gg, and the browser suite
+   * measured them. A copy in the docs that drifted from the functions would
+   * be recommending something nothing measured.
    */
-  test("the policy docs/sdk.md recommends is the one the harness serves", async () => {
+  test("the policies docs/sdk.md recommends are the ones the harness serves", async () => {
     const docs = await Bun.file(
       join(import.meta.dir, "..", "..", "..", "..", "docs", "sdk.md"),
     ).text()
-    const block = /```\n(default-src[\s\S]*?)\n```/.exec(docs)?.[1]
-    expect(block?.split("\n").join(" ")).toBe(
+    const blocks = [...docs.matchAll(/```\n(default-src[\s\S]*?)\n```/g)].map(
+      (match) => (match[1] ?? "").split("\n").join(" "),
+    )
+    expect(blocks).toContain(localPageCsp())
+    expect(blocks).toContain(
       pageCsp({
         bundlesOrigin: "https://files.vbz.gg",
         gameId: "<game id>",

@@ -2,15 +2,15 @@
  * A game's version, read as a release.
  *
  * A version is `MAJOR.MINOR.PATCH` and nothing else, and every version sharing
- * one `MAJOR.MINOR` is one release line. The platform stores each part as a
- * 32-bit signed integer and orders every version picker by the three of them,
- * so a version those columns cannot hold, or that sorts one way as text and
+ * one `MAJOR.MINOR` is one release line. vbz.gg stores each part as a 32-bit
+ * signed integer and orders every version picker by the three of them, so a
+ * version those columns cannot hold, or that sorts one way as text and
  * another as numbers, is refused before a byte is stored. `vbz build` refuses
- * the same versions through this same function, so an author meets the
- * refusal before an upload does.
+ * the same versions through this same function, so a build that passes is
+ * one an upload to vbz.gg takes.
  *
- * The engine keeps its own wider pattern, for games that never reach the
- * platform.
+ * The engine keeps its own wider pattern, for games built without this
+ * kit.
  */
 
 import { refuse } from "./errors.js"

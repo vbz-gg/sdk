@@ -1,8 +1,8 @@
 /**
  * The simulation bundle's entry. Two exports and nothing else:
  *
- *   - a default export the platform calls for a fresh module per session
- *   - `MANIFEST`, which the platform reads without running anything
+ *   - a default export a host calls for a fresh game each run
+ *   - `MANIFEST`, which a host and the checks read before a tick runs
  *
  * The conformance checker is pointed at this file, and it scans the import
  * graph transitively. It must not reach the renderer: a simulation that can

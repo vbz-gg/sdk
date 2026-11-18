@@ -1,10 +1,10 @@
-# From an upload to a listing
+# If you use vbz.gg: from an upload to a listing
 
-What the platform does with a submission, in order. Only a game opted in to
-ranked play is uploaded: a game played only on its own page never meets any
-of this. Sections 0 to 2 run before the first storage write, so a submission
-they refuse leaves nothing behind and costs no quota: an upload is its own
-dry run.
+What vbz.gg does with a submission, in order, for a game you publish there.
+A game you ship any other way never meets any of this: `vbz build` and
+`vbz check` are all it needs. Sections 0 to 2 run before the first storage
+write, so a submission they refuse leaves nothing behind and costs no quota:
+an upload is its own dry run.
 
 `vbz publish <dir> --game <id>` is how a submission arrives. It sends the
 files folder's listing with the version's manifest and asks which files the

@@ -2,12 +2,13 @@ import type { TickRate } from "@clockwork2/engine/manifest"
 import { MAX_FILE_PATH_LENGTH } from "../game/files.js"
 
 /**
- * Every size the platform holds a version, a game's files and a run to, the
- * budget one replay of a run has, the time the platform's checks allow a
- * version, and how long the platform waits on them, in one place.
+ * Every size `vbz build` holds a build to, and every size vbz.gg holds an
+ * upload, a game's files and a run to, the budget one replay of a run has
+ * there, the time its checks allow a version, and how long it waits on
+ * them, in one place.
  *
- * The platform imports these, and so does everything here that checks one:
- * `vbz build`, the stand-in a studio's page runs against, and the agent
+ * vbz.gg imports these, and so does everything here that checks one:
+ * `vbz build`, the stand-in a ranked page runs against, and the agent
  * guide's test. `/api` exports no value, so this is where they live. Each is
  * generous enough that nothing real reaches it and small enough that a
  * runaway build is refused rather than stored.

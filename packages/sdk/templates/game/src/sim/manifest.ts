@@ -1,8 +1,6 @@
 /**
- * What the platform knows about this game without running it.
- *
- * Every field here is read before a single tick executes: how fast it runs,
- * what it records, what it counts and how it ranks.
+ * What this game declares about itself, read before a single tick executes:
+ * how fast it runs, what it records, what it counts and how it ranks.
  */
 
 import type { Manifest } from "@clockwork2/engine/manifest"
@@ -10,16 +8,19 @@ import { POINTER_X_MAX, POINTER_Y_MAX } from "./field"
 
 export const MANIFEST: Manifest = {
   schemaVersion: 3,
-  /** Immutable. Change it and this is a different game with a new board. */
+  /**
+   * The game's id. On vbz.gg it is immutable once published: change it and
+   * this is a different game with a new board.
+   */
   id: "lane-runner",
   /**
    * MAJOR.MINOR.PATCH and nothing else: no prerelease or build suffix, no
    * leading zero. Every version sharing a MAJOR.MINOR is one release line,
-   * which players, the board and the day's seed treat as one game.
+   * which on vbz.gg players, the board and the day's seed treat as one game.
    *
    * - A patch, 1.0.0 to 1.0.1, changes how the game looks or fixes a bug,
    *   and keeps what a score means. It may not change what its line fixes,
-   *   or the platform refuses it with E_PATCH_CHANGES_RULES: schemaVersion,
+   *   or vbz.gg refuses it with E_PATCH_CHANGES_RULES: schemaVersion,
    *   id, session, inputs (each one's min and max), counters (each one's
    *   name, direction and monotonic), rankBy, tiePolicy, params (all but
    *   each one's label and description), and of the capabilities

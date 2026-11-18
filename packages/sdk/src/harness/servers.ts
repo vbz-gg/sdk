@@ -1,12 +1,13 @@
 /**
  * Two servers, because a game needs two origins to be tested honestly.
  *
- * The bundles origin serves the game's two modules and its files at the
- * paths and with the headers the platform's edge uses. The host origin serves the page that
- * loads the page module from it, as a studio's page does, under the
- * Content-Security-Policy a studio's page is meant to send. Two ports on one
+ * The bundles origin serves the game's two modules and its files with the
+ * headers a host serving them to another origin sends, at the paths vbz.gg's
+ * public store uses. The host origin serves the page that loads the page
+ * module from it, as a page on another origin does, under the
+ * Content-Security-Policy such a page is meant to send. Two ports on one
  * host are two origins, which is what puts an author in front of the
- * cross-origin module import a studio's page makes in production.
+ * cross-origin module import such a page makes in front of players.
  */
 
 import { type BlobReader, createBlobServer } from "../serve/index.js"
@@ -65,7 +66,7 @@ export interface RunningServer {
   stop(): Promise<void>
 }
 
-/** Serves the game's two modules and its files, as the platform's edge does. */
+/** Serves the game's two modules and its files, as a host serving them to another origin does. */
 export function startBundleServer(options: BundleServerOptions): RunningServer {
   const keys = blobKeys(options.built)
   const blobs = new Map<string, Uint8Array>([

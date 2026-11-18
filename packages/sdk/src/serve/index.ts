@@ -1,10 +1,10 @@
 /**
- * Serving a game's two modules and its files the way the platform's edge
- * serves them.
+ * Serving a game's two modules and its files with the headers a host serving
+ * them to a page on another origin sends.
  *
- * The harness serves a laptop from this code, and the platform's development
+ * The harness serves a laptop from this code, and vbz.gg's development
  * `bundles` role serves its local folder from it, so a page meets the same
- * paths and the same headers in both as from the public bucket in production.
+ * paths and the same headers in both as from vbz.gg's public bucket.
  */
 
 export {

@@ -4,9 +4,10 @@
  * A game that reads tilt is steered by it, so a run started without tilt is
  * a run nobody can steer, and on iOS, which remembers a refusal, every run
  * after it would be the same. So anything but a grant starts nothing:
- * `playRun` fails the run with it before asking the platform for one, and the
- * harness page refuses the run on its status line. Both read the answer here,
- * so a studio's page and the harness cannot decide it two ways.
+ * `playLocal` starts no run, `playRun` fails the run with it before asking
+ * the platform for one, and the harness page refuses the run on its status
+ * line. All read the answer here, so a page and the harness cannot decide it
+ * two ways.
  */
 
 import type { MotionAccess } from "@clockwork2/engine/host"

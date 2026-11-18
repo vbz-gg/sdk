@@ -1,11 +1,11 @@
 /**
- * Building a game into the two artifacts an upload carries and the files
- * folder beside them, every limit the platform holds them to, and reading
- * its version as a release.
+ * Building a game into its two artifacts and the files folder beside them,
+ * every limit `vbz build` holds them to, and reading its version as a
+ * release.
  *
  * The artifact half runs under bun and reaches its bundler, so it is a
  * separate subpath from anything a page imports: a browser bundle must not
- * drag any of this in. The platform imports this subpath, so an upload is
+ * drag any of this in. vbz.gg imports this subpath, so an upload there is
  * checked with the code an author builds with.
  */
 

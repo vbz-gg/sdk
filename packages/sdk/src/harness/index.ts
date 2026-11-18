@@ -1,19 +1,20 @@
 /**
- * The harness: your game, loaded the way a studio's page loads it.
+ * The harness: your game, loaded the way a page on another origin loads it.
  *
- * It builds the two real artifacts, serves them content-addressed at the
- * paths and with the headers the platform's edge uses, and serves a page on a
- * second origin that loads the page module from there with `loadGame`, under
- * the Content-Security-Policy a studio's page is meant to send, and plays it
- * through the module's own `mount` on a fixed seed. The point is that the
- * first time a game meets a cross-origin module import under that policy
- * should be on a laptop rather than on a studio's page.
+ * It builds the two real artifacts, serves them content-addressed with the
+ * headers a host serving them to another origin sends, the ones vbz.gg's
+ * public store sends too, and serves a page on a second origin that loads
+ * the page module from there with `loadGame`, under the
+ * Content-Security-Policy such a page is meant to send, and plays it through
+ * the module's own `mount` on a fixed seed. The point is that the first time
+ * a game meets a cross-origin module import under that policy should be on a
+ * laptop rather than in front of players.
  *
  * When a run ends the page sends its recording back, and the harness replays
  * it against the built rules code, holds its inputs to the manifest with
  * `checkInputs` and its budget, and says how big it is. It settles and ranks
- * nothing: a pass here says the platform's replay would agree, not what the
- * run would score on a board.
+ * nothing: a pass here says any replay would agree, vbz.gg's included, not
+ * what the run would score on a board.
  */
 
 import { existsSync } from "node:fs"
@@ -158,9 +159,9 @@ export async function startHarness(options: HarnessOptions): Promise<Harness> {
       title,
       config: {
         presentUrl,
-        // What the platform would compute from the uploaded manifest, so a
-        // page module carrying another one is refused here as it would be on
-        // a studio's page.
+        // What vbz.gg would compute from an uploaded manifest, and what
+        // `game.json` carries for a page playing locally, so a page module
+        // carrying another one is refused here as it would be on any page.
         manifestHash: hashCanonical(manifest as unknown as PlainValue),
         filesUrl,
         title,

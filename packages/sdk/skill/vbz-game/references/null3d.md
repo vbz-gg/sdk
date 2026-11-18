@@ -1,11 +1,11 @@
 # Drawing with null3d
 
 [null3d](https://github.com/null3d-engine/null3d) draws from workers with a
-WebAssembly core, on WebGPU or WebGL2. This page is how a vbz game draws
-with it: where its code goes, how the page module reaches it, how the run's
-clock waits for its first frame, why its input stays off, how a mouse turns
-a camera that changes the result, which of its maths the rules code may use,
-and what a page's policy and headers need.
+WebAssembly core, on WebGPU or WebGL2. This page is how a game made with
+this kit draws with it: where its code goes, how the page module reaches it,
+how the run's clock waits for its first frame, why its input stays off, how
+a mouse turns a camera that changes the result, which of its maths the rules
+code may use, and what a page's policy and headers need.
 
 null3d is not on npm yet, so this kit does not depend on it, and nothing
 here is a template: it is a recipe. Every figure is from a study that drew
@@ -77,7 +77,8 @@ export default defineConfig({
 
 Every file null3d loads at run time is named relative to the module that
 loads it, `new URL(..., import.meta.url)`, and the plugin keeps those places,
-so the folder works from `files.vbz.gg` and from beside a local page alike.
+so the folder works from beside a page, from another origin, and from
+`files.vbz.gg` alike.
 
 **Build only the shader permutations the game draws with.** The shader
 modules decide the folder's size. null3d's guide,
@@ -193,10 +194,11 @@ export function createPresentation(): Presentation<View, HTMLElement> {
   ready. null3d's own figure for a small page on an iPad is about 900 ms to
   ready.
 - **A device that cannot draw it** spends no run. A browser with no usable
-  GPU path rejects `createEngine` with null3d's E1301, `prepare` rejects, and
-  the page's `playLocal` or `playRun` fails with `E_PRESENTATION_FAILED`
-  before tick 0, `playRun` before it asks the platform for a run (measured
-  in headless Firefox 142, which has neither WebGL nor WebGPU).
+  GPU path rejects `createEngine` with null3d's E1301, `prepare` rejects,
+  and the page's `playLocal` or `playRun` fails with `E_PRESENTATION_FAILED`
+  before tick 0, and on vbz.gg `playRun` before it asks the platform for a
+  run (measured in headless Firefox 142, which has neither WebGL nor
+  WebGPU).
 - **The sketch draws the view.** `render` sends the sketch the interpolated
   view once a frame, and the sketch keeps the latest and places its objects
   from it in `onUpdate`. Threaded, each message is copied, so send only the
@@ -330,7 +332,7 @@ sweep up and down, one event a frame, for five minutes at 60 Hz:
 | 4 pixels a step, -32 to 32 a tick | 22870 | 1.271 | 917512 bytes |
 | 1 pixel a step, -1000 to 1000 a tick | 33888 | 1.883 | 1355158 bytes |
 
-Both are inside the 16 inputs a tick a ranked run may hold. What bounds a
+Both are inside the 16 inputs a tick a ranked run on vbz.gg may hold. What bounds a
 long run is its recording: a run ends as if the player left before it
 fills the last 1 MiB of its 31 MiB, so it records at most 30 MiB. At the
 coarse rate that is about 2 h 51 min of a mouse moving the whole time, and
@@ -374,8 +376,11 @@ const exact = createMath({ sin, cos, acos, exp })
 
 ## The page's policy and its headers
 
-A page plays a null3d game under the policy with the game's needs, which
-`pageCsp` in `@vbz-gg/sdk/harness` builds from them. For ranked play:
+A page plays a null3d game under the policy with the game's needs. For a
+build served from the page's own origin, `localPageCsp` in
+`@vbz-gg/sdk/harness` builds it from them, with `'self'` where the policy
+below names the game's path, and no API or sign-in. For a build served from
+another origin, `pageCsp` builds it, and for ranked play on vbz.gg it is:
 
 ```
 default-src 'none';
@@ -401,7 +406,8 @@ other it runs single-threaded, and the sketch, its core and its drawing
 share the page's thread with the run's ticks. null3d's own figures for a
 small scene on an iPad: 0.48 to 1.86 ms a frame on that thread, against
 0.24 to 1.10 ms on its busiest worker when threaded. Three ways, each
-measured with the sign-in's box over the page:
+measured on a page that also showed the sign-in's box a ranked page on
+vbz.gg puts up:
 
 1. **No isolation headers.** Single-threaded, in every engine. The box
    works.

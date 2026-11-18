@@ -339,7 +339,7 @@ test("bunx @vbz-gg/sdk new makes the same game from the registry", async () => {
       env,
     )
     expect(made.stdout).toContain(
-      "pocket-run, which is the id its board will be kept under",
+      "pocket-run, the game's id, from the directory name",
     )
     expectBothFromTheRegistry(await registryLog())
 

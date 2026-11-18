@@ -196,7 +196,14 @@ function apiUnion(name: string): ApiUnion {
 const PUBLIC_REFUSALS = apiUnion("PublicRefusalCode").literals
 const CHECK_CODES = apiUnion("VersionCheckCode").literals
 const RETIRED_CHECK_CODES = apiUnion("VersionCheckCode").retired
-const REFUSAL_LIST = section(await read("SKILL.md"), "When ingest refuses")
+/**
+ * The platform's refusals, which the guide keeps in a section of their own,
+ * headed as one use of the kit a game may never have.
+ */
+const REFUSAL_LIST = section(
+  await read("SKILL.md"),
+  "If you use vbz.gg: when an upload is refused",
+)
 
 describe("the guide's front matter", () => {
   test("its name is its folder's, which is what a tool installs it under", async () => {
@@ -230,6 +237,49 @@ describe("the guide's front matter", () => {
     expect(description).toContain(basename(ENGINE_GUIDE))
     expect(description.length).toBeLessThanOrEqual(1024)
     expect(description).not.toMatch(/<[a-zA-Z/]/)
+  })
+})
+
+/**
+ * A game made with the kit may never meet vbz.gg: its author builds it and
+ * ships it any way they choose. So the guide leads with that, and keeps
+ * everything about the platform in sections headed as one optional use.
+ */
+describe("the kit without the platform", () => {
+  test("the description leads with making and shipping a game, and names vbz.gg only as an option", async () => {
+    const front = (await read("SKILL.md")).split("---")[1] ?? ""
+    const description = /^description: (.+)$/m.exec(front)?.[1] ?? ""
+    const first = description.slice(0, description.indexOf(". "))
+    expect(first).toContain("ship it")
+    expect(first).not.toContain("vbz.gg")
+    expect(description.indexOf("Optionally")).toBeGreaterThan(0)
+    expect(description.indexOf("Optionally")).toBeLessThan(
+      description.indexOf("vbz.gg"),
+    )
+  })
+
+  /** What only a game on vbz.gg meets, by the words that name it. */
+  const PLATFORM =
+    /vbz\.gg|platform|upload|publish|sign[ -]?in|page key|ranked/i
+
+  test("every section about vbz.gg is headed as optional", async () => {
+    const headings = (await read("SKILL.md")).match(/^## .+$/gm) ?? []
+    expect(headings.length).toBeGreaterThan(10)
+    for (const heading of headings) {
+      if (!PLATFORM.test(heading)) continue
+      expect(heading).toStartWith("## If you use vbz.gg: ")
+    }
+  })
+
+  test("playing a game on a page and shipping its build need nothing of the platform", async () => {
+    const text = await read("SKILL.md")
+    for (const heading of ["Playing it on a page", "Distributing the build"]) {
+      const words = section(text, heading)
+      expect(words.length).toBeGreaterThan(200)
+      expect(`${heading}: ${words.match(PLATFORM)?.[0] ?? "none"}`).toBe(
+        `${heading}: none`,
+      )
+    }
   })
 })
 

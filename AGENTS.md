@@ -375,8 +375,19 @@ that name as a lifecycle hook of `npm publish`.
 
 `packages/sdk/skill/vbz-game/` is prose an agent follows literally, so a
 stale sentence is worse than a missing one. It has one subject: everything
-between a conforming simulation and a game a page plays, locally or as runs
-the platform checks and replays.
+between a conforming simulation and a game a page plays, wherever its author
+ships it, and, for a game that uses vbz.gg, runs the platform checks and
+replays.
+
+**The kit needs no platform, and the prose says so.** A game made with it
+may never upload, use vbz.gg or sign a player in. In the guide,
+`docs/sdk.md`, both READMEs, the template and the CLI's text, everything
+about vbz.gg sits in sections headed "If you use vbz.gg", and no sentence
+outside them assumes a game uploads, uses the platform, or signs a player
+in. The guide's test holds its headings to that, and its two main-path
+sections, "Playing it on a page" and "Distributing the build", to naming
+none of the platform.
+
 Determinism belongs to the engine's guide, `clockwork2`, which the engine
 package ships, and this one points at it rather than repeating it - two copies
 of that rulebook is how one of them goes quietly out of date.

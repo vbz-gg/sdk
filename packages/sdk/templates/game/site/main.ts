@@ -5,10 +5,10 @@
  * Bundle it for the browser with whatever builds the rest of your site;
  * `vbz dev --site` bundles it with bun and serves it as `main.js`. Played
  * locally, `{ "mode": "local" }`, the page loads the build `vbz build` wrote,
- * served beside it as `game/`, and talks to nobody. Ranked, the file names
- * the platform's API and sign-in and your game's page key from the
- * dashboard, and `vbz dev --site` answers it with a stand-in for the platform
- * on this machine.
+ * served beside it as `game/`, and talks to nobody. Ranked, on vbz.gg, the
+ * file names the platform's API and sign-in and your game's page key from
+ * the dashboard, and `vbz dev --site` answers it with a stand-in for the
+ * platform on this machine.
  */
 
 import { createPlatformClient } from "@vbz-gg/sdk/platform"
