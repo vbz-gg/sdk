@@ -1,26 +1,29 @@
 # The two artifacts and the files folder
 
-A game version is two modules, each stored under the SHA-256 of its own
-bytes, and a folder of files, named by the SHA-256 of its listing.
+A game version is two modules and a folder of files, the folder named by
+the SHA-256 of its listing. A page plays them from wherever they are
+served, and if you publish to vbz.gg the platform stores each module under
+the SHA-256 of its own bytes.
 
 | Part | Built from | Imports | Loaded by |
 |---|---|---|---|
-| the simulation | `src/sim/index.ts` | **nothing** | the browser and the validator |
-| the page module | `src/present.ts` | `cw2:sim`, and files of the folder as `cw2:files/<path>` | a page: a studio's, or the game's own played locally |
-| the files folder | the game's own tools, into the folder `package.json` names | whatever its code imports, inside the folder | the page module, and the validator for data packs |
+| the simulation | `src/sim/index.ts` | **nothing** | the browser, and whatever replays a run |
+| the page module | `src/present.ts` | `cw2:sim`, and files of the folder as `cw2:files/<path>` | a page: the game's own, or any other |
+| the files folder | the game's own tools, into the folder `package.json` names | whatever its code imports, inside the folder | the page module, and a replay for data packs |
 
 ## Why the page module imports rather than embeds
 
-The claim the platform rests on is that replaying your input log reproduces your
-score. That is worth nothing if the simulation your browser ran is not the
-simulation the server runs, and two copies of one source, built twice, is not
-the same thing as one file.
+A recording is worth something because replaying it reproduces the run.
+That holds only if the simulation that replays it is the one the page ran,
+and two copies of one source, built twice, is not the same thing as one
+file.
 
 So the page module is built with the simulation left out, and emits a real
-import. At upload the platform rewrites the specifier to the simulation's
-content address and takes the page module's hash **after** that rewrite, so a
-stored page module's bytes already name one simulation and can never name
-another.
+import. A page of your own maps it to `dist/sim.js` with an import map. If
+you publish to vbz.gg, the platform rewrites the specifier at upload to the
+simulation's content address and takes the page module's hash **after**
+that rewrite, so a stored page module's bytes already name one simulation
+and can never name another.
 
 ## Why `cw2:sim` and no other name
 
@@ -43,10 +46,13 @@ import createGame, { MANIFEST } from "cw2:sim"
 ## A checkpoint each second
 
 `definePageModule` writes one checkpoint per second of play, at whatever
-`tickHz` the manifest declares, which is where the platform's replay compares
-them. Nothing in the page module entry sets it.
+`tickHz` the manifest declares, which is where a replay, the harness's or
+vbz.gg's, compares them. Nothing in the page module entry sets it.
 
 ## What is checked, on the bytes
+
+`vbz build` checks its own output, and vbz.gg, if you publish there, checks
+the bytes it was sent the same way.
 
 1. One ES module, decodable as strict UTF-8.
 2. The simulation's import list is empty. The page module imports `cw2:sim`
@@ -58,7 +64,7 @@ them. Nothing in the page module entry sets it.
 3. The quoted literal `"cw2:sim"` occurs exactly as many times as there are
    imports of it, and `cw2:files/` exactly as many times as there are file
    imports. A higher count means the string is also data, so a text rewrite
-   would change something the game reads, and the upload is refused rather
+   would change something the game reads, and the build is refused rather
    than corrupted (`E_PRESENT_SPECIFIER_AMBIGUOUS`). A file the game reads at
    run time, art or data, is found through the folder's address instead.
 4. Size: 4 MiB for the simulation, 16 MiB for the page module
@@ -85,33 +91,47 @@ page's policy needs for it, and every limit.
 
 ## The rewritten paths are root-relative
 
-`/g/<game id>/sim/<64 hex>.js` for the simulation and
-`/g/<game id>/t/<64 hex>/` for the folder, whose name is the SHA-256 of its
-listing, never a full URL. Each resolves against the page module's own URL,
-so the stored bytes carry no domain and the bundle host can change without
-re-publishing anything, and each names the game, so a studio's
+The rewrite `vbz build --addressed` and `vbz dev` make, and, if you use
+vbz.gg, the platform on an upload: `/g/<game id>/sim/<64 hex>.js` for the
+simulation and `/g/<game id>/t/<64 hex>/` for the folder, whose name is the
+SHA-256 of its listing, never a full URL. Each resolves against the page
+module's own URL, so the bytes carry no domain and the host serving them can
+change without a rebuild, and each names the game, so a page's
 Content-Security-Policy can allow its own game's path and no other. The
 listing names every file's bytes, so a page module naming the folder names
-every byte in it, forever.
+every byte in it, forever. Root-relative is also why `dist/addressed/` is
+served from the root of an origin and nowhere else.
 
 ## What `vbz build` writes
 
 ```
-dist/sim.js        the simulation
-dist/present.js    the page module, with cw2:sim and cw2:files/ still intact
-dist/manifest.json the manifest, read out of the built simulation
-dist/files.json    the folder's listing, the text its name is the SHA-256 of
-dist/files/        a copy of the folder, by its listed paths
-dist/game.json     where each of those is and what they hash to, for a page
-                   that plays the game locally from dist/ as it is
+dist/sim.js          the simulation
+dist/present.js      the page module, with cw2:sim and cw2:files/ still intact
+dist/manifest.json   the manifest, read out of the built simulation
+dist/files.json      the folder's listing, the text its name is the SHA-256 of
+dist/files/          a copy of the folder, by its listed paths
+dist/game.json       where each of those is and what they hash to, for a page
+                     that plays the game locally from dist/ as it is
+dist/addressed/      with --addressed: the two modules and the folder at their
+                     content addresses, the page module rewritten to name them,
+                     for the root of another origin
+dist/addressed.json  with --addressed: the game id, where the page module and
+                     the folder are from that root, the manifest hash and the
+                     game's needs, for a page loading it from there
 ```
 
-`vbz publish` sends the first five and never `game.json`, which only a page
-playing locally reads.
+A page beside the build serves the first six, and reads `game.json` to find
+the rest. A host on another origin serves `dist/addressed/` alone, at its
+root, and the page reads `addressed.json` ("Distributing the build" in
+`SKILL.md`). If you publish to vbz.gg, `vbz publish` sends the first five
+and nothing else.
 
-The page module is written **unrewritten** on purpose. The rewrite belongs to
-the platform: a page module that arrived already pointing at an address would
-be one naming code nobody checked.
+`dist/present.js` is written **unrewritten** on purpose. A page beside it
+maps its specifiers with an import map, and the rewrite to content
+addresses is made on a copy: in `dist/addressed/` by `--addressed`, and on
+vbz.gg by the platform as an upload arrives, since a page module that
+arrived already pointing at an address would be one naming code nobody
+checked.
 
 `dist/manifest.json` is read by evaluating the built simulation in a
 subprocess, so what it holds is the manifest the code carries rather than a
@@ -119,4 +139,5 @@ second copy that can drift. That process, the bundler, which runs any macro
 the source imports, and `vbz check`'s and `vbz dev`'s processes all start
 with an empty environment (the bundler is given `NODE_ENV` alone), so a
 game's code never sees a key or a credential the shell holds. Nothing in a
-game should read `process.env`; `vbz publish` runs none of the game.
+game should read `process.env`, and `vbz publish`, for vbz.gg, runs none of
+the game.

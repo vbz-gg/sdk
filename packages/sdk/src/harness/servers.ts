@@ -1,16 +1,17 @@
 /**
  * Two servers, because a game needs two origins to be tested honestly.
  *
- * The bundles origin serves the game's two modules and its files at the
- * paths and with the headers the platform's edge uses. The host origin serves the page that
- * loads the page module from it, as a studio's page does, under the
- * Content-Security-Policy a studio's page is meant to send. Two ports on one
+ * The bundles origin serves the game's two modules and its files with the
+ * headers a host serving them to another origin sends, at the paths vbz.gg's
+ * public store uses. The host origin serves the page that loads the page
+ * module from it, as a page on another origin does, under the
+ * Content-Security-Policy such a page is meant to send. Two ports on one
  * host are two origins, which is what puts an author in front of the
- * cross-origin module import a studio's page makes in production.
+ * cross-origin module import such a page makes in front of players.
  */
 
+import { type AddressedGame, layoutOf } from "../build/address.js"
 import { type BlobReader, createBlobServer } from "../serve/index.js"
-import { type BuiltGame, blobKeys } from "./artifacts.js"
 
 /** A certificate and its private key, as PEM text. */
 export interface Tls {
@@ -54,7 +55,7 @@ export function serveOptions(
 
 export interface BundleServerOptions {
   readonly port: number
-  readonly built: BuiltGame
+  readonly built: AddressedGame
   /** Every path the browser asked for, so a test can read the network. */
   readonly log?: (path: string) => void
   readonly listen?: Listen
@@ -65,21 +66,15 @@ export interface RunningServer {
   stop(): Promise<void>
 }
 
-/** Serves the game's two modules and its files, as the platform's edge does. */
+/** Serves the game's two modules and its files, as a host serving them to another origin does. */
 export function startBundleServer(options: BundleServerOptions): RunningServer {
-  const keys = blobKeys(options.built)
-  const blobs = new Map<string, Uint8Array>([
-    [keys.sim, options.built.sim],
-    [keys.present, options.built.present],
-  ])
-  const read: BlobReader = async (key) => {
-    const module = blobs.get(key)
-    if (module !== undefined) return module
-    if (!key.startsWith(keys.files)) return undefined
-    // Read from the folder each time, as listed when the game was built.
-    const onDisk = options.built.filesOnDisk.get(key.slice(keys.files.length))
-    return onDisk === undefined ? undefined : await Bun.file(onDisk).bytes()
-  }
+  // The layout `vbz build --addressed` writes, so the harness serves what a
+  // host holding that folder serves. A file of the folder is read each time,
+  // as listed when the game was built.
+  const layout = new Map(
+    layoutOf(options.built).map((entry) => [entry.key, entry]),
+  )
+  const read: BlobReader = async (key) => await layout.get(key)?.read()
   const serveBlob = createBlobServer(read)
   const listen = options.listen ?? LOOPBACK
 

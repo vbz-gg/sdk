@@ -3,8 +3,9 @@
  *
  * Played locally, the default, it is the game and a Play button: `playLocal`
  * plays the build `vbz build` wrote, served beside the page as `game/`, and
- * nothing talks to vbz.gg. Ranked, it is sign-in, Play, Practice and today's
- * board against the platform, and the build is the same one.
+ * nothing talks to anybody. Ranked, on vbz.gg, it is sign-in, Play,
+ * Practice and today's board against the platform, and the build is the
+ * same one.
  *
  * Ranked, this is a studio's page in miniature, and every part of it is the SDK's:
  * `loadGame` imports the game's page module before a click, `playRun` starts

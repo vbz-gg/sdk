@@ -2,9 +2,9 @@
  * `vbz new`, which is how an author starts.
  *
  * What matters is that the copy is a game rather than a template with
- * somebody else's name on it: the id a board will be kept under is settled at
- * copy time, because it is immutable once published, and the copy builds
- * before a line of it is changed.
+ * somebody else's name on it: the game's id is settled at copy time, because
+ * on vbz.gg it is immutable once published, and the copy builds before a
+ * line of it is changed.
  */
 
 import { describe, expect, test } from "bun:test"

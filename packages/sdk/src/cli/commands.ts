@@ -8,10 +8,13 @@
  * here, where the coverage floor measures it.
  */
 
-import type { Options } from "./args.js"
+import type { FlagReader, Options } from "./args.js"
 
-/** One command: how the usage names it, and what it does. */
-export interface Command {
+/**
+ * One command: how the usage names it, the flags it reads, and what it does.
+ * The parser refuses any other flag given to it.
+ */
+export interface Command extends FlagReader {
   readonly name: string
   /** What follows the name on its usage line, such as `[dir]`. */
   readonly args: string
@@ -26,7 +29,10 @@ const NAME_WIDTH = 7
 
 /** The usage's opening line, every command's lines, then `rest`. */
 export function usageText(commands: readonly Command[], rest: string): string {
-  const lines = ["vbz - build and run a game for vbz.gg", ""]
+  const lines = [
+    "vbz - make, build and play a Clockwork 2 game, on any page",
+    "",
+  ]
   for (const command of commands) {
     const lead = `  vbz ${command.name.padEnd(NAME_WIDTH)} ${command.args}   `
     const indent = " ".repeat(lead.length)

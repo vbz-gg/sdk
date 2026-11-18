@@ -2,29 +2,31 @@
 
 The SDK for building browser games on [Clockwork 2](https://github.com/vbz-gg/clockwork2),
 the engine whose simulations replay to the same state on any machine. A game
-built with it is one build. Played locally, on a page of its author's own,
-it needs nothing else: no server, no account, no upload. The same build can
-opt in to ranked runs on [vbz.gg](https://vbz.gg), the backend that checks
-and ranks the scores of a game studio's games: the browser records what the
-player pressed, the server replays that log, and the server's answer is the
-one that counts. This repository is what sits between that engine, the
-vbz.gg platform and the page a game is played on.
+built with it is one build, which its author ships any way they choose: their
+own site, a static host, a game portal, or a page that is never online.
+Played on a page, it needs nothing else: no server, no account, no upload
+and no sign-in. The same build can also opt in to ranked runs on
+[vbz.gg](https://vbz.gg), the backend that checks and ranks the scores of a
+game studio's games: the browser records what the player pressed, the
+server replays that log, and the server's answer is the one that counts.
+This repository is what sits between that engine and the page a game is
+played on, and, for a game that uses it, the vbz.gg platform.
 
 It publishes one package, `@vbz-gg/sdk`, which carries:
 
 - **the page module**: what a game is built into for a page to load, and the
   contract between the two, so a page and a game built against different
   releases still work together
-- **a page's host and client**: `playLocal`, which plays a game on a page
-  with no platform at all, and, for ranked play, a client that signs a player
-  in, plays a run against the platform, replays a settled run for watching
-  and shows the board
+- **a page's host**: `playLocal`, which plays a game on any page with no
+  platform at all, and, for ranked play on vbz.gg, a client that signs a
+  player in, plays a run against the platform, replays a settled run for
+  watching and shows the board
 - **the build and the checks**, which turn a game into its two modules and
   its files folder, hold it to the engine's rules, and hold a game opted in
   to ranked play to the platform's rules and limits first
-- **a harness**, which loads your game locally the way a studio's page does:
-  two origins, the platform's paths and headers, the policy a page sends,
-  and a replay of every run
+- **a harness**, which loads your game locally the way a page loading it
+  from another origin does: two origins, the headers a host sends, the
+  policy a page sends, and a replay of every run
 - **an agent guide**, the same material written for an agent to follow,
   which `vbz new` and `vbz guides` copy into a game beside the engine's
 

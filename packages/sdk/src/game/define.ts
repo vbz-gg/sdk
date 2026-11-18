@@ -3,13 +3,13 @@
  * plays them, behind the contract in `contract.ts`.
  *
  * This file is bundled into every page module, with the game's own engine, so
- * the engine that plays a run on a studio's page is always the one the game
+ * the engine that plays a run on any page is always the one the game
  * was built and checked with. The page never builds a `GameHost`: it imports
  * the module and calls `prepare` and `mount`.
  *
  * Nothing here touches the browser when the module loads, and nothing here
- * imports anything by a computed name, because the platform refuses a page
- * module with a dynamic import before it stores a byte.
+ * imports anything by a computed name, because `vbz build`, and vbz.gg on an
+ * upload, refuse a page module with a dynamic import.
  */
 
 import {

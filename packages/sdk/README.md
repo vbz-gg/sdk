@@ -3,10 +3,11 @@
 The SDK for building a browser game on
 [Clockwork 2](https://github.com/vbz-gg/clockwork2): fixed-step ticks, seeded
 randomness, and an input log that replays to the same state anywhere. You
-build the game once. It plays on any page you put it on, talking to nobody,
-and the same build can opt in to ranked runs on [vbz.gg](https://vbz.gg),
-the backend that replays every ranked run on a server to check and rank
-its score.
+build the game once and ship it any way you choose: your own site, a static
+host, a game portal, or a page that is never online. It plays on any page
+you put it on, talking to nobody. The same build can also opt in to ranked
+runs on [vbz.gg](https://vbz.gg), the backend that replays every ranked run
+on a server to check and rank its score.
 
 ```bash
 bunx @vbz-gg/sdk new ./my-game
@@ -18,8 +19,8 @@ bun run site     # the game's own page, played locally
 That copy builds and plays before a line of it is changed, so anything that
 breaks afterwards is something you just did. Its page plays locally: it
 loads the build beside it and plays with `playLocal`, with no sign-in, no
-key and no request to anybody. Its id comes from the directory name, and is
-immutable once published to vbz.gg.
+key and no request to anybody. Its id comes from the directory name; if you
+publish the game to vbz.gg, the id is immutable once published.
 
 Versions up to 0.2.0 were published as `@vbz-gg/game-base`, with the command
 `game-base`. The command is now `vbz`.
@@ -28,95 +29,63 @@ Versions up to 0.2.0 were published as `@vbz-gg/game-base`, with the command
 engine, and both of its modules are built against it.
 
 The copy also carries two guides for an agent, in `.claude/skills/`: the
-engine's, `clockwork2`, on writing a simulation that replays exactly, and this
-package's, `vbz-game`, on everything else: the page, the files folder, local
-play and ranked play. Its `AGENTS.md` says where they are. Both come from the
-versions the game installed, so after upgrading `@vbz-gg/sdk` or
-`@clockwork2/engine`, run `bunx vbz guides` to replace them with the guides
-the new versions ship.
+engine's, `clockwork2`, on writing a simulation that replays exactly, and
+this package's, `vbz-game`, on everything else: the page, the files folder,
+shipping the build, and ranked play on vbz.gg if you want it. Its
+`AGENTS.md` says where they are. Both come from the versions the game
+installed, so after upgrading `@vbz-gg/sdk` or `@clockwork2/engine`, run
+`bunx vbz guides` to replace them with the guides the new versions ship.
 
-## Local play, and ranked play
+## Playing it anywhere
 
-Played locally, the game is whatever you make it: a story, free play, an
-endless session, a page that is never online. Nothing is uploaded and no run
-has a step limit.
-
-A ranked run is a kind of run vbz.gg serves: the platform issues its seed
-and serves its config, the same build plays it on your page and records the
-player's inputs, and the platform replays them and ranks what its replay
-computed. A practice run is the same, and never on a board. You opt in by
-naming the ranked mode in `site/config.json` and uploading with
-`vbz publish`; the build does not change. A few rules bind only those runs:
-the seed has to change what happens, a run holds at most 16 inputs a tick on
-average, inputs come from the engine's device helpers and never from a
-script on the page, and the platform's checks play the settings it serves.
-`vbz check --ranked` holds a game to them before an upload.
+Played on a page, the game is whatever you make it: a story, free play, an
+endless session, a page that is never online. Nothing is uploaded, nobody
+signs in, and no run has a step limit. A player has no identity there unless
+your page gives them one.
 
 ## The six commands
 
 ```bash
 vbz new     <dir>   copy a game that already conforms, and rename it
 vbz guides  <dir>   replace the game's agent guides with the installed ones
-vbz build   <dir>   write dist/: the two modules, the manifest and the files folder
+vbz build   <dir>   write dist/: the two modules, the manifest and the files folder;
+                    --addressed adds dist/addressed/, for the root of another origin
 vbz check   <dir>   run the engine's checks and hold src/capture.ts to the manifest;
-                    --ranked adds what a ranked or practice run needs
-vbz dev     <dir>   load the game the way a studio's page does, on two origins
-vbz publish <dir> --game <id>   upload dist/ and wait for the verdict
+                    --ranked adds what a ranked or practice run on vbz.gg needs
+vbz dev     <dir>   load the game the way a page on another origin does, and play it
+vbz publish <dir> --game <id>   on vbz.gg: upload dist/ and wait for the verdict
 ```
 
-`build` refuses a version that is not plain `MAJOR.MINOR.PATCH`. `check`
-also prints the version, its release line and the line's contract hash, so
-you can tell before an upload whether a patch keeps what its line fixes.
-`check --ranked` is how to test that a recording replays to the state it
-recorded before you publish: the platform runs only part of those checks on
-an upload, and none of the ones that test record and replay.
+`build` refuses a version that is not plain `MAJOR.MINOR.PATCH`, and with
+`--addressed` writes the build for a page on another origin too ("Shipping
+it" below). `check` runs the engine's checks every game needs, a recording
+replaying to the state it recorded among them, and prints the version, its
+release line and the line's contract hash, so two builds of a line can be
+compared. `check --ranked` adds the two checks ranked play on vbz.gg needs.
+Each command takes only the flags it reads, and refuses any other by name
+rather than ignoring it.
 
 `dev` is your game's page on your laptop. The game's two modules and its
-files folder are served on one port at the paths and with the headers
-`files.vbz.gg` uses, and a page on another port loads the page module from
-there and plays it with `playLocal`, under the Content-Security-Policy a
-studio's page should send. When a run ends, the
-page shows whether the run replays to what it showed, how many inputs it
-recorded against the budget a ranked or practice run is held to, and its size
-in bytes; `--ranked` turns the report red over that budget. The runs play
-every setting at its default, as the platform serves them, and
-`--config <file>` plays a JSON config of your own instead, which a game with
-a required setting that has no default needs here.
-`--address` and `--https` with `--cert` and `--key` serve it to a phone on
-your network, and `--site` serves your game's own page from `site/`, in the
-mode `site/config.json` names: played locally from the build beside it, or
-ranked, against a stand-in for the platform.
-
-`publish` is for your build system. It uploads `dist/` to the game you name,
-with one of your studio's secret keys from `VBZ_STUDIO_KEY`: first each file
-of the files folder the platform does not already hold, then the version.
-The platform answers a version it would refuse, one that is not newer or a
-patch that changes its line's rules, before any file goes up, and files
-stored for a version that never arrives are removed a day later. Then it
-waits for the platform's checks:
-
-```bash
-VBZ_STUDIO_KEY=vbz_sk_... vbz publish . --game <game id>
-```
-
-It exits 0 when the version passed its checks and is published, and prints
-the release line it joined and which runs it serves: today's ranked runs,
-the next day's, or none, and practice or not. Before the verdict the
-platform replays at most 3 of the line's most recent ranked runs under the
-new version, and with the verdict the command prints how many end
-differently, which decides nothing and is there for you to read.
-Anything else exits 1: a
-rejection prints the code and the first check that failed, a refusal prints
-the platform's detail, such as the fields a patch may not change, and a
-version an operator took down exits 1 too. The platform is
-`https://api.vbz.gg` unless `--api` or `VBZ_API_ORIGIN` names another.
-Don't add a script called `publish` to your `package.json`: npm runs a script
-with that name on its own, as part of `npm publish`.
+files folder are served on one port with the headers a host serving them to
+another origin sends, and a page on another port loads the page module from
+there and plays it with `playLocal`, under the Content-Security-Policy such
+a page sends. When a run ends, the page shows whether the run replays to
+what it showed, how many inputs it recorded against the budget a ranked or
+practice run on vbz.gg is held to, and its size in bytes; `--ranked` turns
+the report red over that budget. The runs play every setting at its default,
+as `playLocal` does when a page names no config, and `--config <file>` plays
+a JSON config of your own instead, which a game with a required setting that
+has no default needs here. `--address` and `--https` with `--cert` and
+`--key` serve it to a phone on your network, and `--site` serves your game's
+own page from `site/`, in the mode `site/config.json` names: played locally
+from the build beside it, or ranked on vbz.gg, against a stand-in for the
+platform.
 
 ## Your game's two modules and its files folder
 
 `src/sim/index.ts` becomes the **rules code**, which decides the score and
-imports nothing: a replay runs it on a server with no canvas at all.
+imports nothing: a replay runs it with no canvas at all, in the harness or,
+if you publish there, on vbz.gg's server.
 `src/present.ts` becomes the **page module**, which a page loads. It
 bundles your renderer, your input mapping and the engine's host that plays
 them, and imports the rules code by the one name `cw2:sim`:
@@ -131,8 +100,8 @@ export default definePageModule({ createGame, manifest: MANIFEST, createPresenta
 ```
 
 The page never builds a host of its own. It loads the module and calls its
-`mount`, so the engine that plays a run on a studio's page is the one your
-game was built and checked with.
+`mount`, so the engine that plays a run on any page is the one your game
+was built and checked with.
 
 A game may also carry a **files folder**: a renderer's engine your own tools
 built, art, and the data packs the rules code reads. Name it in
@@ -158,6 +127,7 @@ What a build may hold, as `@vbz-gg/sdk/build` exports it:
 |---|---|
 | the rules code | 4 MiB |
 | the page module | 16 MiB |
+| the manifest, as JSON | 512 KiB |
 | one file of the folder | 64 MiB |
 | the whole folder | 512 MiB, in at most 10,000 files |
 | one data pack | 16 MiB |
@@ -189,9 +159,9 @@ export const capture: CaptureMapping = {
 ```
 
 Keep the ranges coarse and record changes rather than a stream: every value a
-finger crosses is an input to record and, in a ranked run, to send, store
-and replay, and the platform holds a ranked or practice run to a budget of
-16 inputs per tick, counted over the whole run. The template records a
+finger crosses is an input to record and replay, and on vbz.gg to send and
+store, where the platform holds a ranked or practice run to a budget of 16
+inputs per tick, counted over the whole run. The template records a
 finger in steps of 30 field units, which is enough to tell its two buttons
 apart. Its presentation fills the element it is mounted in,
 because a finger is measured across that element.
@@ -203,8 +173,8 @@ that reads tilt makes your page ask for it in the Play button's click, which
 
 A game that reads tilt starts no run without it, even if it maps keys too.
 On a device or in a browser that cannot give tilt, a laptop included, Play
-says why, and a ranked page asks the platform for nothing. Try such a game on a laptop with
-the browser's sensor emulation: in Chrome, DevTools' Sensors panel (the
+says why, and on vbz.gg a ranked page asks the platform for nothing. Try
+such a game on a laptop with the browser's sensor emulation: in Chrome, DevTools' Sensors panel (the
 Command Menu's Show Sensors) sets the device's orientation.
 
 ## Playing it on your page
@@ -234,27 +204,95 @@ playButton.onclick = () => {
 ```
 
 It plays a fresh seed and every setting at its default unless you pass a
-`seed` or a `config`, asks no platform anything, and has no step limit. Its
-seed always starts `local:`, which no seed the platform issues does, so a
-local run's recording can never be submitted as a ranked run's. The page's
-policy is `localPageCsp` from `@vbz-gg/sdk/harness`, with the import map
-admitted by its hash. The template's `site/` is such a page.
+`seed` or a `config`, asks nobody anything, and has no step limit. Its seed
+always starts `local:`. The page's policy is `localPageCsp` from
+`@vbz-gg/sdk/harness`, with the import map admitted by its hash. The
+template's `site/` is such a page.
 
-## Typing your calls to the platform
+## Shipping it
 
-`@vbz-gg/sdk/api` holds the shapes of every route a game's page or a build
-system calls on vbz.gg, as TypeScript types only:
+`dist/` is the whole game, and any host that serves files serves it, as long
+as it sends every `.js` file as JavaScript and a `.wasm` file as
+`application/wasm`, with `X-Content-Type-Options: nosniff`. Served beside
+the page, as above, `dist/sim.js` and `dist/present.js` keep their names
+from one build to the next, so cache them as files that change in place.
+
+For a page on another origin, such as a CDN or a files subdomain, run
+`vbz build --addressed`. It also writes `dist/addressed/`, every file at a
+content-addressed path under `g/<game id>/` with the page module rewritten
+to import them, and `dist/addressed.json` beside it, which says what a page
+needs. Copy the folder as it is to the root of that origin: the paths are
+root-relative, so a host that serves only under a sub-path serves `dist/`
+beside the page instead. With every file the host sends
+`Access-Control-Allow-Origin: *` and
+`Cross-Origin-Resource-Policy: cross-origin`, on every file that is not
+JavaScript `Content-Security-Policy: default-src 'none'; sandbox`, and may
+send `Cache-Control: public, max-age=31536000, immutable`, since a path
+never names other bytes. Those are the headers `createBlobServer` in
+`@vbz-gg/sdk/serve` sends, and `vbz dev` serves the game with it.
+
+The page then needs no import map. It loads the game at that origin and
+`addressed.json`'s `present` and `files`:
 
 ```ts
-import type { PlatformRoutes, PublicRefusalCode, StartedRun } from "@vbz-gg/sdk/api"
-
-type Board = PlatformRoutes["GET /v1/board"]["response"]
+const game = await loadGame({
+  presentUrl: new URL(build.present, origin).href,
+  manifestHash: build.manifestHash,
+  filesUrl: new URL(build.files, origin).href,
+})
 ```
 
-A refusal arrives as `{ error, message }`, where `error` is one of
-`PublicRefusalCode`. Switch on the code, never on the status.
+and sends `pageCsp` from `@vbz-gg/sdk/harness` in place of `localPageCsp`,
+with that origin, `gameId` and `needs`, which admits `/g/<game id>/` there
+and nothing else on it. `AddressedBuild`, also from `@vbz-gg/sdk/harness`,
+is the type of `addressed.json`. The game id is a UUID made from the manifest's id,
+the same for every version, unless `--game <id>` names one of your own. The
+agent guide's `SKILL.md` has it under "Distributing the build".
 
-## Ranked play on your page
+## If you use vbz.gg: ranked play
+
+A ranked run is a kind of run vbz.gg serves: the platform issues its seed
+and serves its config, the same build plays it on your page and records the
+player's inputs, and the platform replays them and ranks what its replay
+computed. A practice run is the same, and never on a board. You opt in by
+naming the ranked mode in `site/config.json` and uploading with
+`vbz publish`; the build does not change. A few rules bind only those runs:
+the seed has to change what happens, a run holds at most 16 inputs a tick on
+average, inputs come from the engine's device helpers and never from a
+script on the page, and the platform's checks play the settings it serves.
+`vbz check --ranked` holds a game to them before an upload. A local run's
+seed starts `local:`, which no seed the platform issues does, so its
+recording can never be submitted as a ranked run's.
+
+`publish` is for your build system. It uploads `dist/` to the game you name,
+with one of your studio's secret keys from `VBZ_STUDIO_KEY`: first each file
+of the files folder the platform does not already hold, then the version.
+The platform answers a version it would refuse, one that is not newer or a
+patch that changes its line's rules, before any file goes up, and files
+stored for a version that never arrives are removed a day after each was
+last sent. Then it waits for the platform's checks:
+
+```bash
+VBZ_STUDIO_KEY=vbz_sk_... vbz publish . --game <game id>
+```
+
+It exits 0 when the version passed its checks and is published, and prints
+the release line it joined and which runs it serves: today's ranked runs,
+the next day's, or none, and practice or not. Before the verdict the
+platform replays at most 3 of the line's most recent ranked runs under the
+new version, and with the verdict the command prints how many end
+differently, which decides nothing and is there for you to read. Anything
+else exits 1: a rejection prints the code and the first check that failed, a
+refusal prints the platform's detail, such as the fields a patch may not
+change, and a version an operator took down exits 1 too. So does a version
+still being checked when the wait runs out: the platform tries a check that
+ran out of time again before it refuses anything, so that refusal can come
+after the command has stopped. The platform is `https://api.vbz.gg` unless
+`--api` or `VBZ_API_ORIGIN` names another. Don't add a script called
+`publish` to your `package.json`: npm runs a script with that name on its
+own, as part of `npm publish`.
+
+### Ranked play on your page
 
 Once the game is published to vbz.gg, `@vbz-gg/sdk/platform` is your page's
 client for the platform: it signs a player
@@ -333,6 +371,20 @@ route, and the `page.md` reference in the skill has every client code. The
 template's `site/` is a whole page built this way, which `vbz dev --site`
 runs on your laptop against a stand-in for the platform once its
 `site/config.json` names the ranked mode, and plays locally until then.
+
+## If you use vbz.gg: typing your calls to the platform
+
+`@vbz-gg/sdk/api` holds the shapes of every route a game's page or a build
+system calls on vbz.gg, as TypeScript types only:
+
+```ts
+import type { PlatformRoutes, PublicRefusalCode, StartedRun } from "@vbz-gg/sdk/api"
+
+type Board = PlatformRoutes["GET /v1/board"]["response"]
+```
+
+A refusal arrives as `{ error, message }`, where `error` is one of
+`PublicRefusalCode`. Switch on the code, never on the status.
 
 ## License
 

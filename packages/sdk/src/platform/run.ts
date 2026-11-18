@@ -42,12 +42,8 @@ import type {
   MountHandlers,
   PlayMount,
 } from "../game/contract.js"
-import {
-  byteLengthOf,
-  type ChunkBody,
-  splitChunk,
-  throughTickFor,
-} from "./chunks.js"
+import { byteLengthOf } from "../wire/json.js"
+import { type ChunkBody, splitChunk, throughTickFor } from "./chunks.js"
 import type { PlatformClient, RunRecording } from "./client.js"
 import {
   type ClientErrorCode,

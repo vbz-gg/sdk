@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <title>A page on another origin</title>
+    <link rel="stylesheet" href="/page.css" />
+    <script type="module" src="/main.js"></script>
+  </head>
+  <body>
+    <main>
+      <div id="stage" class="stage"></div>
+      <div class="actions">
+        <button id="play" type="button">Play</button>
+        <button id="end" type="button">End</button>
+      </div>
+      <p id="state" role="status">starting</p>
+      <!-- Filled in by the page for the suite to read: the run it played,
+           and every policy violation it heard. -->
+      <script type="application/json" id="run"></script>
+      <script type="application/json" id="violations">[]</script>
+    </main>
+  </body>
+</html>

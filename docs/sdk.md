@@ -5,31 +5,49 @@ This explains the SDK from first principles, for somebody who has not seen it.
 a game author reads, and `AGENTS.md` is the working guidance that assumes this
 page.
 
-## One build, and the runs it plays
+## One build, played anywhere
 
 A game made with this kit is one build, and it plays wherever its author
-puts it. Played locally, on a page of the author's own, it is whatever the
-author intends: a story, free play, an endless session, a page that is
-never online. That needs no platform, no upload and no account, and talks
-to nobody: `playLocal` plays the build, and `vbz new` makes a game whose
-page does exactly that.
+puts it. On a page, the game's own or any other, it is whatever the author
+intends: a story, free play, an endless session, a page that is never
+online. That needs no platform, no upload, no account and no sign-in, and
+talks to nobody: `playLocal` plays the build, and `vbz new` makes a game
+whose page does exactly that. `vbz build` writes the build to `dist/`, and
+the author ships it any way they choose: their own site, a static host, a
+game portal, or a download. "Serving" below says what a
+host sends with it, and "What a page needs" what the page does.
+
+No run has a step limit. A run goes until the game ends it or the player
+leaves.
+
+Determinism binds every run: the simulation is a pure function of its seed,
+its config, its inputs and the data packs its manifest pins, on every
+engine, so a run's recording replays to the state the run reached. That is
+how the harness checks every run an author plays, and how a page replays a
+saved run.
+
+A game has no players' identities, sign-in or board unless its author adds
+them. vbz.gg is one optional use of the same build, below.
+
+A phone driving a game on another screen, a run that pauses when that link
+drops, and messages from a game to its page are not built. They are a
+proposal, [`docs/proposals/linked-devices.md`](proposals/linked-devices.md),
+which says how each would fit this model.
+
+## If you use vbz.gg: ranked and practice runs
 
 A **ranked run** is a kind of run vbz.gg serves. The platform issues its
 seed and serves its config, every setting at its default, and the same
 build plays it on a studio's page and records the player's inputs. The
 platform then replays those inputs on a server and ranks what the replay
 computed. A **practice run** is the same kind of run, replayed the same way,
-and never on a board. A game opts in to both by naming the ranked mode in
-its page's `site/config.json` and uploading with `vbz publish`; the build
-does not change.
+and never on a board. A player signs in to the platform for these runs
+alone. A game opts in to both by naming the ranked mode in its page's
+`site/config.json` and uploading with `vbz publish`; the build does not
+change.
 
-No run has a step limit: not a local session, a ranked run or a practice
-run. A run goes until the game ends it or the player leaves.
-
-Determinism binds every run: the simulation is a pure function of its seed,
-its config, its inputs and the data packs its manifest pins, on every
-engine. A few rules bind only ranked and practice runs, because they are
-what lets a server's replay stand for the player's run:
+A few rules bind only ranked and practice runs, because they are what lets
+a server's replay stand for the player's run:
 
 - the seed changes the state, so a daily board is not an all-time one
   (`E_SEED_IGNORED`), and the manifest says how a run ranks
@@ -43,15 +61,10 @@ what lets a server's replay stand for the player's run:
 - the checks play the config a run is served, every declared setting at
   its default.
 
-A game played only locally may break any of these. A game that wants ranked
-play has to keep them before its first upload.
+A game played anywhere else may break any of these. A game that wants
+ranked play has to keep them before its first upload.
 
-A phone driving a game on another screen, a run that pauses when that link
-drops, and messages from a game to its page are not built. They are a
-proposal, [`docs/proposals/linked-devices.md`](proposals/linked-devices.md),
-which says how each would fit this model.
-
-## Three repositories, one game
+## The engine, the kit, and vbz.gg
 
 A game is a [Clockwork 2](https://github.com/vbz-gg/clockwork2)
 simulation. The engine owns determinism: the seed, `dmath`, the manifest, the
@@ -59,52 +72,56 @@ recording format, the host that runs a game in a page, and the device helpers
 that turn keys, fingers, controllers and tilt into recorded inputs. It knows
 nothing about vbz.gg.
 
-The [vbz.gg](https://vbz.gg) platform is the backend for game studios. It
-owns studios and their keys, player sign-in, the checks on an upload, the
-daily seed, the server-side replay and the board. Its API is
+The [vbz.gg](https://vbz.gg) platform is an optional backend for game
+studios, and a game made with the kit may never meet it. It owns studios
+and their keys, player sign-in, the checks on an upload, the daily seed,
+the server-side replay and the board. Its API is
 `https://api.vbz.gg` and its sign-in `https://signin.vbz.gg`. Once a version
 passes its checks, the platform copies the version's two modules and its
 files folder to `https://files.vbz.gg`, a public bucket served through
 Cloudflare's cache, and a game's code reaches players from there and never
 through a platform server.
 
-A studio serves its game from a page of its own. For ranked play the page
+A game is played on a page, and the page's author decides where it is.
+Played locally, the page serves the build itself, or loads it from another
+host, and asks nobody anything. On vbz.gg, for ranked play, a studio's page
 signs a player in, imports the game's page module from `files.vbz.gg`, and
-plays a run through it, sending the run to the platform as it goes. Played
-locally, the page serves the build itself and asks the platform nothing.
+plays a run through it, sending the run to the platform as it goes.
 
-Between them sits a set of decisions that belong to neither: what a page
-module is and how a page drives it, how a page plays a game with no
-platform at all, how a page holds a run to the platform's rules, and how an
-author builds and tries all of it before an upload. That set is this
-package.
+Between the engine and a page sits a set of decisions that belong to
+neither: what a page module is and how a page drives it, how a page plays a
+game with no platform at all, how a build is served, how an author builds
+and tries all of it before it ships, and, for vbz.gg, how a page holds a run
+to the platform's rules. That set is this package.
 
 So the SDK owns seven things, one per subpath export:
 
 | Subpath | What it is |
 |---|---|
-| `/api` | The shapes of the platform's public routes, as types only |
-| `/platform` | A game page's client for those routes: sign-in, runs, the board |
-| `/host` | The game on a page: loading its page module, a local run, a platform run through it, watching a run, and two widgets |
+| `/api` | vbz.gg only: the shapes of the platform's public routes, as types only |
+| `/platform` | vbz.gg only: a game page's client for those routes, sign-in, runs and the board |
+| `/host` | The game on a page: loading its page module, a local run, and on vbz.gg a platform run through it, watching a run, and two widgets |
 | `/game` | What a page module is built from: `definePageModule` and the contract a page drives it through |
-| `/build` | A game's source to the two modules and the files folder a build carries, every limit the platform holds them to, and what a version and a release line are |
-| `/serve` | The handler that serves a game's modules and files at the paths and with the headers `files.vbz.gg` uses |
-| `/harness` | The build and the handler, wired into a local page that loads the game the way a studio's page does |
+| `/build` | A game's source to the two modules and the files folder a build carries, every limit `vbz build` holds them to, and what a version and a release line are |
+| `/serve` | The handler that serves a game's modules and files with the headers a host serving them to another origin sends |
+| `/harness` | The build and the handler, wired into a local page that loads the game from another origin, and the policies a page sends |
 
 Beside them the package ships a CLI
-(`vbz new | guides | build | check | dev | publish`), the template `new`
-copies, and the agent guide at `skill/vbz-game/`, which is the same material
-written for an agent to follow literally.
+(`vbz new | guides | build | check | dev | publish`, the last for vbz.gg
+alone), the template `new` copies, and the agent guide at
+`skill/vbz-game/`, which is the same material written for an agent to
+follow literally.
 
-The platform imports `/api`, and declares each public route's answer with its
-types. It imports `/build`, so it reads a version, a release line, a patch's
-contract and a files folder's listing with the same functions `vbz check`
-and `vbz build` use, and `/serve` for its development bundles server. A
-game's page module is built from `/game`. A studio's page talks to the
-platform through `/platform` and loads and plays the game with `/host`. An
-author runs `/harness`, whose page loads the game with `/host` too.
+A game's page module is built from `/game`. Any page loads and plays the
+game with `/host`, and an author runs `/harness`, whose page loads the game
+with `/host` too. On vbz.gg, a studio's page talks to the platform through
+`/platform`. The platform imports `/api`, and declares each public route's
+answer with its types. It imports `/build`, so it reads a version, a release
+line, a patch's contract and a files folder's listing with the same
+functions `vbz check` and `vbz build` use, and `/serve` for its development
+bundles server.
 
-## The platform's route shapes
+## If you use vbz.gg: the platform's route shapes
 
 `/api` is types only: every route a game's page or a build system calls,
 keyed by method and path in `PlatformRoutes`, with its credential, its body
@@ -126,12 +143,12 @@ routes answers a shape, or a refusal code, these types do not name.
 
 ## The page module
 
-A game reaches a page as one ES module, the **page module**: the game's own
-page playing it locally, or a studio's page playing a ranked run. It carries
-the game's presentation, its input mapping and the engine's host that plays
-them, bundled with the game's own copy of the engine, and it imports its
-rules code and, if it needs them, files of its files folder. Its entry is a
-few lines:
+A game reaches a page as one ES module, the **page module**: any page
+playing it, the game's own, or on vbz.gg a studio's playing a ranked run. It
+carries the game's presentation, its input mapping and the engine's host
+that plays them, bundled with the game's own copy of the engine, and it
+imports its rules code and, if it needs them, files of its files folder. Its
+entry is a few lines:
 
 ```ts
 import createGame, { MANIFEST } from "cw2:sim"
@@ -260,14 +277,14 @@ the result on the client, where nothing checks it, which is why a game never
 constructs an input.
 
 What to record is a choice about size. Every value a finger crosses is an
-input to record, and in a ranked run to send, store and replay, and the
+input to record, and to replay, and a page that keeps a recording keeps
+every one. On vbz.gg a ranked run's inputs are also sent and stored, and the
 platform holds a ranked or practice run to a budget of 16 inputs per tick,
 counted over the whole run, and its recording to `MAX_RUN_BYTES`. So record
 changes, not a stream, in the coarsest range that still tells the game what
-it needs:
-the template records a finger in steps of 30 field units, 0 to 16 across and
-0 to 24 down, which is all it takes to tell two buttons apart. A deadband on
-a stick or on tilt keeps a resting hand from recording anything.
+it needs: the template records a finger in steps of 30 field units, 0 to 16
+across and 0 to 24 down, which is all it takes to tell two buttons apart. A
+deadband on a stick or on tilt keeps a resting hand from recording anything.
 
 Two things a page has to provide. A mapping that reads a controller or locks
 the mouse needs the page's `onNotice`, because a browser can block either
@@ -278,19 +295,18 @@ starts the run, before anything is awaited, because iOS grants it only there.
 
 A game that reads tilt is steered by it, so it starts no run without it. On
 a device or in a browser that cannot give tilt, a laptop included, Play says
-why, and a ranked page asks the platform for nothing, even when the mapping
-also reads keys.
-An author tries such a game on a laptop with the browser's sensor emulation:
-in Chrome, DevTools' Sensors panel (the Command Menu's Show Sensors) sets the
-device's orientation.
+why, even when the mapping also reads keys, and on vbz.gg a ranked page asks
+the platform for nothing. An author tries such a game on a laptop with the
+browser's sensor emulation: in Chrome, DevTools' Sensors panel (the Command
+Menu's Show Sensors) sets the device's orientation.
 
 ## Hosting a game on a page
 
-`/host` puts a game on a page: the game's own, played locally, or a studio's,
-playing ranked runs. The harness's page uses it too, so a page and the
-harness cannot load a game two ways. Nothing in it reads the
-browser when it loads, and it holds no engine: it reaches the game through
-the module's own `mount`.
+`/host` puts a game on a page: the game's own or any other, played locally,
+or on vbz.gg a studio's, playing ranked runs. The harness's page uses it
+too, so a page and the harness cannot load a game two ways. Nothing in it
+reads the browser when it loads, and it holds no engine: it reaches the game
+through the module's own `mount`.
 
 **`loadGame(version)`** imports a version's page module and checks it before
 anything is played, because what arrives was built by somebody else, often
@@ -316,50 +332,65 @@ with:
    `Function.prototype.toString`. It catches a library's mistake, not
    somebody determined to hide one.
 
-Load before the click, so a failure spends no run: a page playing ranked runs
-loads what `GET /v1/game` names, and a page playing locally what
-`localAddress` reads from the build's `game.json`, below. A version names its
-files folder beside its page module, `filesUrl`, and the loaded game hands it
-to the module with every run, so a page never names one. A failed import is
-kept by the browser for the life of the page: Chromium, Firefox and WebKit all
-answer a second `import()` of the same URL with the first failure, without
-asking the network again, so the only retry is a reload, and
-`E_GAME_UNLOADABLE` says so.
+Load before the click, so a failure spends no run: a page playing locally
+loads what `localAddress` reads from the build's `game.json`, below, and on
+vbz.gg a page playing ranked runs loads what `GET /v1/game` names. A version
+names its files folder beside its page module, `filesUrl`, and the loaded
+game hands it to the module with every run, so a page never names one. A
+failed import is kept by the browser for the life of the page: Chromium,
+Firefox and WebKit all answer a second `import()` of the same URL with the
+first failure, without asking the network again, so the only retry is a
+reload, and `E_GAME_UNLOADABLE` says so.
 
 **`playLocal(element, { game, scripted, onEnded })`** plays a game on a page
 with no platform at all: a story, free play, an endless session, a page that
-is never online. It is the same build a ranked run plays, loaded with
-`loadGame` and played through the module's own `mount`, and it asks nothing of
-the platform: no client, no page key, no sign-in, no lock and no request. It
-takes an optional seed and config, a fresh seed and the module's served config
-by default, says whether a scripted event is recorded, as the engine asks
-every page to, and hands `onEnded` the run's recording. A page that keeps a
-seed, such as `local:course-1`, plays the same course again, and the recording
-replays to the same counters against the build's rules code. The game gets
-ready in the element before its clock starts, as every run's does, so a device
-it cannot draw on reaches `onError` with `E_PRESENTATION_FAILED` before tick
-0. A game that reads tilt asks for it first, in the click, and starts nothing
-without it, as `playRun` does. A contract-1 module cannot say its tick rate or
-its config, and is refused with `E_LOCAL_PLAY_UNSUPPORTED`; a game with a
-required setting that has no default, played with no config, with
-`E_CONFIG_REQUIRED`. `end()` ends a run where it stands and `onEnded` follows
-with its recording, so a page always hears how a run ended. An `end()` while
-the tilt prompt is still open comes before any run started: `onEnded`
-follows at once with an empty run, tick 0, no counters and a null
-recording, and whatever the prompt answers afterwards, nothing is mounted,
-nothing takes focus and nothing more is reported, so the element is the
-page's again at once, for the next run.
+is never online. It is the same build every page plays, a ranked run's
+included, loaded with `loadGame` and played through the module's own
+`mount`, and it asks nothing of anybody: no client, no page key, no sign-in,
+no lock and no request. It takes an optional seed and config, a fresh seed
+and the module's served config by default, says whether a scripted event is
+recorded, as the engine asks every page to, and hands `onEnded` the run's
+recording. A page that keeps a seed, such as `local:course-1`, plays the
+same course again, and the recording replays to the same counters against
+the build's rules code. The game gets ready in the element before its clock
+starts, as every run's does, so a device it cannot draw on reaches `onError`
+with `E_PRESENTATION_FAILED` before tick 0. A game that reads tilt asks for
+it first, in the click, and starts nothing without it. A contract-1 module
+cannot say its tick rate or its config, and is refused with
+`E_LOCAL_PLAY_UNSUPPORTED`; a game with a required setting that has no
+default, played with no config, with `E_CONFIG_REQUIRED`. `end()` ends a run
+where it stands and `onEnded` follows with its recording, so a page always
+hears how a run ended. An `end()` while the tilt prompt is still open comes
+before any run started: `onEnded` follows at once with an empty run, tick 0,
+no counters and a null recording, and whatever the prompt answers
+afterwards, nothing is mounted, nothing takes focus and nothing more is
+reported, so the element is the page's again at once, for the next run.
 
-A local run can never pass for a ranked or practice run. Its seed always
-starts `local:`, whatever the page passes, and every seed the platform issues
-is 64 hex characters, so the platform refuses its recording with
-`E_PINNED_MISMATCH`, as the stand-in does, and stores nothing (measured in
-the browser suite: the run stays open and the board empty). Its recording
-is a
-`LocalRecording`, and the client's `submit` takes a `RunRecording`, which only
-`Run` hands it, so passing one compiles only behind a cast somebody wrote. A
-page with devtools can still post anything through `request`; what stops it
-is the seed.
+Any answer to the tilt request but a grant fails the run before it starts,
+and on vbz.gg before the platform is asked for one and with the lock let go,
+with the engine's own code for what happened: `E_MOTION_DENIED` when the
+player did not allow it, `E_MOTION_NO_SENSOR` when no reading arrived, as on
+a laptop, `E_MOTION_UNSUPPORTED` for a browser with no orientation events,
+`E_MOTION_INSECURE` for a page that is not https, and `E_MOTION_BLOCKED` for
+a page whose permissions policy forbids the sensors. Each is a client code
+whose sentence tells the player what happened and what to do: the error's
+message from `playLocal`, and on vbz.gg the run's `detail`. iOS remembers a
+refusal for the site and answers every later request with it, without
+asking, until the site's data is cleared in the browser's settings; the
+sentence for `E_MOTION_DENIED` says so. A request whose promise is rejected
+rather than answered fails the run with `E_UNEXPECTED`.
+
+## If you use vbz.gg: a ranked run on a page
+
+On vbz.gg, a local run can never pass for a ranked or practice run. Its seed
+always starts `local:`, whatever the page passes, and every seed the
+platform issues is 64 hex characters, so the platform refuses its recording
+with `E_PINNED_MISMATCH`, as the stand-in does, and stores nothing (measured
+in the browser suite: the run stays open and the board empty). Its recording
+is a `LocalRecording`, and the client's `submit` takes a `RunRecording`,
+which only `Run` hands it, so passing one compiles only behind a cast
+somebody wrote. A page with devtools can still post anything through
+`request`; what stops it is the seed.
 
 **`playRun(element, { client, game, mode, onState, onNotice, title })`**
 runs inside the Play button's click. When the game reads tilt it asks for it
@@ -379,20 +410,6 @@ the run's own module reads tilt the click did not ask for, the run stops with
 to `element`, labelled with `title`, so a key reaches the game rather than
 the button a player just pressed, and `played.end()` submits the player
 leaving as an abandoned run.
-
-Any answer to the tilt request but a grant fails the run before the platform
-is asked for one, and lets the lock go, with the engine's own code for what
-happened: `E_MOTION_DENIED` when the player did not allow it,
-`E_MOTION_NO_SENSOR` when no reading arrived, as on a laptop,
-`E_MOTION_UNSUPPORTED` for a browser with no orientation events,
-`E_MOTION_INSECURE` for a page that is not https, and `E_MOTION_BLOCKED` for
-a page whose permissions policy forbids the sensors. Each is a client code
-whose sentence tells the player what happened and what to do, and the run's
-`detail` is that sentence. iOS remembers a refusal for the site and answers
-every later request with it, without asking, until the site's data is
-cleared in the browser's settings; the sentence for `E_MOTION_DENIED` says
-so. A request whose promise is rejected rather than answered fails the run
-with `E_UNEXPECTED`.
 
 The platform keeps one open run per player, game and mode, and a second tab
 of the same browser is the same player. Started while the first tab's run has
@@ -428,7 +445,7 @@ order, with the reader's own row marked `aria-current` and shown after the
 page when it is not on it. Both are plain DOM and take every colour from a
 `--gb-widget-*` custom property with a fallback.
 
-## The page's client
+## If you use vbz.gg: the page's client
 
 `/platform` is what a studio's page uses to talk to the platform. It follows
 the protocol the platform's page guide describes, `docs/your-game-page.md` in
@@ -575,11 +592,27 @@ The client's own failures are `PlatformClientError`, with codes from
 `PublicRefusalCode`. The two sets never share a code, and a compile-time check
 holds them apart.
 
-## What a studio's page needs
+## What a page needs
 
-**A Content-Security-Policy** that lets the game's code in and keeps every
-other game's out. Name your game's own path on `files.vbz.gg`, never the whole
-origin, since every studio's games are served from it:
+**A Content-Security-Policy** that lets the game's code in and keeps
+everything else out. A page whose build is served from its own origin, as
+the template's is, sends `localPageCsp` from `/harness`, under which
+everything the game loads is `'self'` and nothing is framed:
+
+```
+default-src 'none'; script-src 'self'; style-src 'self';
+img-src 'self' data: blob:; connect-src 'self';
+base-uri 'none'; form-action 'none'; frame-ancestors 'none'
+```
+
+with the page's import map admitted by its hash, below. A page whose build is
+served from another origin sends `pageCsp`, which names the game's own path
+there, `/g/<game id>/`, never the whole origin when it serves anything else,
+so such a host serves the build at the content-addressed paths
+`createBlobServer` answers, which `vbz build --addressed` writes ("Serving"
+below), rather than as `dist/` holds it. On vbz.gg every
+studio's games are served from `files.vbz.gg`, so a ranked page names its
+game's path there, the API and the sign-in:
 
 ```
 default-src 'none'; script-src 'self' https://files.vbz.gg/g/<game id>/;
@@ -588,19 +621,19 @@ connect-src 'self' https://api.vbz.gg; frame-src https://signin.vbz.gg;
 base-uri 'none'; form-action 'none'; frame-ancestors 'none'
 ```
 
-That is the policy the harness serves its own page under (`pageCsp` in
-`/harness`), and the browser suite measured it in Chromium, Firefox and
-WebKit: it admits the page module's dynamic import and the module's own
-static import of its rules code, and refuses another game's path on the same
-origin before a request leaves. It needs no `unsafe-eval` and no inline
-script. A page with more of its own adds to it.
+`pageCsp` is the policy the harness serves its own page under, naming the
+game's path on its bundles port, and the browser suite measured it in
+Chromium, Firefox and WebKit: it admits the page module's dynamic import and
+the module's own static import of its rules code, and refuses another game's
+path on the same origin before a request leaves. It needs no `unsafe-eval`
+and no inline script. A page with more of its own adds to it.
 
-`frame-src` names the platform's sign-in, which `signIn()` frames in its box.
-Measured in Chromium and Firefox: under `default-src 'none'` with no
-`frame-src`, a frame on the sign-in origin is never requested, and the box
-stays empty until `signIn()` gives up with `E_SIGNIN_UNREACHABLE`. `pageCsp`
-takes the sign-in origin, `signInOrigin`, and a page that signs nobody in
-names `null` and frames nothing.
+On vbz.gg, `frame-src` names the platform's sign-in, which `signIn()` frames
+in its box. Measured in Chromium and Firefox: under `default-src 'none'`
+with no `frame-src`, a frame on the sign-in origin is never requested, and
+the box stays empty until `signIn()` gives up with `E_SIGNIN_UNREACHABLE`.
+`pageCsp` takes the sign-in origin, `signInOrigin`, and a page that signs
+nobody in names `null` and frames nothing.
 
 **What the game needs of the policy.** A game may load more than its two
 modules, and `pageCsp` adds each need only when it is named, in `needs`:
@@ -620,7 +653,7 @@ files folder, which nothing scans. The third is never said, because the
 build shows it: a page module of contract 2 fetches every data pack its
 manifest declares from the folder, which holds every one, so any version
 whose folder lists a file is given it. A game that needs all three is
-played under this, for ranked play:
+played under this, for ranked play on vbz.gg:
 
 ```
 default-src 'none';
@@ -644,9 +677,8 @@ Chromium and Firefox refuse its core's fetch (`connect-src`) and its worker
 
 A page carrying an inline script, such as an import map, names it in
 `inlineScripts` and the policy admits it by the SHA-256 of its exact text.
-`localPageCsp` is the same policy for a page that serves its game from its
-own origin, as a page playing locally does: everything the game loads is
-`'self'`, and nobody signs in.
+`localPageCsp` takes the same `needs` and `inlineScripts`, with `'self'`
+where `pageCsp` names the game's path.
 
 **A bundler that leaves `loadGame`'s import alone.** `loadGame` imports a URL
 it is handed at run time, so the import is the browser's to make, and
@@ -728,13 +760,13 @@ that does not arrive spends no run, and a demand pack when the game names
 it, with the engine's pack loader. The engine holds the loop while a named
 pack is missing, so the tick that first reads it is the same on every
 machine however long the download took, and it checks each pack's size and
-SHA-256 before the game may read it. The platform keeps each pack as it
-keeps every file of the folder and hands the server's replay the same bytes,
-as `vbz dev` hands its replay the packs in the folder. The browser suite's
-folder fixture reads a demand pack from tick 180: the page fetched it only
-once the rules code named it, and the recording replays to its counters
-with the pack and fails without it. The engine's guide, `clockwork2`, has
-the rules for reading one in `references/assets.md`.
+SHA-256 before the game may read it. `vbz dev` hands its replay the packs in
+the folder, and vbz.gg keeps each pack as it keeps every file of the folder
+and hands its server's replay the same bytes. The browser suite's folder
+fixture reads a demand pack from tick 180: the page fetched it only once the
+rules code named it, and the recording replays to its counters with the pack
+and fails without it. The engine's guide, `clockwork2`, has the rules for
+reading one in `references/assets.md`.
 
 What the contract checks, on the bytes rather than on the source:
 
@@ -773,49 +805,56 @@ What the contract checks, on the bytes rather than on the source:
 5. Every limit below, each file of the folder held by its size on disk
    before a byte of it is read.
 
-The platform also imports what it does with a file upload from here:
+vbz.gg also imports what it does with a file upload from here:
 `missingFiles` answers which of a listing's files the game's store lacks,
 `assertFileBytes` holds an uploaded file to the SHA-256 it was sent under
 (`E_FILE_HASH_MISMATCH`), and `assertFilesHeld` refuses a version whose
 listing names a file the store lacks (`E_FILES_MISSING`).
 
-Then the addressing. Each module is stored under the SHA-256 of its own
-bytes. The platform keeps each file of the folder once per game, in its
-private store under the SHA-256 of the file's bytes, however many versions
-or paths name it, and publishes a version's folder on the public store
-under the listing's name and each file's path, as "Serving" below describes.
-`rewritePresentImports` replaces the page module's `cw2:sim` with
-`/g/<game id>/sim/<64 hex>.js` and its `cw2:files/` with
-`/g/<game id>/t/<listing sha256>/`, root-relative, so the bytes carry no
-domain, and re-scans to prove the result imports exactly those paths. The
-page module is hashed **after** the rewrite, so a stored page module's hash is
-taken over bytes that already name one game, one rules code and one folder. A
-page module can name exactly one rules code and one set of files, forever,
-which is what makes "the browser and the validator ran the same code"
-checkable rather than asserted.
+Then the addressing, which `vbz dev` performs on a build and vbz.gg on an
+upload. Each module is named by the SHA-256 of its own bytes. vbz.gg keeps
+each file of the folder once per game, in its private store under the
+SHA-256 of the file's bytes, however many versions or paths name it, and
+publishes a version's folder on the public store under the listing's name
+and each file's path, as "Serving" below describes. `rewritePresentImports`
+replaces the page module's `cw2:sim` with `/g/<game id>/sim/<64 hex>.js` and
+its `cw2:files/` with `/g/<game id>/t/<listing sha256>/`, root-relative, so
+the bytes carry no domain, and re-scans to prove the result imports exactly
+those paths. The page module is hashed **after** the rewrite, so a stored
+page module's hash is taken over bytes that already name one game, one rules
+code and one folder. A page module can name exactly one rules code and one
+set of files, forever, which is what makes "the browser and the validator
+ran the same code" checkable rather than asserted.
 
-`buildAndAddress` in `/harness` performs that whole sequence, which is the
-same one the platform performs on an upload. `vbz build` writes the page
-module **unrewritten**, with its specifiers intact, beside `dist/sim.js`,
+`addressGame` in `src/build/address.ts` performs that sequence on a build,
+the same one vbz.gg performs on an upload, and it is the one place the kit
+performs it: `vbz dev` serves its result through `buildAndAddress`, which
+`/harness` exports, and `vbz build --addressed` writes it to
+`dist/addressed/` ("Serving" below). `vbz build` writes the page module
+**unrewritten**, with its specifiers intact, beside `dist/sim.js`,
 `dist/manifest.json`, the listing as `dist/files.json`, exactly the text its
-name is the hash of, and a copy of the folder as `dist/files/`: a page module
-that arrived already pointing somewhere would be one naming code nobody
-checked. It also writes `dist/game.json`, which a page playing the game
-locally reads and an upload never carries.
+name is the hash of, and a copy of the folder as `dist/files/`, so a page
+maps the specifiers with an import map and plays the bytes as built, and a
+page module that arrived already pointing somewhere would be one naming code
+nobody checked. It also writes `dist/game.json`, which a page playing the
+build reads, and an upload to vbz.gg never carries.
 
 ## The limits
 
-Every size the platform holds a version and a run to is a constant in
-`/build`, which `vbz build`, the stand-in and the platform all import, so a
-build that passes here passes there:
+Every limit is a constant in `/build`. `vbz build` holds a build to the
+sizes it can measure, and vbz.gg, which imports the same constants, holds
+an upload, a game's files and a run to them, so a build that passes here
+passes there:
 
 | Limit | Value | What it holds | Past it |
 |---|---|---|---|
 | `MAX_SIM_BYTES` | 4 MiB | the rules code | `E_ARTIFACT_TOO_LARGE` |
 | `MAX_PRESENT_BYTES` | 16 MiB | the page module | `E_ARTIFACT_TOO_LARGE` |
+| `MAX_MANIFEST_BYTES` | 512 KiB | the manifest, as JSON with no white space | `E_MANIFEST_INVALID` |
 | `MAX_FILE_BYTES` | 64 MiB | one file of the files folder | `E_FILE_TOO_LARGE` |
 | `MAX_FILES_BYTES` | 512 MiB | every file of the folder together | `E_FILES_TOO_LARGE` |
 | `MAX_FILES` | 10,000 | how many files the folder holds | `E_FILES_TOO_MANY` |
+| `MAX_UNNAMED_FILES_BYTES` | 1 GiB | the files a game holds on the platform that no version names | `E_QUOTA_EXCEEDED`, on a file's upload |
 | `MAX_FILE_PATH_LENGTH` | 512 | the characters of one file's path | `E_FILE_PATH_INVALID` |
 | `MAX_PACK_BYTES` | 16 MiB | one data pack | `E_PACKS_TOO_LARGE` |
 | `MAX_PACKS_BYTES` | 48 MiB | every data pack together | `E_PACKS_TOO_LARGE` |
@@ -824,50 +863,70 @@ build that passes here passes there:
 | `MAX_LISTING_BYTES` | 6,170,011 bytes | the longest listing the limits above allow | nothing: no listing within them is longer |
 | `MAX_VERSION_PART` | 2,147,483,647 | each part of a version | `E_VERSION_INVALID` |
 
-Beside them the engine's `INPUT_BUDGET_PER_TICK`, 16, holds a ranked or
-practice run to 16 inputs a tick on average (`E_INPUT_BUDGET`); a local run
-has no such budget.
-
 The rules code is code, and level data goes in data packs: every replay
 imports the rules code afresh, and in V8 a 2 MiB rules code took 82 ms to
-start, measured for the limits' design. The rules code and every pack fit
-one replay inside the 64 MiB of code a Cloudflare Worker takes. A replay's
-request carries the recording alone, the rules code and the packs read from
-storage, which is what leaves a recording its 31 MiB. A page never meets
-`MAX_RUN_BYTES` as a refusal: `Run` ends a run as if the player left before
-its next piece would eat into the room the last commit needs, and the
-platform replays and ranks it as it stood. How long that lets a run last is
-a matter of how fast it records inputs: the engine guide's
-`references/inputs.md` measures each kind of device over five minutes.
+start, measured for the limits' design.
 
 `MAX_LISTING_BYTES` is no limit of its own. It is the longest canonical
 listing the folder's limits allow, which the platform takes as the body of
 the route that asks which files it lacks.
 
-One replay has three more limits, which `/build` exports beside these and
-no build can check, because only a replay measures them: 5 minutes of CPU
-(`REPLAY_CPU_BUDGET_MS`), 7.5 minutes of wall time (`REPLAY_WALL_BUDGET_MS`)
-and 128 MB of memory (`REPLAY_MEMORY_MB`), the platform's figures for its
-replay service on Cloudflare, which the platform takes from here. The rules
-code as loaded, the data packs the manifest declares and the game's state
-share the memory. Before a version publishes, the platform's checks load
-the rules code with its data packs on that service and run a few steps with
-nothing pressed. A version whose rules code will not load there, or whose
-replay dies while it loads the rules code or its packs, ends in
-`E_REPLAY_MODULE`, with the service's own error text in its first failure,
-and one whose replay runs out of its CPU time, its wall time or its memory
-in those steps ends in `E_REPLAY_OVER_BUDGET`. Both are the game's to fix; a
-service that gives no answer is the platform's, and the check is tried
-again. The service is Cloudflare Workers, whose runtime refuses some work
-while a module loads with an error of its own, which Cloudflare lists on its
-[Hyperdrive troubleshooting page](https://developers.cloudflare.com/hyperdrive/observability/troubleshooting/):
+The manifest is measured as vbz.gg stores it, the UTF-8 bytes of its JSON
+with no white space, whatever spacing `dist/manifest.json` has, and
+`vbz build` refuses one over `MAX_MANIFEST_BYTES` with the platform's code
+and words.
+
+### If you use vbz.gg: a run's and a replay's limits
+
+The engine's `INPUT_BUDGET_PER_TICK`, 16, holds a ranked or practice run on
+vbz.gg to 16 inputs a tick on average (`E_INPUT_BUDGET`); a local run has no
+such budget.
+
+On vbz.gg, the rules code and every pack fit one replay inside the 64 MiB of
+code a Cloudflare Worker takes. A replay's request carries the recording
+alone, the rules code and the packs read from storage, which is what leaves
+a recording its 31 MiB. A page never meets `MAX_RUN_BYTES` as a refusal:
+`Run` ends a run as if the player left before its next piece would eat into
+the room the last commit needs, and the platform replays and ranks it as it
+stood. How long that lets a run last is a matter of how fast it records
+inputs: the engine guide's `references/inputs.md` measures each kind of
+device over five minutes.
+
+Every replay of a run on vbz.gg carries parts of the manifest beside the
+run's log, so `MAX_MANIFEST_BYTES` leaves the replay's request room for a
+log at `MAX_RUN_BYTES`. `MAX_UNNAMED_FILES_BYTES`, twice `MAX_FILES_BYTES`,
+is the one limit no build can check, because it counts what the platform
+already holds for the game: files sent ahead of their version that no
+version names yet, which the platform removes a day after each was last
+sent. A file whose upload would take them past it is refused before a byte
+is stored, and the cap leaves room for a version's whole folder to go up
+while the files of one that never arrived wait out their day.
+
+One replay on vbz.gg has three more limits, which `/build` exports beside
+these and no build can check, because only a replay measures them: 5 minutes
+of CPU (`REPLAY_CPU_BUDGET_MS`), 7.5 minutes of wall time
+(`REPLAY_WALL_BUDGET_MS`) and 128 MB of memory (`REPLAY_MEMORY_MB`), the
+platform's figures for its replay service on Cloudflare, which the platform
+takes from here. The rules code as loaded, the data packs the manifest
+declares and the game's state share the memory. Before a version publishes,
+the platform's checks load the rules code with its data packs on that
+service and run a few steps with nothing pressed. A version whose rules code
+will not load there, or whose replay dies while it loads the rules code or
+its packs, ends in `E_REPLAY_MODULE`, with the service's own error text in
+its first failure, and one whose replay runs out of its CPU time, its wall
+time or its memory in those steps ends in `E_REPLAY_OVER_BUDGET`. Both are
+the game's to fix; a service that gives no answer is the platform's, and the
+check is tried again. The service is Cloudflare Workers, whose runtime
+refuses some work while a module loads with an error of its own, which
+Cloudflare lists on its [Hyperdrive troubleshooting
+page](https://developers.cloudflare.com/hyperdrive/observability/troubleshooting/):
 "Disallowed operation called within global scope. Asynchronous I/O (ex:
 fetch() or connect()), setting a timeout, and generating random values are
-not allowed within global scope." So the top level of the rules code, and
-of every library it bundles, does none of those. A player's run is longer
-than a few steps. At 60 steps a second an hour of play is 216,000 steps, and
-5 minutes of CPU leaves about 1.4 ms for each; a ranked run whose replay
-runs out of any of the three is a `log_fault` and never ranks.
+not allowed within global scope." So the top level of the rules code, and of
+every library it bundles, does none of those. A player's run is longer than
+a few steps. At 60 steps a second an hour of play is 216,000 steps, and 5
+minutes of CPU leaves about 1.4 ms for each; a ranked run whose replay runs
+out of any of the three is a `log_fault` and never ranks.
 
 ## Drawing with null3d
 
@@ -905,11 +964,104 @@ recipe, file by file. In short:
   both coming in null3d's next release.
 - **Isolation for threads**: no headers, which plays single-threaded;
   `Document-Isolation-Policy`; or COOP with COEP. All three were measured
-  with the sign-in's box.
+  with the sign-in's box a ranked page on vbz.gg puts up.
 
 ## Serving
 
-In production the two modules of a published version sit at
+Any host that serves files serves a build: the author's own site, a static
+host, a CDN, a game portal, or a local server for a page that is never
+online. `dist/` holds the build as `vbz build` wrote it. A page beside it
+maps the page module's `cw2:sim` and `cw2:files/` with an import map, as the
+template's `site/` does with `dist/` served as `game/`.
+
+A page on another origin loads the build at its content addresses, which
+`vbz build --addressed` writes to `dist/addressed/`: the rules code at
+`g/<game id>/sim/<sha256>.js`, the page module, rewritten by
+`rewritePresentImports` to import it and the folder, at
+`g/<game id>/present/<sha256>.js`, and each file of the folder at
+`g/<game id>/t/<listing sha256>/<path>`, and nothing else. The host serves
+the folder as it is from the root of an origin. The page module's imports
+are root-relative, so there is no base path to give it, and a host that
+serves only under a sub-path serves `dist/` beside the page instead. Beside
+the folder, `dist/addressed.json` says what the page needs, each path from
+that root, and `AddressedBuild` in `/harness` is its type:
+
+```json
+{
+  "name": "Lane Runner",
+  "gameId": "0b123291-582d-52f5-a2d5-877342fd8596",
+  "present": "/g/0b123291-582d-52f5-a2d5-877342fd8596/present/<sha256>.js",
+  "sim": "/g/0b123291-582d-52f5-a2d5-877342fd8596/sim/<sha256>.js",
+  "files": "/g/0b123291-582d-52f5-a2d5-877342fd8596/t/<listing sha256>/",
+  "manifestHash": "<the engine's hash of the manifest>",
+  "needs": {}
+}
+```
+
+The page resolves `present` and `files` against the origin for `loadGame`,
+with `manifestHash` as it is, needs no import map, since the page module
+names its own paths, and sends `pageCsp` with the origin, `gameId` and
+`needs`. The game id is the version 5 UUID of the manifest's `id` in the
+kit's own namespace, `GAME_ID_NAMESPACE`, so every version of a game is
+under one path and a page's policy names it once; `--game <id>` names a
+UUID of the author's own instead, which a host serving other people's games
+too gives each game, since a policy admitting a game's path admits whatever
+is served under it. It is a UUID because `rewritePresentImports` and
+`createBlobServer` hold every path's game id to one.
+
+`/serve`'s `createBlobServer` sends the headers a host needs, and the
+harness serves the game with it, in the layout `--addressed` writes, so a
+page meets on a laptop what it meets from a careful host. The browser suite
+holds a host to no more than the guide's list: a plain file server of its
+own, sharing no code with `createBlobServer`, sends by each file's
+extension the type, `nosniff`, the two cross-origin headers, the year-long
+cache and, on what is not JavaScript, the sandbox policy, and no `ETag`,
+and a page on another origin under `pageCsp` loads `dist/addressed/` from
+it and plays the template with `playLocal`, in Chromium, Firefox and
+WebKit. What `createBlobServer` sends:
+
+- `Access-Control-Allow-Origin: *`, because a page on another origin
+  imports the page module, and every module import is a CORS request. What
+  these files hold is public, and which page may run a game is that page's
+  policy to say, by its game's path. The 404 carries the header too, or a
+  miss reads to the page as a network failure. A host that serves the build
+  to a page on its own origin alone needs none of it.
+- `Cross-Origin-Resource-Policy: cross-origin`, so a page that is
+  cross-origin isolated may load the files from another origin.
+- `Cache-Control: public, max-age=31536000, immutable` on the
+  content-addressed paths `createBlobServer` answers,
+  `/g/<game id>/sim/<sha256>.js`, `/g/<game id>/present/<sha256>.js` and
+  `/g/<game id>/t/<listing sha256>/<path>`, because each module is named by
+  the digest of its own bytes, and each file by the digest of a listing that
+  names its bytes, so neither ever changes. Every file in `dist/addressed/`
+  is at one of them, and `addressed.json`, which changes, is beside the
+  folder rather than in it. `dist/sim.js` and `dist/present.js` keep their
+  names from one build to the next, so a host serving `dist/` as it is
+  caches them as files that change in place.
+- An `ETag` of the digest, or for a file of the folder's name and its path,
+  and `304` for a request that names it.
+- A module as JavaScript, and a file as the type its extension names in
+  `FILE_CONTENT_TYPES`: JavaScript for a module script, which a browser runs
+  from no other type, `application/wasm` for WebAssembly, which a browser
+  compiles by streaming only from that type, and `application/octet-stream`
+  for anything it does not name, HTML among it, so a file opened on the
+  bundles origin is never a page there.
+- `X-Content-Type-Options: nosniff` on every answer, so a wrong type is a
+  refusal in every browser rather than a guess.
+- `Content-Security-Policy: default-src 'none'; sandbox` on every answer
+  that is not JavaScript, `DOCUMENT_POLICY`, because an origin that serves
+  more than one game's files, as `files.vbz.gg` serves every studio's, would
+  run an SVG holding a `<script>` when it is opened. Measured in Chromium 141
+  and Firefox 142: such an SVG opened at its address ran its script without
+  the policy and not with it, and still drew as an `<img>`. A response's
+  policy does nothing to a stylesheet, an image, a font or a `fetch`.
+  JavaScript carries none, because a worker runs under the policy of the
+  script that starts it: measured in both, a worker whose script came with
+  this policy could not `fetch` anything.
+
+### If you use vbz.gg: files.vbz.gg
+
+The two modules of a version published on vbz.gg sit at
 `https://files.vbz.gg/g/<game id>/sim/<sha256>.js` and
 `https://files.vbz.gg/g/<game id>/present/<sha256>.js`, and its files under
 `https://files.vbz.gg/g/<game id>/t/<listing sha256>/<path>`, copied there
@@ -918,46 +1070,16 @@ public. Two versions with an identical listing share one folder there, such
 as a patch that changed only code. A takedown deletes the version's two
 modules, and its folder unless another version that is served, or still
 being checked, names the same folder, and purges what it deleted from the
-cache.
-`/serve`'s `createBlobServer` answers the same paths with the same headers,
-for the harness and for the platform's development bundles server, so a page
-meets one answer from a laptop and from the edge:
-
-- `Access-Control-Allow-Origin: *`, because a page module is imported by a
-  studio's page from another origin and every module import is a CORS
-  request. What these files hold is public, and which page may run a game is
-  the studio's policy to say, by its game's path. The 404 carries the header
-  too, or a miss reads to the page as a network failure.
-- `Cache-Control: public, max-age=31536000, immutable`, because each module
-  is named by the digest of its own bytes, and each file by the digest of a
-  listing that names its bytes, so neither ever changes.
-- An `ETag` of the digest, or for a file of the folder's name and its path,
-  and `304` for a request that names it.
-- A module as JavaScript, and a file as the type its extension names in
-  `FILE_CONTENT_TYPES`: JavaScript for a module script, `application/wasm`
-  for WebAssembly, which a browser compiles by streaming only from that type,
-  and `application/octet-stream` for anything it does not name, HTML among
-  it, so a file opened on the bundles origin is never a page there.
-- `X-Content-Type-Options: nosniff` on every answer, so a wrong type is a
-  refusal in every browser rather than a guess.
-- `Content-Security-Policy: default-src 'none'; sandbox` on every answer
-  that is not JavaScript, `DOCUMENT_POLICY`, because the origin is every
-  studio's and an SVG holding a `<script>` would run on it when opened.
-  Measured in Chromium 141 and Firefox 142: such an SVG opened at its address
-  ran its script without the policy and not with it, and still drew as an
-  `<img>`. A response's policy does nothing to a stylesheet, an image, a font
-  or a `fetch`. JavaScript carries none, because a worker runs under the
-  policy of the script that starts it: measured in both, a worker whose
-  script came with this policy could not `fetch` anything. The platform's
-  public store sends the same headers.
+cache. The platform's public store sends the headers above, and its
+development bundles server serves them with `createBlobServer`.
 
 ## Starting a game
 
-`vbz new ./my-game` copies the template out of the package and renames
-it: the game's id comes from the directory, because an id is immutable once
-published and a placeholder somebody forgets is a board under the wrong name.
-The copy builds and plays before anything is changed, so an author's first
-failure is one they caused.
+`vbz new ./my-game` copies the template out of the package and renames it:
+the game's id comes from the directory, because on vbz.gg an id is immutable
+once published, and a placeholder somebody forgets would be a board under
+the wrong name. The copy builds and plays before anything is changed, so an
+author's first failure is one they caused.
 
 The template ships inside the package rather than beside it in this
 repository, at the same path relative to the CLI in the source tree and in
@@ -965,16 +1087,17 @@ repository, at the same path relative to the CLI in the source tree and in
 Runner, with its own two buttons, keys and a controller, and `site/`, a page
 in the mode its `site/config.json` names. `{ "mode": "local" }`, which a new
 game ships with, plays the build beside the page with `playLocal` and talks
-to nobody. `{ "mode": "ranked", apiOrigin, signInOrigin, pageKey }` is a
-studio page with sign-in, Play, Practice and the board. The mode is named,
-never worked out from whether a page key is there, and opting in to ranked
-play changes that file and nothing about the build.
+to nobody. For vbz.gg,
+`{ "mode": "ranked", apiOrigin, signInOrigin, pageKey }` is a studio page
+with sign-in, Play, Practice and the board. The mode is named, never worked
+out from whether a page key is there, and opting in to ranked play changes
+that file and nothing about the build.
 
 `vbz build` writes `dist/game.json` beside the build: where each part is,
 relative to it, and what the manifest and the files folder hash to, so a
 plain static host serves `dist/` as it is to a page playing the game
 locally. Such a page maps the page module's `cw2:sim` and `cw2:files/` with
-an import map, so the module's bytes are the ones an upload carries, and
+an import map, so the module's bytes are the ones `vbz build` wrote, and
 `localAddress` in `/host` turns `game.json` and its URL into what `loadGame`
 takes.
 
@@ -983,10 +1106,11 @@ takes.
 A game has two sets of rules for an agent to follow, and each package ships
 its own as an agent skill under `skill/`: the engine's, `clockwork2`, on
 writing a simulation that replays to the same state on a server, and this
-package's, `vbz-game`, on everything between that simulation and a game the
-platform can check. A game keeps a copy of both in `.claude/skills/`, where an
-agent's tools look for skills, so the guide an agent reads is the one for the
-versions the game installed.
+package's, `vbz-game`, on everything between that simulation and a game a
+page plays, and, if the game is published to vbz.gg, the platform checks. A
+game keeps a copy of both in `.claude/skills/`, where an agent's tools look
+for skills, so the guide an agent reads is the one for the versions the game
+installed.
 
 `vbz new` copies this package's own guide and the engine's, from the engine
 installed beside this package: the one node would find from the CLI's own
@@ -1027,29 +1151,39 @@ guide from one release beside the engine's from another.
 
 ## Checking a game
 
-`vbz check ./my-game` builds the game, holds the manifest to its schema, runs
-the engine's `every-game` set of conformance checks over the built rules code,
-with every file the manifest declares laid out beside it, and holds
-`src/capture.ts` to the manifest with `checkCapture`. `vbz check --ranked`
-runs the engine's `ranked` set instead, which adds what only a ranked or
-practice run needs: two seeds pass through different states on one input
-log (`E_SEED_IGNORED`), and the manifest says how a run ranks
-(`E_RANK_UNDECLARED`), which a game played only on its own page may leave
-out. `vbz check` prints the version, its release line and the
-line's contract hash, `contractSha256`, so a patch can be compared with the
-line it joins before it is uploaded. It exits 0 only when everything passes.
+`vbz check ./my-game` is the check every game needs. It builds the game,
+holds the manifest to its schema, runs the engine's `every-game` set of
+conformance checks over the built rules code, with every file the manifest
+declares laid out beside it, and holds `src/capture.ts` to the manifest with
+`checkCapture`. That set plays the game: it holds it to determinism, to a
+snapshot that restores, to a recording that replays to the state it
+recorded, to its counters, to the cost of a step and to its declared files,
+so it is how to test record and replay before a game ships. `vbz check`
+prints the version, its release line and the line's contract hash,
+`contractSha256`, so two builds of a line can be compared. It exits 0 only
+when everything passes.
 
-`vbz check --ranked` is the way to test record and replay before a version
-is published, because the platform runs only part of the ranked set on an
-upload: the checks that read the rules code and the manifest (banned APIs,
-no asynchronous work, the declared files and their budgets, the manifest,
-the served config and the ranking), `init` and 600 steps with nothing
-pressed, and the seed check. It does not run the engine's determinism,
-restore, counters, replay or performance checks, play the game in more than
-one engine, or compare what its page module reports with a replay, so
-nothing on an upload holds a version to replaying a recording to the state
-it recorded. A game that is not
-deterministic passes the upload and fails its players: their runs do not
+The engine's checks read the rules code with TypeScript's own parser, so
+`vbz check` needs `typescript` installed in the game, and the template's
+`devDependencies` carry it. No other command needs it. `vbz new` runs before
+a game has installed anything, so the CLI loads the checks only when `check`
+is the command it was given.
+
+### If you use vbz.gg: the upload's checks
+
+`vbz check --ranked` runs the engine's `ranked` set instead, which adds what
+only a ranked or practice run needs: two seeds pass through different states
+on one input log (`E_SEED_IGNORED`), and the manifest says how a run ranks
+(`E_RANK_UNDECLARED`), which a game played only on its own page may leave
+out. The platform runs only part of the ranked set on an upload: the checks
+that read the rules code and the manifest (banned APIs, no asynchronous
+work, the declared files and their budgets, the manifest, the served config
+and the ranking), `init` and 600 steps with nothing pressed, and the seed
+check. It does not run the engine's determinism, restore, counters, replay
+or performance checks, play the game in more than one engine, or compare
+what its page module reports with a replay, so nothing on an upload holds a
+version to replaying a recording to the state it recorded. A game that is
+not deterministic passes the upload and fails its players: their runs do not
 replay to what they saw, and never rank. The platform refuses an upload
 whose manifest declares no ranking under the same `E_RANK_UNDECLARED`,
 before it stores a byte. It also runs two checks `vbz check` cannot: it
@@ -1061,19 +1195,39 @@ browser cannot draw is mounted with `draw: false` and gets ready without
 drawing, and a page module of contract 1, which has no `draw: false`, is
 then loaded and not mounted.
 
-The engine's checks read the rules code with TypeScript's own parser, so
-`vbz check` needs `typescript` installed in the game, and the template's
-`devDependencies` carry it. No other command needs it. `vbz new` runs before
-a game has installed anything, so the CLI loads the checks only when `check`
-is the command it was given.
+The upload's checks are held to time as well as size, and `/build` exports
+each limit. The engine's checks an upload runs are given, for every step
+they play, what one step of an hour of the game's own play at its own rate
+may cost its replay, `REPLAY_CPU_BUDGET_MS` over that hour's steps
+(`CHECK_STEP_BUDGET_US`, keyed by tick rate): 2,777 microseconds of one CPU
+a step at 30 steps a second, 1,388 at 60 and 694 at 120, so an hour of the
+game's steps at its rate, each within its allowance, fits one replay's CPU
+budget. Start-up is allowed apart from the steps: each time they load the
+rules code, once for the headless check and up to six times for the seed
+check, importing it, reading its start packs and running `init` are given 5
+seconds of one CPU a load (`CHECK_INIT_BUDGET_MS`); the platform counts the
+loads. The page module has to load and be ready within 60 seconds of the
+checks' browser starting (`CHECK_READY_MS`), its presentation's `prepare`
+settled and its start packs fetched, with the version's files folder served
+beside it and nothing else: no other network, nobody to press anything and
+no permission granted. A check that runs out of any of these is tried again,
+and only once every attempt has run out is the version refused, with
+`E_CHECKS_OVER_BUDGET` or `E_PAGE_MODULE_NOT_READY`, so a moment's slowness
+on the platform's side refuses nothing, and the refusal can arrive after
+`vbz publish` has stopped waiting. `vbz check --ranked` prints what a step
+cost on the author's machine in its `performance` check, and a large start
+pack parsed in `init` is paid for at every load. A `prepare` that waits on
+something outside the game's files folder, on a permission, or on a network
+the checks do not have never gets ready there.
 
 ## Where a game's code runs
 
-A game's code is the studio's, and so is everything it imports, which nobody
-in the kit has read. The commands run where an author or a build system keeps
-a studio's secret key and cloud credentials in the environment, so every
-command that evaluates a game's code does it in a process of its own, started
-with an empty environment, and never in its own process:
+A game's code is its author's, and so is everything it imports, which nobody
+in the kit has read. The commands run where an author or a build system
+keeps secrets in the environment, cloud credentials or a vbz.gg studio's
+secret key, so every command that evaluates a game's code does it in a
+process of its own, started with an empty environment, and never in its own
+process:
 
 - `vbz build`, and every command that builds, runs the bundler with nothing
   but `NODE_ENV`, because the bundler runs the macros a game's source
@@ -1083,8 +1237,9 @@ with an empty environment, and never in its own process:
   imports `src/capture.ts` in one such process, which writes what it found to
   a file, because the game's own code may print.
 - `vbz dev` replays each run against the rules code in one.
-- `vbz publish` evaluates nothing of a game: it uploads what `vbz build`
-  wrote as bytes, so the key it holds is never beside the game's code.
+- `vbz publish`, for vbz.gg, evaluates nothing of a game: it uploads what
+  `vbz build` wrote as bytes, so the key it holds is never beside the game's
+  code.
 
 One function starts them all, `runGameProcess` in `build/game-process.ts`,
 and a test per command plants a variable in its environment and holds the
@@ -1097,46 +1252,45 @@ serves them on one port at the paths and with the headers above, under the
 game id `00000000-0000-4000-8000-000000000000`, and serves a page on a
 **second port** that loads the page module from there with `loadGame` and
 plays it with `playLocal`, through the module's own `mount`. The page is
-served under the policy above, naming the game's path on the first port,
-with the game's needs, so a module a studio's page would refuse is refused
-here first and said in the page's status line.
+served under `pageCsp`, naming the game's path on the first port, with the
+game's needs, so a module a page loading it from another origin would refuse
+is refused here first and said in the page's status line.
 
 Two ports are two origins, which is what puts an author in front of a
-cross-origin module import rather than after an upload. What two ports do
-not reproduce is the second *registrable* domain: production serves a game's
-code from a different site from the studio's page, and two ports on localhost
+cross-origin module import before the game ships. What two ports do not
+reproduce is the second *registrable* domain: a page may load its game from
+another site, as a studio's page on vbz.gg does, and two ports on localhost
 are one site. A module import carries no cookies either way, so the gap is
 named rather than closed with an `/etc/hosts` entry.
 
-The page adds what a studio's page does not need. **Start** and **End** drive
-the run; Start asks for tilt first when the game reads it, and like Play on
-a studio's page starts no run without it, keeping the code and its sentence
-on the status line. When the run ends,
-the page sends its recording back, and the harness replays it against the
-built rules code, to the tick it ended, in a process of its own with an empty
-environment, so a game cannot read a studio's key or a cloud credential from
-the shell `vbz dev` runs in. It holds the run's inputs to the manifest with
-the engine's `checkInputs`, and measures the recording. The page shows three
-lines: whether the replay matches, how many inputs against the budget of 16 a
-tick a ranked or practice run is held to, and the recording's size in bytes.
-The budget binds only those runs, so a run over it is said as that figure and
-turns the report red only under `vbz dev --ranked`. It publishes the
-recording too, so an author can save the evidence the platform would replay.
+The page adds what a player's page does not need. **Start** and **End**
+drive the run; Start asks for tilt first when the game reads it, and like a
+page's Play starts no run without it, keeping the code and its sentence on
+the status line. When the run ends, the page sends its recording back, and
+the harness replays it against the built rules code, to the tick it ended,
+in a process of its own with an empty environment, so a game cannot read a
+key or a cloud credential from the shell `vbz dev` runs in. It holds the
+run's inputs to the manifest with the engine's `checkInputs`, and measures
+the recording. The page shows three lines: whether the replay matches, how
+many inputs against the budget of 16 a tick a ranked or practice run on
+vbz.gg is held to, and the recording's size in bytes. The budget binds only
+those runs, so a run over it is said as that figure and turns the report red
+only under `vbz dev --ranked`. It hands the page the recording too, so an
+author can save it.
 
-The seed is a constant, so a run an author is debugging is the run they had a
-moment ago. The platform's daily seed is a keyed HMAC of the game and the day,
-which does the same job for a different reason. The config is the manifest's
-served config, what the platform serves a run, and the harness reads both it
-and the tick rate from the manifest `vbz build` wrote, refusing to start
-without one. A game with a setting that is required and has no default can
-be served no config, so the harness refuses it, in the client's
-`E_CONFIG_REQUIRED` sentence naming each such setting, unless
+The seed is a constant, so a run an author is debugging is the run they had
+a moment ago. The config is the manifest's served config, every setting at
+its default, which `playLocal` plays when a page names none, and the harness
+reads both it and the tick rate from the manifest `vbz build` wrote,
+refusing to start without one. A game with a setting that is required and
+has no default can be served no config, so the harness refuses it, in the
+client's `E_CONFIG_REQUIRED` sentence naming each such setting, unless
 `vbz dev --config <file>` names a config of the author's own, a JSON object
 the harness holds to the manifest with the engine's `validateParams`. A
-ranked run always plays the served config, so `--config` with `--ranked` is
-refused, and so is a manifest the stand-in would have to serve without one.
-The files folder is served beside the two modules, and the replay is handed
-the data packs from it.
+ranked run on vbz.gg always plays the served config, so `--config` with
+`--ranked` is refused, and so is a manifest the stand-in would have to serve
+without one. The files folder is served beside the two modules, and the
+replay is handed the data packs from it.
 
 **A phone** is another machine, and a browser loads a game's code from
 another machine only over https and grants tilt only to a secure page. So
@@ -1148,32 +1302,37 @@ builds, and so is `0.0.0.0`, which no page can name.
 **`--site`** serves the game's own `site/` in place of the harness page, in
 the mode its `site/config.json` names, and refuses a file naming none.
 Played locally, the build is served beside the page as `/game/`, under
-`localPageCsp`, and nothing else runs. Ranked, the page is served under the
-harness page's policy with the API added and the sign-in in `frame-src`,
-against a stand-in for the platform shipped in the package: the page routes
-and the sign-in on origins of their own, as one local player, on the
-harness seed and the served config, at the platform's limits from `/build`,
-and the harness answers the page's `config.json` with the mode, the
-stand-in's origins and its page key. In either mode an inline script the
+`localPageCsp`, and nothing else runs. In either mode an inline script the
 page carries, such as its import map, is admitted by the SHA-256 of its
 text, and what the game's `package.json` says it needs of a page's policy,
 `"vbz": { "needs": { "wasm": true, "workers": true } }`, is added to the
 harness page's policy and the site's, with the game's path in
 `connect-src` whenever the build's folder lists a file.
+
+### If you use vbz.gg: the stand-in
+
+Ranked, the page is served under the harness page's policy with the API
+added and the sign-in in `frame-src`, against a stand-in for the platform
+shipped in the package: the page routes and the sign-in on origins of their
+own, as one local player, on the harness seed and the served config, at the
+platform's limits from `/build`, and the harness answers the page's
+`config.json` with the mode, the stand-in's origins and its page key.
+
 The stand-in's sign-in is framed exactly as the platform's is: each page
 carrying a checked request is sent with `frame-ancestors` naming the site's
 exact origin, `Cross-Origin-Embedder-Policy: require-corp` and
 `Cross-Origin-Resource-Policy: cross-origin`, and every other answer with
 `frame-ancestors 'none'` and `X-Frame-Options: DENY`. Each framed page
 answers the site's `vbz.signin.ping` with `vbz.signin.ready`, echoing its
-number, to the site's origin alone, a Continue button posts
-a form back to the sign-in's own origin, refused when its `Origin` is any
-other, and the answer hands the code over with `vbz.signin`, from the frame
-to that origin alone. It signs one local player in with that click, so it
-remembers nobody and sets no cookie. A request it refuses, such as one with
-another page key or for another page, is answered framed for nobody, as the
-platform's is, so the page shows an empty box and hears only
-`E_SIGNIN_UNREACHABLE`; the stand-in says why in the terminal.
+number, to the site's origin alone, a Continue button posts a form back to
+the sign-in's own origin, refused when its `Origin` is any other, and the
+answer hands the code over with `vbz.signin`, from the frame to that origin
+alone. It signs one local player in with that click, so it remembers nobody
+and sets no cookie. A request it refuses, such as one with another page key
+or for another page, is answered framed for nobody, as the platform's is,
+so the page shows an empty box and hears only `E_SIGNIN_UNREACHABLE`; the
+stand-in says why in the terminal.
+
 The stand-in holds chunks and the submit to the manifest the way the
 platform does, and settles a run with the counters its page sent, without a
 replay, which the terminal says each time. It reads a run from a day still
@@ -1196,16 +1355,20 @@ mean what they say about the rules:
 
 A version has no prerelease or build suffix, no leading zero, and no part
 above 2^31 - 1. `parseReleaseVersion` in `/build` is the one implementation:
-`vbz build` refuses the same versions the platform does, with
-`E_VERSION_INVALID`.
+`vbz build` refuses such a version with `E_VERSION_INVALID`, and vbz.gg
+refuses the same versions on an upload. Every version sharing one
+`MAJOR.MINOR` is one **release line**, and `vbz check` prints a line's
+contract hash, so two builds of it can be compared.
 
-Every version sharing one `MAJOR.MINOR` is one **release line**, and the
-platform treats a line as one game. The day's seed pins a line, the newest
-by `(major, minor)` with a published version. A ranked run plays the line's
-highest published patch, highest by version number, so a patch that passes
-its checks at noon reaches the next ranked start. A new minor or major waits
-for the next day's seed, so nobody's ranked day changes rules halfway
-through. A practice run plays the newest playable version of any line.
+### If you use vbz.gg: release lines
+
+The platform treats a release line as one game. The day's seed pins a line,
+the newest by `(major, minor)` with a published version. A ranked run plays
+the line's highest published patch, highest by version number, so a patch
+that passes its checks at noon reaches the next ranked start. A new minor or
+major waits for the next day's seed, so nobody's ranked day changes rules
+halfway through. A practice run plays the newest playable version of any
+line.
 
 A patch is held to its line's **contract**: the projection `lineContract`
 takes of the manifest through `LINE_RULES`, a table over every manifest field
@@ -1247,7 +1410,7 @@ not fall back to an older patch: a ranked start answers `E_RANKED_PAUSED` and
 `GET /v1/game` says the day is paused, until a newer patch passes its checks
 or the next day's seed. Practice runs carry on.
 
-### Cheating bars the player
+### If you use vbz.gg: cheating bars the player
 
 A run whose replay disagrees with what the page reported never reaches the
 board, and that is all that happens to it. A submission the platform refuses
@@ -1263,7 +1426,7 @@ Nothing suspends a version automatically. When many different players' runs
 fail the replay on one version, the game itself is the likelier cause, and
 the platform mails the studio's admins and the vbz operators instead.
 
-## Publishing a version
+## If you use vbz.gg: publishing a version
 
 `vbz publish ./my-game --game <id>` uploads what `vbz build` wrote, the
 files folder first. It sends the listing, with the version's manifest beside
@@ -1290,14 +1453,17 @@ prints the release line the version joined, and then reads the version back
 at
 `GET /v1/studios/:studioId/versions/:versionId` every two seconds until the
 platform's checks decide. The upload's answer names the studio, so the
-command needs only the game's id. It waits up to 36 minutes,
+command needs only the game's id. It waits up to 34 minutes,
 `CHECK_WAIT_MS`, the platform's worst case for one attempt with headroom,
 rounded up to whole minutes: 10 minutes for the ingest job to wait in the
-platform's queue (`CHECK_QUEUE_ALLOWANCE_MS`); 12 minutes for the checks
+platform's queue (`CHECK_QUEUE_ALLOWANCE_MS`); 10 minutes for the checks
 container, as long as the platform waits for one
-(`CHECKS_CONTAINER_WAIT_MS`); the 7.5 minutes of wall time one replay may
-take (`REPLAY_WALL_BUDGET_MS`), which the replay-service check and a patch's
-replays share, since they run beside each other, and the 10 seconds the
+(`CHECKS_CONTAINER_WAIT_MS`), which the platform's worst case for one check
+with the container's start, a game at 30 steps a second, stays under, held
+by a test on the platform's side; the 7.5 minutes of wall
+time one replay may take (`REPLAY_WALL_BUDGET_MS`), which the
+replay-service check and a patch's replays share, since they run beside
+each other, and the 10 seconds the
 platform waits past it for the answer (`REPLAY_ANSWER_MARGIN_MS`); 5
 minutes for copying a published version's files to the public store before
 the verdict is written
@@ -1305,9 +1471,13 @@ the verdict is written
 headroom (`CHECK_WAIT_HEADROOM_MS`). The platform takes its own waits and
 the replay's budget from the same `/build` constants. The wait covers one
 attempt: when the replay service gives no answer, the platform runs the
-version's job again, which it does not cover. A version still pending after
-that is reported in the platform's terms, still pending, with the address
-to read its state at later and a reminder that uploading it again is
+version's job again, which it does not cover. Nor does it cover a check
+that runs out of time: the platform tries it again, and writes
+`E_CHECKS_OVER_BUDGET` or `E_PAGE_MODULE_NOT_READY` only once every attempt
+has run out, so that refusal can arrive after the command has stopped and
+reported the version still being checked. A version still pending after
+the wait is reported in the platform's terms, still pending, with the
+address to read its state at later and a reminder that uploading it again is
 refused as `E_VERSION_EXISTS`, and the command exits 1, because only a
 published version exits 0.
 
@@ -1338,8 +1508,11 @@ written with the verdict, so the command waits for it as it waits for the
 verdict and prints it as the platform measured it, such as
 `patch check: 2 of 3 recent ranked runs on line 1.2 end differently under
 this version`. A line's first version has no runs of its line to replay, and
-the command says so. When the platform has not measured a version,
-`patchScores` is null and nothing is printed.
+the command says so. A published version always carries `patchScores`; it
+is null only while a version is pending and for a rejected one. The command
+takes an answer that breaks either half as unreadable
+(`E_PUBLISH_ANSWER_UNREADABLE`), so it never prints a verdict without the
+count.
 
 The two files routes and the version's upload each take the studio's secret
 key, or the access token of a member whose role may upload versions
@@ -1357,21 +1530,27 @@ as `E_VERSION_EXISTS`, so a slow answer would turn into a confusing one.
 Asking which files the platform lacks and uploading one are safe to repeat,
 since a file is stored under the hash of its bytes, and each is tried up to
 four times, two seconds apart, when the platform does not answer, fails or
-asks for time, except a 429 that is the studio's quota, which is a "no"
-for a day; a refusal stops the command before the version is sent. A
+asks for time, except a 429 that is `E_QUOTA_EXCEEDED`, which is a "no" for
+up to a day. The question answers it when the studio's uploads over the
+last 24 hours are used up. A file's upload answers it when the file would
+take what its game holds in files no version names past
+`MAX_UNNAMED_FILES_BYTES`, 1 GiB, and goes on answering it until a version
+names them or the platform removes them, a day after each was last sent. A
+refusal stops the command before the version is sent. A
 publish can still stop between the files and the version, or the upload be
 refused after them because another version arrived in between: the files it
-stored are named by no version, and the platform removes them a day later.
+stored are named by no version, and the platform removes them a day after
+each was last sent.
 Reading the version back is safe to repeat too, and a read the platform
 fails to answer is tried again until the wait runs out.
 
 ## The package
 
 `@vbz-gg/sdk` is `"sideEffects": false` with one export per half, so
-importing `/host` pulls the host, the client it drives and nothing else. That
-matters because a studio's page imports `/host` and `/platform` into a
-browser bundle: neither reaches a node built-in, the CLI, the harness or the
-engine's code.
+importing `/host` pulls the host, the client it drives and nothing else.
+That matters because a page imports `/host`, and on vbz.gg `/platform`, into
+a browser bundle: neither reaches a node built-in, the CLI, the harness or
+the engine's code.
 
 Every relative import inside `src/` carries `.js`, and a directory import
 carries the whole `/index.js`. `tsc` emits a relative specifier exactly as the
@@ -1396,13 +1575,13 @@ copy it into every game. Anything under `skill/` other than the guide fails
 it too, which is what keeps the guide's tests out of the tarball.
 
 `@clockwork2/engine` is a **peer** dependency. A game installs the engine
-itself: its rules code and its page module both import it, and `/game`, which
-the page module bundles, builds the engine's host from it. So the engine that
-plays a run on a studio's page is the one the game was built and checked
-with, and the platform's page-module check runs it too. A regular dependency
-would let a game hold two copies on two versions, with `/game` driving one
-engine's host while the rules code carries another's manifest types. A
-studio's page needs no engine at all: `/host` and `/platform` import its
+itself: its rules code and its page module both import it, and `/game`,
+which the page module bundles, builds the engine's host from it. So the
+engine that plays a run on any page is the one the game was built and
+checked with, and vbz.gg's page-module check runs it too. A regular
+dependency would let a game hold two copies on two versions, with `/game`
+driving one engine's host while the rules code carries another's manifest
+types. A page needs no engine at all: `/host` and `/platform` import its
 types only, which leave nothing in a bundle.
 
 The range is `>=0.10.0 <0.11.0` rather than open-ended. clockwork2 is 0.x and

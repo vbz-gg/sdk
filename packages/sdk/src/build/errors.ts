@@ -23,9 +23,10 @@ export const BUILD_REFUSAL = {
    */
   PRESENT_DYNAMIC_IMPORT: "E_PRESENT_DYNAMIC_IMPORT",
   /**
-   * The page module starts a worker or loads a script into one: `new
-   * Worker`, `new SharedWorker` or `importScripts`. Code a game runs that way
-   * belongs in its files folder, under the page's policy.
+   * The page module calls `new SharedWorker` or `importScripts`, each of
+   * which loads code by an address decided when it runs. It may call `new
+   * Worker`, which `vbz build` holds to the game's declared `workers` need
+   * instead, and the page's policy to where a worker may come from.
    */
   PRESENT_WORKER: "E_PRESENT_WORKER",
   /** The specifier also appears as data, so rewriting it would change it. */
@@ -34,6 +35,12 @@ export const BUILD_REFUSAL = {
   REWRITE_FAILED: "E_REWRITE_FAILED",
   /** The manifest's version is not one a release line can hold. */
   VERSION_INVALID: "E_VERSION_INVALID",
+  /**
+   * The manifest is over `MAX_MANIFEST_BYTES` as JSON. The platform answers
+   * the same code for a manifest the engine's `assertManifest` refuses, and
+   * for one whose settings its `servedConfig` cannot serve.
+   */
+  MANIFEST_INVALID: "E_MANIFEST_INVALID",
   /**
    * A files listing that is not a list of paths, sizes and hashes, or a file
    * uploaded under a name that is not a SHA-256.

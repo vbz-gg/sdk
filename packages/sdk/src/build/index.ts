@@ -1,11 +1,11 @@
 /**
- * Building a game into the two artifacts an upload carries and the files
- * folder beside them, every limit the platform holds them to, and reading
- * its version as a release.
+ * Building a game into its two artifacts and the files folder beside them,
+ * every limit `vbz build` holds them to, and reading its version as a
+ * release.
  *
  * The artifact half runs under bun and reaches its bundler, so it is a
  * separate subpath from anything a page imports: a browser bundle must not
- * drag any of this in. The platform imports this subpath, so an upload is
+ * drag any of this in. vbz.gg imports this subpath, so an upload there is
  * checked with the code an author builds with.
  */
 
@@ -53,17 +53,22 @@ export {
   missingFiles,
 } from "./files.js"
 export {
+  CHECK_INIT_BUDGET_MS,
+  CHECK_READY_MS,
+  CHECK_STEP_BUDGET_US,
   CHECKS_CONTAINER_WAIT_MS,
   MAX_CHUNK_BYTES,
   MAX_FILE_BYTES,
   MAX_FILES,
   MAX_FILES_BYTES,
   MAX_LISTING_BYTES,
+  MAX_MANIFEST_BYTES,
   MAX_PACK_BYTES,
   MAX_PACKS_BYTES,
   MAX_PRESENT_BYTES,
   MAX_RUN_BYTES,
   MAX_SIM_BYTES,
+  MAX_UNNAMED_FILES_BYTES,
   PATCH_SCORE_RUNS,
   REPLAY_ANSWER_MARGIN_MS,
   REPLAY_CPU_BUDGET_MS,
@@ -81,6 +86,7 @@ export {
   lineContract,
 } from "./line.js"
 export { type RuntimeLoad, runtimeLoads } from "./loads.js"
+export { assertManifestBytes } from "./manifest.js"
 export {
   ARTIFACT_KINDS,
   ARTIFACT_PATH,

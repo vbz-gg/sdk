@@ -214,16 +214,49 @@ listing holds a file and refuses a page module that starts a worker without
 
 **Every limit is a constant in `build/limits.ts` or `/build`'s other
 exports**, which the platform imports, so a build that passes `vbz build`
-passes the upload. Each file of the folder is held to its limits by its size
-on disk before a byte is read. The tables in `docs/sdk.md` and the guide's
+passes the upload; the one a build cannot check, `MAX_UNNAMED_FILES_BYTES`,
+counts what the platform already holds. Each file of the folder is held to
+its limits by its size on disk before a byte is read, and the manifest to
+`MAX_MANIFEST_BYTES` by `assertManifestBytes`, measured as the platform
+measures it. The tables in `docs/sdk.md` and the guide's
 `references/files.md` name every `MAX_` constant `/build` exports, at its
 value, and the guide's test holds both ways.
+
+**A value's size as JSON has one measure**, `byteLengthOf` in
+`src/wire/json.ts`, which imports nothing: a page's chunks and recording
+and `vbz build`'s manifest are counted by it, and `/build` reaches none of
+`/platform` for it. `tests/wire/json.test.ts` holds both.
 
 **null3d is a recipe, never a dependency.** Nothing in `packages/sdk`
 imports null3d, which is not on npm. The recipe, the guide's
 `references/null3d.md`, says a vbz game creates null3d with
 `input: false`, and the guide's test holds the policy it prints and the
 mouse figures it quotes to the code and to the engine guide.
+
+## The addressed build
+
+`vbz build --addressed` writes `dist/addressed/`, the build at the
+content-addressed paths a page on another origin loads it from, and
+`dist/addressed.json` beside it. `docs/sdk.md` under "Serving" describes it.
+What to hold while changing it:
+
+**The layout has one implementation, `src/build/address.ts`.** The harness
+serves `layoutOf`, the command writes it, the browser suite's bundles origin
+holds each build through it, and nothing else rewrites a page module. It reaches nothing of `/harness`, `/host`, `/platform`, `/serve` or
+the CLI. `tests/build/address.test.ts` holds both.
+
+**`dist/addressed/` holds nothing but content-addressed files**, so a host
+may give all of it the year-long immutable cache the guide tells it to.
+Anything that changes from one build to the next, `addressed.json` among it,
+goes beside the folder, never in it.
+
+**It is for the root of an origin.** The page module's imports are
+root-relative, and there is no base-path option: a host that serves only
+under a sub-path serves `dist/` from the page's own origin instead.
+
+**`GAME_ID_NAMESPACE` never changes.** The default game id is the version 5
+UUID of the manifest's `id` in it, which a page's policy names; a new
+namespace moves every game's path and refuses every page already deployed.
 
 ## What a game records
 
@@ -277,11 +310,27 @@ that took it for one of its own loads no game. `check:publishable` holds the
 packed `dist` to carrying both, and the browser suite's packed install
 measures what they are for.
 
+**Nothing under the template that `vbz new` never copies ships.** npm packs
+whatever is on disk under a `files` entry, and the tests build the template
+in place, so `files` negates `templates/game/dist` and
+`templates/game/node_modules`, one entry per name in `NOT_COPIED`, and
+`check:publishable` fails on any such file in the tarball.
+
 **A command's path in `bin` is written the way `npm publish` writes it**: no
 leading `./`. `npm pack` leaves the entry alone and `npm publish` rewrites
 it, and npm 12 logs the rewrite as the command being removed while keeping
 it. The check holds each entry to the published form, and to a file the
 tarball carries.
+
+## What a command reads
+
+**Each command names the flags it reads, in its row of `COMMANDS`, and the
+parser refuses any other**, with a sentence naming the flag, the command and
+the commands that read it, so no command takes a flag and ignores it. A
+new flag joins the row of every command that reads it. The usage's labels
+(`dev:`, `build --addressed:`) and every call the docs, the guide and the
+template's scripts show are held to the table by
+`tests/cli/commands.test.ts`.
 
 ## Where a game's code runs
 
@@ -334,7 +383,11 @@ names another, and the key is sent only over https or to this machine.
 line the version joined, a refusal's `detail` (the fields a patch changed and
 the minor to publish instead, or the versions an upload had to be above), and
 once the checks pass, which runs the version serves and how many of its
-line's recent ranked runs end differently under it.
+line's recent ranked runs end differently under it. A published version
+always carries that count and a pending or rejected one never does, so an
+answer breaking either half is `E_PUBLISH_ANSWER_UNREADABLE`. The verdict
+reads `asStatus`'s `CheckedStatus`, whose type holds a published version to
+its count, so no runtime check repeats it there.
 
 **The wait for a verdict is derived, never written as a number.**
 `CHECK_WAIT_MS` is `checkWaitOf` over the queue's and the public-store
@@ -345,7 +398,10 @@ minutes, so it is never shorter than the platform's worst case for one
 attempt and a wait or budget that moves moves it. A patch's replays run
 beside the replay-service check's and share its allowance, so a patch's
 scores arrive with the verdict. It does not cover a retry after a replay
-service that gave no answer.
+service that gave no answer, nor the attempts after a check that ran out of
+time: `E_CHECKS_OVER_BUDGET` and `E_PAGE_MODULE_NOT_READY` are written only
+once every attempt has run out, so either can arrive after the command
+stopped.
 
 **Its exit code is the verdict.** 0 means the version passed its checks and
 is published, and the command has printed which runs it serves. Anything
@@ -360,8 +416,20 @@ that name as a lifecycle hook of `npm publish`.
 
 `packages/sdk/skill/vbz-game/` is prose an agent follows literally, so a
 stale sentence is worse than a missing one. It has one subject: everything
-between a conforming simulation and a game a page plays, locally or as runs
-the platform checks and replays.
+between a conforming simulation and a game a page plays, wherever its author
+ships it, and, for a game that uses vbz.gg, runs the platform checks and
+replays.
+
+**The kit needs no platform, and the prose says so.** A game made with it
+may never upload, use vbz.gg or sign a player in. In the guide,
+`docs/sdk.md`, both READMEs and the template, everything about vbz.gg sits
+in sections headed "If you use vbz.gg"; the CLI's help, which has no
+sections, names vbz.gg on the line that needs it ("for vbz.gg", "on
+vbz.gg"). No sentence anywhere else assumes a game uploads, uses the
+platform, or signs a player in. The guide's test holds its headings to
+that, and its two main-path sections, "Playing it on a page" and
+"Distributing the build", to naming none of the platform.
+
 Determinism belongs to the engine's guide, `clockwork2`, which the engine
 package ships, and this one points at it rather than repeating it - two copies
 of that rulebook is how one of them goes quietly out of date.
@@ -416,7 +484,13 @@ everywhere, the engine's `E_RANK_UNDECLARED`; every figure the guide and
 `docs/sdk.md` quote for one replay, and what follows from it, is `/build`'s
 `REPLAY_` budget, every count of a patch's replays they, the package README
 and `/api` quote is `PATCH_SCORE_RUNS`, and the publish wait `docs/sdk.md`
-states is `CHECK_WAIT_MS` and its parts; `references/page.md` explains
+states is `CHECK_WAIT_MS` and its parts; every figure they quote for a
+step's allowance at each tick rate, a load's start at upload or the page
+module's wait to get ready is `CHECK_STEP_BUDGET_US`, `CHECK_INIT_BUDGET_MS`
+or `CHECK_READY_MS`, and the refusal list,
+`references/ingest.md` and `docs/sdk.md` each explain the two codes written
+once every attempt has run out of time: that they come only then, the
+limit and what to change; `references/page.md` explains
 every client code and no other; every prose copy of what a release line
 fixes (in `SKILL.md`,
 `references/ingest.md` and `docs/sdk.md`) names exactly the fields
@@ -468,11 +542,13 @@ harness, as `vbz dev` serves it; the suite's studio page, `e2e/page/`, on an
 origin of its own under the policy the SDK recommends with each game's
 needs, against a stand-in for the platform per game whose sign-in is on
 another site, or playing a game locally; a bundles origin holding every
-game's modules and files under the game's own path; this package packed and installed apart; and a package
+game's modules and files under the game's own path; this package packed and installed apart; a package
 registry holding that tarball and one of the engine, packed from the copy
-installed here, which fetches every other package from npm. It keeps a
-request log per bundles origin and one for the registry, which a spec reads
-to see what was actually fetched.
+installed here, which fetches every other package from npm; and a plain file
+server holding the template's `dist/addressed/`, as `vbz build --addressed`
+wrote it, with a page on an origin of its own, `e2e/addressed/`, that plays
+it. It keeps a request log per bundles origin, one for the file server and
+one for the registry, which a spec reads to see what was actually fetched.
 
 The subjects are the template, which draws its own two buttons, the
 paddle fixture, which reads tilt and maps Space, and the folder fixture,
@@ -551,6 +627,14 @@ What only a browser can settle, and what each spec found:
   stand-in for `Worker`. Under the policy with the needs left
   out, Chromium and Firefox refuse its core's fetch (`connect-src`) and its
   worker (`worker-src`), and it never gets ready.
+- A build served by a host that is not this kit's: `dist/addressed/` from a
+  plain file server's root, sending only the headers the guide's
+  "Distributing the build" lists, by extension, and no `ETag`, loads and
+  plays with `playLocal` on a page on another origin under `pageCsp` with
+  the build's game id and needs, asking that host for the two modules
+  alone, and its run replays to its counters against the rules code the
+  host served. The same page under a policy naming another game's path
+  loads nothing and asks the host for nothing. Chromium, Firefox and WebKit.
 - Watching an abandoned run stops at its end tick.
 - Tilt through Chromium's orientation override: the first reading is recorded
   as it is, and after that a level only when it changes. A spec that plays
@@ -579,9 +663,9 @@ What only a browser can settle, and what each spec found:
   unreachable from the installed engine before `vbz new` runs.
 
 Chromium runs every spec; Firefox and WebKit run the ones about the
-policy, the sign-in's box and the files folder's loads, which are each
-engine's to decide. The fingers and the sensor override are Chromium's own
-protocol.
+policy, the sign-in's box, the files folder's loads and a build on another
+origin, which are each engine's to decide. The fingers and the sensor
+override are Chromium's own protocol.
 
 One thing about the tools themselves, measured rather than read:
 

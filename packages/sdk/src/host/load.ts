@@ -1,18 +1,19 @@
 /**
- * Loading a game's page module onto a studio's page.
+ * Loading a game's page module onto a page.
  *
- * The module is imported by URL, from the platform's bundle origin, and every
- * part of it is checked before anything is played, because what arrives is
- * built by somebody else, often with another release of this package: its
+ * The module is imported by URL, from beside the page, from another host,
+ * or on vbz.gg from the platform's bundle origin, and every part of it is
+ * checked before anything is played, because what arrives is built by
+ * somebody else, often with another release of this package: its
  * default export could be missing, a newer contract, another version of the
  * game, or a module whose own parts disagree. Each is refused here with a
  * code that names it, before a run is started, so a failure spends no run.
  *
  * The last check is about the page rather than the module. The rules code
  * runs in the page's realm and calls the page's `Math`, `Array` and `JSON`,
- * and the platform replays it in a fresh isolate. A script on the page that
- * replaced one of those would make the page play a different game from the
- * one the platform replays, and every run would fail the replay. It is read
+ * and a replay runs it in a fresh realm. A script on the page that replaced
+ * one of those would make the page play a different game from the one a
+ * replay plays, and every run would fail the replay. It is read
  * through `Function.prototype.toString`, which catches a library's mistake
  * and not somebody determined to hide one.
  */

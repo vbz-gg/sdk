@@ -2,7 +2,7 @@
 /**
  * `vbz`, the commands an author runs.
  *
- * `build` produces the three files an upload carries. `dev` serves the game
+ * `build` produces what a page plays and a host serves. `dev` serves the game
  * the way production serves it, on two origins, so the first time a game's
  * page module is imported from another origin is on a laptop.
  *
@@ -18,8 +18,16 @@ import {
   startHarness,
   startSite,
 } from "../harness/index.js"
-import { DEFAULT_ADDRESS, type Options, parseArgs } from "./args.js"
-import { buildGame, buildLines, writeBuild } from "./build.js"
+import { DEFAULT_ADDRESS, type Flag, type Options, parseArgs } from "./args.js"
+import {
+  addressBuild,
+  addressedLines,
+  addressingOf,
+  buildGame,
+  buildLines,
+  writeAddressed,
+  writeBuild,
+} from "./build.js"
 import { type Command, usageText } from "./commands.js"
 import { devSettings } from "./dev.js"
 import { failureLine } from "./failure.js"
@@ -41,6 +49,10 @@ import { needsOf, sourceOf } from "./source.js"
 const FLAGS = `  --sim <path>       the simulation's entry   (default src/sim/index.ts)
   --present <path>   the page module's entry  (default src/present.ts)
   --capture <path>   the input mapping        (default src/capture.ts)
+  --addressed        build: also write dist/addressed/, every file at the
+                     content-addressed path a page on another origin loads
+                     it from, to serve as it is from the root of that origin,
+                     and dist/addressed.json, what such a page needs to load it
   --host <port>      dev: the page that loads it   (default ${DEFAULT_HOST_PORT})
   --bundles-port <p> dev: the game's code origin   (default ${DEFAULT_BUNDLES_PORT})
   --address <host>   dev: where both listen, and the host their origins name
@@ -48,27 +60,48 @@ const FLAGS = `  --sim <path>       the simulation's entry   (default src/sim/in
   --https            dev: serve https, with --cert <file> and --key <file> (PEM)
   --site             dev: serve the game's site/ in the mode its config.json
                      names: local, with the build beside it as /game/, or
-                     ranked, against a stand-in for the platform, which
-                     plays one local player and ranks nothing
-  --ranked           check: also what a ranked or practice run needs: the seed
-                     changes the state, and the manifest says how a run ranks
-                     dev: hold each run to a ranked run's input budget
+                     ranked on vbz.gg, against a stand-in for the platform,
+                     which plays one local player and ranks nothing
+  --ranked           check: also what a ranked or practice run on vbz.gg needs:
+                     the seed changes the state, and the manifest says how a
+                     run ranks
+                     dev: hold each run to a vbz.gg ranked run's input budget
   --config <file>    dev: a JSON config for the page's runs to play, in place
                      of every setting at its default
-  --game <id>      publish: the game to upload to
-  --api <origin>   publish: the platform    (default ${DEFAULT_API_ORIGIN},
-                   or ${API_ORIGIN_VARIABLE})
+  --game <id>        build --addressed: the game id its paths name, a UUID
+                     written lowercase; by default one made from the
+                     manifest's id, the same for every version
+                     publish: the game on vbz.gg to upload to
+  --api <origin>     publish: the platform    (default ${DEFAULT_API_ORIGIN},
+                     or ${API_ORIGIN_VARIABLE})
 
-  publish reads the studio's secret key from ${STUDIO_KEY_VARIABLE}. It exits 0
-  when the version passed its checks and is published, and prints which runs
-  it serves; anything else, a version an operator took down included, is 1.
+  publish is for a game on vbz.gg alone; nothing else needs it. It reads the
+  studio's secret key from ${STUDIO_KEY_VARIABLE}, and exits 0 when the version
+  passed its checks and is published, printing which runs it serves; anything
+  else, a version an operator took down included, is 1.
 `
 
-/** Writes what an upload carries, and says what it wrote. */
-async function build(options: Options): Promise<void> {
+/**
+ * Writes the build, and with an addressing the build at its content
+ * addresses too, and says what it wrote. Both are worked out before anything
+ * is written, so a game id that cannot be made leaves the last build as it
+ * was.
+ */
+async function build(
+  options: Options,
+  addressing: ReturnType<typeof addressingOf> = null,
+): Promise<void> {
   const built = await buildGame(await sourceOf(options))
+  const addressed =
+    addressing === null ? null : addressBuild(built, addressing.gameId)
   await writeBuild(options.dir, built)
   for (const line of buildLines(built)) process.stdout.write(`${line}\n`)
+  if (addressed !== null) {
+    await writeAddressed(options.dir, addressed)
+    for (const line of addressedLines(addressed)) {
+      process.stdout.write(`${line}\n`)
+    }
+  }
 }
 
 async function dev(options: Options): Promise<void> {
@@ -121,7 +154,8 @@ async function newGame(options: Options): Promise<number> {
   const made = await createGame({ dir: options.dir })
   process.stdout.write(
     `${made.dir}\n\n` +
-      `  ${made.id}, which is the id its board will be kept under\n\n` +
+      `  ${made.id}, the game's id, from the directory name; a board on vbz.gg\n` +
+      "  keeps it for good if you publish the game there\n\n" +
       guideLines(made.guides)
         .map((line) => `  ${line}\n`)
         .join("") +
@@ -185,16 +219,20 @@ async function upload(options: Options): Promise<number> {
   return verdict.exitCode
 }
 
+/** Where the game's code is, which every command that builds it reads. */
+const ENTRY_FLAGS = ["sim", "present", "capture"] as const satisfies Flag[]
+
 /**
- * Every command `vbz` takes, in the order its usage lists them. The
- * dispatcher, the usage and the agent guide's test all read this, so a new
- * command is one row here.
+ * Every command `vbz` takes, in the order its usage lists them, with the
+ * flags each reads. The dispatcher, the parser, the usage and the agent
+ * guide's test all read this, so a new command is one row here.
  */
 export const COMMANDS: readonly Command[] = [
   {
     name: "new",
     args: "[dir]",
     summary: ["copy a game that already conforms, and rename it"],
+    flags: [],
     run: newGame,
   },
   {
@@ -204,6 +242,7 @@ export const COMMANDS: readonly Command[] = [
       `replace ${GUIDES.map((guide) => `${SKILLS_DIR}/${guide.name}`).join(" and ")}`,
       "with the guides the game's installed kit and engine ship",
     ],
+    flags: [],
     run: guides,
   },
   {
@@ -211,10 +250,13 @@ export const COMMANDS: readonly Command[] = [
     args: "[dir]",
     summary: [
       "write dist/sim.js, dist/present.js, dist/manifest.json, and the",
-      "files folder package.json names as dist/files/, listed in dist/files.json",
+      "files folder package.json names as dist/files/, listed in dist/files.json;",
+      "with --addressed, dist/addressed/ too, for the root of another origin",
     ],
+    flags: [...ENTRY_FLAGS, "addressed", "game"],
     run: async (options) => {
-      await build(options)
+      // Checked first, so a --game that cannot work stops before anything builds.
+      await build(options, addressingOf(options))
       return 0
     },
   },
@@ -222,21 +264,35 @@ export const COMMANDS: readonly Command[] = [
     name: "check",
     args: "[dir]",
     summary: [
-      "run the engine's checks every game needs, or with --ranked the",
-      "ranked set, and hold src/capture.ts to the manifest",
+      "run the engine's checks every game needs, or with --ranked the set",
+      "ranked play on vbz.gg needs, and hold src/capture.ts to the manifest",
     ],
+    flags: [...ENTRY_FLAGS, "ranked"],
     run: check,
   },
   {
     name: "dev",
     args: "[dir]",
-    summary: ["serve the game the way production does, and play it locally"],
+    summary: ["serve the game to a page on another origin, and play it there"],
+    flags: [
+      ...ENTRY_FLAGS,
+      "host",
+      "bundles-port",
+      "address",
+      "https",
+      "cert",
+      "key",
+      "site",
+      "ranked",
+      "config",
+    ],
     run: serve,
   },
   {
     name: "publish",
     args: "[dir]",
-    summary: ["upload dist/ and wait for the platform's verdict"],
+    summary: ["for vbz.gg: upload dist/ and wait for the platform's verdict"],
+    flags: ["game", "api"],
     run: upload,
   },
 ]
@@ -244,7 +300,7 @@ export const COMMANDS: readonly Command[] = [
 const USAGE = usageText(COMMANDS, FLAGS)
 
 export async function main(argv: readonly string[]): Promise<number> {
-  const options = parseArgs(argv)
+  const options = parseArgs(argv, COMMANDS)
   const command = COMMANDS.find((row) => row.name === options.command)
   if (command === undefined) {
     process.stdout.write(USAGE)

@@ -1,7 +1,7 @@
 /**
  * The contract between a game's page module and the page that loads it.
  *
- * A studio's page and the game's page module are built at different times,
+ * A page and the game's page module are built at different times,
  * often against different releases of this package. The page module carries
  * its own engine and its own copy of `./game`, and the page carries neither:
  * it imports the module by URL and drives it through what is declared here.
@@ -15,7 +15,7 @@
  * it.
  *
  * Types and a few constants only. The page's side imports this file and no
- * other part of `./game`, so a studio's page bundles no engine.
+ * other part of `./game`, so a page bundles no engine.
  */
 
 import type {

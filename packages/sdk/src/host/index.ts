@@ -1,7 +1,7 @@
 /**
- * Putting a game on a studio's page: loading its page module, a platform run
- * through it, a local run that asks nothing of the platform, a settled run
- * replayed, and the two widgets a game's page needs.
+ * Putting a game on a page, any page: loading its page module, and a local
+ * run that asks nothing of anybody. For ranked play on vbz.gg, a platform run
+ * through it, a settled run replayed, and the two widgets such a page needs.
  *
  * Plain modules with no DOM at load time, like `/platform`, so a page may
  * import this while rendering on a server. It holds no engine: a game's page

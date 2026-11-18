@@ -2,12 +2,12 @@
  * A game played on a page with no platform at all: a story, free play, an
  * endless session, a page that is never online.
  *
- * It is the same game build a ranked run plays, loaded with `loadGame` and
- * played through the module's own `mount`. It asks nothing of the platform:
- * no client, no page key, no sign-in, no lock across tabs and no request,
- * and it hands the page the run's recording when the run ends.
+ * It is the same game build every page plays, loaded with `loadGame` and
+ * played through the module's own `mount`. It asks nothing of anybody: no
+ * client, no page key, no sign-in, no lock across tabs and no request, and
+ * it hands the page the run's recording when the run ends.
  *
- * A local run can never pass for a ranked or practice run. Its seed always
+ * On vbz.gg, a local run can never pass for a ranked or practice run. Its seed always
  * starts `local:`, and every seed the platform issues is 64 hex characters,
  * so the platform refuses its recording as one played on a seed it did not
  * pin; and its recording has a type of its own, which the platform client's
@@ -140,8 +140,8 @@ export interface LocalRun {
  *
  * The page module imports `cw2:sim` and its files as `cw2:files/<path>`, as
  * built, and the page maps both with an import map naming `sim` and `files`
- * where it serves them, so the page module's bytes are the ones the platform
- * would store before its rewrite.
+ * where it serves them, so the page module's bytes are the ones `vbz build`
+ * wrote, and the ones vbz.gg would store before its rewrite.
  */
 export interface LocalBuild {
   /** The game's name, from its manifest. */

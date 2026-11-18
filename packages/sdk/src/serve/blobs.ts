@@ -1,14 +1,14 @@
 /**
- * Serving a game's two modules and its files over HTTP, the way the
- * platform's edge does.
+ * Serving a game's two modules and its files over HTTP, with the headers a
+ * host serving them to a page on another origin sends.
  *
- * In production a published version's rules code and page module sit in a
- * public bucket behind a CDN, under `/g/<gameId>/sim/<sha256>.js` and
- * `/g/<gameId>/present/<sha256>.js`, and its files under
- * `/g/<gameId>/t/<listing sha256>/<path>`, answered with the headers below.
- * This handler answers the same paths with the same headers, so the harness
- * and the platform's development `bundles` role give a page the answer it
- * will meet from the edge.
+ * It answers content-addressed paths, `/g/<gameId>/sim/<sha256>.js` and
+ * `/g/<gameId>/present/<sha256>.js` for the two modules and
+ * `/g/<gameId>/t/<listing sha256>/<path>` for the files, with the headers
+ * below. The harness serves a game with it, and so does vbz.gg's
+ * development `bundles` role, whose public bucket in production answers the
+ * same paths with the same headers, so a page meets on a laptop the answer
+ * it meets from a host.
  *
  * A handler rather than a server, so it is testable without a port and so a
  * caller can mount it beside whatever else an origin serves.
@@ -88,10 +88,10 @@ export const BLOB_CACHE_CONTROL = "public, max-age=31536000, immutable"
  * The headers every response carries, hit or miss.
  *
  * `access-control-allow-origin: *`, because a page module is imported by a
- * studio's page from another origin and every module import is a CORS
- * request. What these files hold is public: a published game's code. Which
- * page may run it is the studio's Content-Security-Policy to say, naming its
- * own game's path, rather than this server's.
+ * page on another origin and every module import is a CORS request. What
+ * these files hold is public: a game's code. Which page may run it is that
+ * page's Content-Security-Policy to say, naming its own game's path, rather
+ * than this server's.
  *
  * The miss carries it too. A 404 without CORS is reported to the page as a
  * network failure, which sends whoever hit it looking at the wrong layer.

@@ -63,6 +63,14 @@ export const STUDIO_BUNDLES_PORT = 4325
 export const PORTAL_PORT = 4326
 
 /**
+ * A plain file server holding the template's `dist/addressed/` at its root,
+ * standing in for any host that is not this kit's, and a page on an origin
+ * of its own that plays the build from there.
+ */
+export const ADDRESSED_FILES_PORT = 4329
+export const ADDRESSED_PAGE_PORT = 4330
+
+/**
  * The host the stand-ins' sign-ins are reached by. Every other server is
  * 127.0.0.1, and `localhost` is another site from it, so the studio's page
  * frames a sign-in on another site, as a studio's page frames the
@@ -81,6 +89,8 @@ export const SUITE_SIGN_IN_READY_MS = 3_000
 export const CONTROL_ORIGIN = `http://127.0.0.1:${CONTROL_PORT}`
 export const STUDIO_ORIGIN = `http://127.0.0.1:${STUDIO_PORT}`
 export const PORTAL_ORIGIN = `http://127.0.0.1:${PORTAL_PORT}`
+export const ADDRESSED_FILES_ORIGIN = `http://127.0.0.1:${ADDRESSED_FILES_PORT}`
+export const ADDRESSED_PAGE_ORIGIN = `http://127.0.0.1:${ADDRESSED_PAGE_PORT}`
 
 export function hostOrigin(name: SubjectName): string {
   return `http://127.0.0.1:${SUBJECTS[name].hostPort}`

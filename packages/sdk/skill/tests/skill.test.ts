@@ -22,11 +22,15 @@ import type { VersionCheckCode } from "../../src/api/index.js"
 import * as build from "../../src/build/index.js"
 import {
   BUILD_REFUSAL,
+  CHECK_INIT_BUDGET_MS,
+  CHECK_READY_MS,
+  CHECK_STEP_BUDGET_US,
   CHECKS_CONTAINER_WAIT_MS,
   MAX_CHUNK_BYTES,
   MAX_FILE_BYTES,
   MAX_FILES,
   MAX_FILES_BYTES,
+  MAX_MANIFEST_BYTES,
   MAX_PACK_BYTES,
   MAX_PACKS_BYTES,
   MAX_PRESENT_BYTES,
@@ -192,7 +196,14 @@ function apiUnion(name: string): ApiUnion {
 const PUBLIC_REFUSALS = apiUnion("PublicRefusalCode").literals
 const CHECK_CODES = apiUnion("VersionCheckCode").literals
 const RETIRED_CHECK_CODES = apiUnion("VersionCheckCode").retired
-const REFUSAL_LIST = section(await read("SKILL.md"), "When ingest refuses")
+/**
+ * The platform's refusals, which the guide keeps in a section of their own,
+ * headed as one use of the kit a game may never have.
+ */
+const REFUSAL_LIST = section(
+  await read("SKILL.md"),
+  "If you use vbz.gg: when an upload is refused",
+)
 
 describe("the guide's front matter", () => {
   test("its name is its folder's, which is what a tool installs it under", async () => {
@@ -229,6 +240,49 @@ describe("the guide's front matter", () => {
   })
 })
 
+/**
+ * A game made with the kit may never meet vbz.gg: its author builds it and
+ * ships it any way they choose. So the guide leads with that, and keeps
+ * everything about the platform in sections headed as one optional use.
+ */
+describe("the kit without the platform", () => {
+  test("the description leads with making and shipping a game, and names vbz.gg only as an option", async () => {
+    const front = (await read("SKILL.md")).split("---")[1] ?? ""
+    const description = /^description: (.+)$/m.exec(front)?.[1] ?? ""
+    const first = description.slice(0, description.indexOf(". "))
+    expect(first).toContain("ship it")
+    expect(first).not.toContain("vbz.gg")
+    expect(description.indexOf("Optionally")).toBeGreaterThan(0)
+    expect(description.indexOf("Optionally")).toBeLessThan(
+      description.indexOf("vbz.gg"),
+    )
+  })
+
+  /** What only a game on vbz.gg meets, by the words that name it. */
+  const PLATFORM =
+    /vbz\.gg|platform|upload|publish|sign[ -]?in|page key|ranked/i
+
+  test("every section about vbz.gg is headed as optional", async () => {
+    const headings = (await read("SKILL.md")).match(/^## .+$/gm) ?? []
+    expect(headings.length).toBeGreaterThan(10)
+    for (const heading of headings) {
+      if (!PLATFORM.test(heading)) continue
+      expect(heading).toStartWith("## If you use vbz.gg: ")
+    }
+  })
+
+  test("playing a game on a page and shipping its build need nothing of the platform", async () => {
+    const text = await read("SKILL.md")
+    for (const heading of ["Playing it on a page", "Distributing the build"]) {
+      const words = section(text, heading)
+      expect(words.length).toBeGreaterThan(200)
+      expect(`${heading}: ${words.match(PLATFORM)?.[0] ?? "none"}`).toBe(
+        `${heading}: none`,
+      )
+    }
+  })
+})
+
 describe("what the prose restates from the code", () => {
   test("the bare specifier is spelled the way the scan demands", async () => {
     for (const file of ["SKILL.md", "references/artifacts.md"]) {
@@ -248,12 +302,19 @@ describe("what the prose restates from the code", () => {
         entry[0].startsWith("MAX_") && typeof entry[1] === "number",
     ),
   )
-  const written = (name: string, value: number): string =>
-    name.endsWith("_BYTES") && value % (1024 * 1024) === 0
-      ? `${value / 1024 / 1024} MiB`
-      : name.endsWith("_BYTES")
-        ? `${value.toLocaleString("en")} bytes`
-        : value.toLocaleString("en")
+  /** A size as a table writes it: in the largest unit it is a whole number of. */
+  const UNITS: ReadonlyArray<readonly [string, number]> = [
+    ["GiB", 1024 ** 3],
+    ["MiB", 1024 ** 2],
+    ["KiB", 1024],
+  ]
+  const written = (name: string, value: number): string => {
+    if (!name.endsWith("_BYTES")) return value.toLocaleString("en")
+    const unit = UNITS.find(([, size]) => value % size === 0)
+    return unit === undefined
+      ? `${value.toLocaleString("en")} bytes`
+      : `${value / unit[1]} ${unit[0]}`
+  }
 
   test("every limit table names every limit the code has, at its value", async () => {
     expect(Object.keys(LIMITS).length).toBeGreaterThan(10)
@@ -291,6 +352,10 @@ describe("what the prose restates from the code", () => {
       ["one data pack", written("MAX_PACK_BYTES", MAX_PACK_BYTES)],
       ["every data pack together", written("MAX_PACKS_BYTES", MAX_PACKS_BYTES)],
       ["a run's recording", written("MAX_RUN_BYTES", MAX_RUN_BYTES)],
+      [
+        "the manifest, as JSON",
+        written("MAX_MANIFEST_BYTES", MAX_MANIFEST_BYTES),
+      ],
     ]
     for (const [what, value] of rows) {
       expect(text).toContain(`| ${what} | ${value} |`)
@@ -378,10 +443,12 @@ describe("what the prose restates from the code", () => {
 const EVERY_CHECK_CODE = {
   E_SIM_NO_MANIFEST: true,
   E_MANIFEST_MISMATCH: true,
+  E_CHECKS_OVER_BUDGET: true,
   E_ENGINE_DIVERGED: true,
   E_PAGE_MODULE_UNLOADABLE: true,
   E_PAGE_MODULE_INVALID: true,
   E_PAGE_MODULE_THREW: true,
+  E_PAGE_MODULE_NOT_READY: true,
   E_PAGE_MODULE_DIVERGED: true,
   E_REPLAY_MODULE: true,
   E_REPLAY_OVER_BUDGET: true,
@@ -608,6 +675,143 @@ describe("one replay's budget", () => {
     expect(text).toContain(
       `${minutes(CHECK_WAIT_HEADROOM_MS)} minute of headroom`,
     )
+  })
+})
+
+describe("the time the checks allow a version", () => {
+  /** A number of microseconds or seconds as the prose writes it. */
+  const figure = (value: number): string => value.toLocaleString("en")
+
+  /**
+   * The step allowance at every tick rate, as the prose quotes the table:
+   * the first rate with its unit, the others by rate, in the engine's order.
+   */
+  const STEP_TABLE = ((): string => {
+    const [first, second, third] = TICK_RATES
+    return (
+      `${figure(CHECK_STEP_BUDGET_US[first])} microseconds of one CPU a step at ${first} steps a second, ` +
+      `${figure(CHECK_STEP_BUDGET_US[second])} at ${second} and ${figure(CHECK_STEP_BUDGET_US[third])} at ${third}`
+    )
+  })()
+  const INIT = `${figure(CHECK_INIT_BUDGET_MS / 1000)} seconds of one CPU a load`
+  const READY = `within ${figure(CHECK_READY_MS / 1000)} seconds of the checks' browser starting`
+
+  /**
+   * The two codes the platform writes only once every attempt at a
+   * version's checks has run out of time, each with the limits it is
+   * written past, as the prose quotes them, and what an author can do about
+   * it.
+   */
+  const TIMED_OUT = {
+    E_CHECKS_OVER_BUDGET: {
+      limits: [STEP_TABLE, INIT],
+      constants: ["`CHECK_STEP_BUDGET_US`", "`CHECK_INIT_BUDGET_MS`"],
+      remedy: ["`vbz check --ranked`", "`performance`", "`init`"],
+    },
+    E_PAGE_MODULE_NOT_READY: {
+      limits: [READY],
+      constants: ["`CHECK_READY_MS`"],
+      remedy: ["`prepare`", "permission", "network"],
+    },
+  } as const satisfies Partial<
+    Record<
+      VersionCheckCode,
+      {
+        readonly limits: readonly string[]
+        readonly constants: readonly string[]
+        readonly remedy: readonly string[]
+      }
+    >
+  >
+
+  /** Where check codes are explained, each split into what explains one. */
+  async function explanations(): Promise<Record<string, readonly string[]>> {
+    const flat = (text: string): string => text.replace(/\s+/g, " ")
+    return {
+      "SKILL.md": REFUSAL_LIST.split(/\n(?=- )/).map(flat),
+      "references/ingest.md": (await read("references", "ingest.md"))
+        .split(/\n\n/)
+        .map(flat),
+      "docs/sdk.md": (await readRepository("docs", "sdk.md"))
+        .split(/\n\n/)
+        .map(flat),
+    }
+  }
+
+  /**
+   * A refusal for running out of time that an author reads as a verdict on
+   * the first slow attempt is one they chase after a moment of the
+   * platform's own slowness. Each place that explains check codes says what
+   * the code means, each limit at its value, that it comes only once every
+   * attempt ran out, and what to change.
+   */
+  test("each code written only once every attempt ran out of time is explained with its limits and its remedy", async () => {
+    for (const [where, pieces] of Object.entries(await explanations())) {
+      for (const [code, { limits, constants, remedy }] of Object.entries(
+        TIMED_OUT,
+      )) {
+        const explained = pieces.some(
+          (piece) =>
+            piece.includes(`\`${code}\``) &&
+            /every attempt/.test(piece) &&
+            limits.every((limit) => piece.includes(limit)) &&
+            (where === "SKILL.md" ||
+              constants.every((constant) => piece.includes(constant))) &&
+            remedy.every((word) => piece.includes(word)),
+        )
+        expect(`${where} ${code}: ${explained}`).toBe(`${where} ${code}: true`)
+      }
+    }
+  })
+
+  /**
+   * A figure quoted for any of the three limits anywhere is the constant's,
+   * and a step's allowance is never quoted without its tick rate: a game at
+   * 120 steps a second held to the allowance at 60 publishes and then cannot
+   * replay an hour.
+   */
+  test("every figure quoted for a step's allowance, a load or the wait to get ready is the constant's", async () => {
+    const texts: Readonly<Record<string, string>> = {
+      guide: await everything(),
+      "docs/sdk.md": await readRepository("docs", "sdk.md"),
+      "README.md": await readFile(join(PACKAGE, "README.md"), "utf8"),
+    }
+    const seen = { step: 0, init: 0, ready: 0 }
+    const count = (text: string, phrase: RegExp): number =>
+      [...text.matchAll(phrase)].length
+    for (const [where, raw] of Object.entries(texts)) {
+      const text = raw.replace(/\s+/g, " ")
+      const tables = [
+        ...text.matchAll(
+          /[\d,]+ microseconds of one CPU a step at \d+ steps a second, [\d,]+ at \d+ and [\d,]+ at \d+/g,
+        ),
+      ]
+      for (const match of tables) {
+        expect(`${where}: ${match[0]}`).toBe(`${where}: ${STEP_TABLE}`)
+      }
+      expect(`${where}: ${count(text, /microseconds of one CPU/g)}`).toBe(
+        `${where}: ${tables.length}`,
+      )
+      seen.step += tables.length
+      const loads = [...text.matchAll(/([\d,]+) seconds of one CPU a load/g)]
+      for (const match of loads) {
+        expect(`${where}: ${match[0]}`).toBe(`${where}: ${INIT}`)
+      }
+      // From a word's start, since "microseconds" ends in "seconds".
+      expect(`${where}: ${count(text, /\bseconds of one CPU/g)}`).toBe(
+        `${where}: ${loads.length}`,
+      )
+      seen.init += loads.length
+      for (const match of text.matchAll(
+        /within [\d,]+ seconds of the checks' browser starting/g,
+      )) {
+        seen.ready += 1
+        expect(`${where}: ${match[0]}`).toBe(`${where}: ${READY}`)
+      }
+    }
+    expect(seen.step).toBeGreaterThanOrEqual(3)
+    expect(seen.init).toBeGreaterThanOrEqual(3)
+    expect(seen.ready).toBeGreaterThanOrEqual(3)
   })
 })
 

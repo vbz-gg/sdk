@@ -12,14 +12,14 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test"
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { buildGameArtifacts } from "../../src/build/build"
-import { sha256Hex } from "../../src/build/digest"
-import { readManifestFromSim } from "../../src/cli/manifest"
 import {
   type BuiltGame,
   blobKeys,
   buildAndAddress,
-} from "../../src/harness/artifacts"
+} from "../../src/build/address"
+import { buildGameArtifacts } from "../../src/build/build"
+import { sha256Hex } from "../../src/build/digest"
+import { readManifestFromSim } from "../../src/cli/manifest"
 import { escapeHtml, harnessPage } from "../../src/harness/page/document"
 import { startBundleServer } from "../../src/harness/servers"
 
@@ -186,7 +186,7 @@ describe("serving it", () => {
       built.simSha256,
     )
     expect(new TextDecoder().decode(built.present)).toContain(`/${keys.sim}`)
-    // The headers the platform's edge sends, so a page meets them here first.
+    // The headers a host serving the game to another origin sends.
     expect(present.headers.get("access-control-allow-origin")).toBe("*")
     expect(present.headers.get("cache-control")).toBe(
       "public, max-age=31536000, immutable",

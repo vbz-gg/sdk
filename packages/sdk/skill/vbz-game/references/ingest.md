@@ -1,10 +1,10 @@
-# From an upload to a listing
+# If you use vbz.gg: from an upload to a listing
 
-What the platform does with a submission, in order. Only a game opted in to
-ranked play is uploaded: a game played only on its own page never meets any
-of this. Sections 0 to 2 run before the first storage write, so a submission
-they refuse leaves nothing behind and costs no quota: an upload is its own
-dry run.
+What vbz.gg does with a submission, in order, for a game you publish there.
+A game you ship any other way never meets any of this: `vbz build` and
+`vbz check` are all it needs. Sections 0 to 2 run before the first storage
+write, so a submission they refuse leaves nothing behind and costs no quota:
+an upload is its own dry run.
 
 `vbz publish <dir> --game <id>` is how a submission arrives. It sends the
 files folder's listing with the version's manifest and asks which files the
@@ -21,7 +21,12 @@ per game, in its private store under the hash of its bytes
 sent is not sent again, and a version whose listing names a file the
 platform does not hold is refused with `E_FILES_MISSING`. Files stored for a
 version that never arrives, because the publish stopped between them or
-another version arrived first, are named by nothing and removed a day later.
+another version arrived first, are named by nothing and removed a day after
+each was last sent. Until a version names them they count against what a
+game may hold in files no version names, 1 GiB (`MAX_UNNAMED_FILES_BYTES`),
+and a file whose upload would take the game past it is refused with
+`E_QUOTA_EXCEEDED` before a byte is stored: publish the version that names
+them, or wait for the day to pass.
 
 ## 0. The version
 
@@ -48,9 +53,17 @@ release lines" explains what a line means for the day's runs.
 
 `assertManifest` on the shape. A ranking, when the manifest declares one,
 has `rankBy` and `tiePolicy` together, `rankBy` not empty, and every name in
-it a declared counter (`E_MANIFEST_INVALID`). Then one thing
+it a declared counter (`E_MANIFEST_INVALID`). Then three things
 `assertManifest` does not cover:
 
+- the config every run is served, the engine's `servedConfig`: a setting
+  the manifest requires and gives no default, or a default its own
+  definition refuses, has no value a run could be served, so the manifest
+  is refused (`E_MANIFEST_INVALID`, in the engine's words). `vbz check`
+  stops on it too, because its checks play the same config.
+- its size: at most 512 KiB as JSON with no white space
+  (`MAX_MANIFEST_BYTES`), or it is refused (`E_MANIFEST_INVALID`).
+  `vbz build` holds it to the same size first, measured the same way.
 - the manifest declares `rankBy` and `tiePolicy` at all
   (`E_RANK_UNDECLARED`, the engine's own code, which `vbz check --ranked`
   reports for the same manifest). A game played only on its own page may
@@ -98,6 +111,24 @@ setting at its default. The engine's guide, clockwork2, explains each check.
   runs to each other, so a seed-blind generator is perfectly deterministic -
   and turns a daily board into an all-time board.
 
+These checks play the game: `init` and 600 steps for the headless check, and
+the seed check's runs under two seeds, each on the rules code loaded afresh.
+The platform gives each step they play what one step of an hour of the
+game's own play at its own rate may cost its replay, 5 minutes of CPU over
+that hour's steps (`CHECK_STEP_BUDGET_US`): 2,777 microseconds of one CPU a
+step at 30 steps a second, 1,388 at 60 and 694 at 120, so an hour of the
+game's steps at its rate, each within its allowance, fits one replay's CPU
+budget. Start-up is allowed apart from the steps: importing the rules code,
+reading its start packs and running `init` are given 5 seconds of one CPU a
+load (`CHECK_INIT_BUDGET_MS`), and the checks load it once for the headless
+check and up to six times for the seed check. Checks that run out of either
+are tried again, and only once every attempt has run out is the version
+refused, with `E_CHECKS_OVER_BUDGET`, so a moment's slowness on the
+platform's side refuses nothing. `vbz check --ranked` prints what a step
+cost on your machine in its `performance` check. Make the step cheaper, as
+section 5 says for a player's run, or the start: a large start pack parsed
+in `init` is paid for at every load.
+
 The platform does not run the engine's determinism, restore, counters,
 replay or performance checks, and nothing at upload holds a version to
 replaying a recording to the state it recorded. `vbz check --ranked` runs
@@ -114,6 +145,19 @@ throw. One that will not load (`E_PAGE_MODULE_UNLOADABLE`), is not one a
 page plays or refuses the run it is mounted with (`E_PAGE_MODULE_INVALID`),
 or fails while it is mounted, gets ready or steps (`E_PAGE_MODULE_THREW`) is
 refused before any player meets it.
+
+Getting ready has a limit. The page module has to load and be ready within
+60 seconds of the checks' browser starting (`CHECK_READY_MS`): its
+presentation's `prepare` settled and its start packs fetched. The checks
+serve the version's files folder themselves, and the browser reaches
+nothing else: there is no other network, nobody to press anything, and no
+permission granted. A page module still not ready then is tried again, and
+only once every attempt has run out is the version refused, with
+`E_PAGE_MODULE_NOT_READY`, so a moment's slowness on the platform's side
+refuses nothing. A `prepare` that waits on something outside the game's
+files folder, on a permission, or on a network the checks do not have never
+gets ready there, so have it wait on the folder's own files and on nothing
+a person has to do.
 
 The checks' browser draws a 2d canvas and the DOM, and has no WebGL and no
 WebGPU. A game it cannot draw, one whose manifest names `pixi`, `three` or
@@ -202,10 +246,12 @@ different. They are players' own recordings, and the only players' runs a
 version meets before it publishes. The version publishes whatever the count
 is. `vbz publish` waits for the count as it waits for the verdict and prints
 it with the verdict, for example `patch check: 2 of 3 recent ranked runs on
-line 1.2 end differently under this version`, and prints nothing when the
-platform has not measured it. It measures the part of a patch's promise no
-manifest shows, whether the same play still scores the same; `docs/sdk.md`
-under "Versions and release lines" says what a patch may change.
+line 1.2 end differently under this version`. A published version always
+carries the count, and for a line's first version, which has no runs of its
+line to replay, the command says so. It measures the part of a patch's
+promise no manifest shows, whether the same play still scores the same;
+`docs/sdk.md` under "Versions and release lines" says what a patch may
+change.
 
 A studio never takes a version down. It supersedes one by publishing a newer
 version, so a broken patch is fixed by the next patch, which today's ranked

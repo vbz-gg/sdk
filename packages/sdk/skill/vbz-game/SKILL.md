@@ -1,6 +1,6 @@
 ---
 name: vbz-game
-description: Build a game on a Clockwork 2 simulation with the vbz kit: played locally on any page, and opted in to ranked runs on vbz.gg, which replays each ranked run on a server to check and rank it. Covers the one build and its runs, playLocal and the game's own page, opting in to ranked play, why a run is replayed and what that asks of a game - one seeded Prng and never Math.random, and a game that ignores its seed refused at upload - drawing your own controls and hit-testing them in tick, mapping keys, fingers, tilt and a locked mouse to declared inputs through the engine's device helpers, choosing what to record, the page module, the manifest, the files folder, data packs, a page's policy, the limits, and drawing with null3d. Use when starting a game, playing it locally, publishing it, adding randomness or data, mapping inputs, testing against the harness, or reading a refused upload. For the simulation's full rules - fixed ticks, Prng streams, dmath, snapshots, the checks - use the engine's guide, clockwork2.
+description: Make a browser game on a Clockwork 2 simulation with the vbz kit, build it, and ship it any way you like - your own site, a static host, a game portal, or offline. Covers the build, loadGame and playLocal on any page, the headers and page policy a host needs, why a recording replays and what that asks of a game - one seeded Prng and never Math.random - drawing your own controls and hit-testing them in tick, mapping keys, fingers, tilt and a locked mouse to declared inputs through the engine's device helpers, choosing what to record, the manifest, data packs, the limits, and null3d. Optionally, ranked runs on vbz.gg, which replays each run on a server - publishing, sign-in, boards, and the platform's checks, which refuse a game that ignores its seed. Use when starting, shipping or publishing a game, adding randomness or data, mapping inputs, testing against the harness, or reading a refused build or upload. For the simulation's full rules - Prng streams, dmath, snapshots - use the engine's guide, clockwork2.
 ---
 
 # Building a game with the vbz kit
@@ -9,10 +9,12 @@ Two guides. The engine's, **clockwork2**, is how to write a simulation that
 replays to the same state anywhere: fixed ticks, `Prng`, `dmath`, snapshots,
 the conformance checks. Read it first and keep it open. **This one** is
 everything between a conforming simulation and a game somebody plays: how it
-is laid out and built, how a phone steers it, how a page plays it locally,
-and what vbz.gg checks before it will rank it. It repeats the engine's guide
-in two places, briefly, because they are the two things an author gets
-wrong first: where randomness comes from, and what to record.
+is laid out and built, how a phone steers it, how a page plays it, and how
+the build is shipped. Ranked runs on vbz.gg are one optional use of the
+same build, and every section about them is headed "If you use vbz.gg". It
+repeats the engine's guide in two places, briefly, because they are the two
+things an author gets wrong first: where randomness comes from, and what to
+record.
 
 A game made with `vbz new` keeps both guides in `.claude/skills/`, this one
 at `.claude/skills/vbz-game/` and the engine's at `.claude/skills/clockwork2/`,
@@ -21,35 +23,28 @@ them at `node_modules/@vbz-gg/sdk/skill/vbz-game/` and
 `node_modules/@clockwork2/engine/skill/clockwork2/`. A path that starts
 `clockwork2/` is a file in the engine's guide.
 
-## One build, and the runs it plays
+## One build, played anywhere
 
 A game is one build, and it plays wherever its author puts it.
 
-- **Played locally**, on the game's own page, it is whatever the author
+- **On a page**, the game's own or any other, it is whatever the author
   intends: a story, free play, an endless session, a page that is never
   online. `playLocal` plays it, and nothing is uploaded, signed in or sent.
   A new game's page does exactly this.
-- **A ranked run** is a kind of run vbz.gg serves: the platform issues the
-  seed and serves the config, the same build plays it on a studio's page and
-  records the player's inputs, and the platform replays them on a server and
-  ranks what its replay computed. **A practice run** is the same, and never
-  on a board. A game opts in by naming the ranked mode in
-  `site/config.json` and publishing; the build does not change.
-- **No run has a step limit**, local, ranked or practice. A run goes until
-  the game ends it or the player leaves.
+- **Shipped any way the author chooses**: their own site, a static host, a
+  game portal, or a folder on a disk. `vbz build` writes `dist/`, and any
+  host that serves files serves it ("Distributing the build" below).
+- **No run has a step limit.** A run goes until the game ends it or the
+  player leaves.
 
-Determinism binds every run. Four rules bind only ranked and practice runs,
-and a game played only locally may break them:
+Determinism binds every run: a run's recording replays to the state the run
+reached, on any engine. That is how the harness checks every run you play,
+and how a page replays a saved run.
 
-- the seed changes the state (`E_SEED_IGNORED`), and the manifest says how
-  a run ranks (`E_RANK_UNDECLARED`);
-- a run holds at most 16 inputs a tick on average (`E_INPUT_BUDGET`);
-- inputs come only from the engine's device helpers, and an event a script
-  on the page made is ignored;
-- the platform's checks play the config a run is served: every declared
-  setting at its default.
-
-`vbz check --ranked` holds a game to them before its first upload.
+A game has no players' identities, sign-in or board unless its author adds
+them. Ranked and practice runs on vbz.gg are one optional use of the same
+build, with a sign-in and boards of the platform's own, and four rules of
+their own; "If you use vbz.gg: ranked and practice runs" below has them.
 
 ## Start here
 
@@ -62,8 +57,9 @@ bun run site                      # your game's own page, played locally
 
 The copy builds and plays before a line of it is changed, so anything that
 breaks afterwards is something you just did. Its id is taken from the
-directory name and is **immutable once published**: changing it later is a
-different game with a different board.
+directory name. If you publish the game to vbz.gg, the id is **immutable
+once published**: changing it later is a different game with a different
+board.
 
 The copy also carries the two guides in `.claude/skills/`, and an `AGENTS.md`
 with the commands, the one rule and where the guides are, for an agent that
@@ -75,48 +71,51 @@ both folders with the guides the installed versions ship.
 
 ```
 src/sim/index.ts     the simulation's entry: default export + MANIFEST
-src/sim/manifest.ts  what the platform reads without running anything
+src/sim/manifest.ts  the manifest: inputs, counters, settings, version
 src/sim/game.ts      the rules
 src/present/         the renderer
 src/capture.ts       which keys, fingers and tilt drive which inputs
 src/present.ts       the page module's entry, which a page loads
 site/                the game's own page
-site/config.json     the page's mode: { "mode": "local" } or ranked
+site/config.json     the page's mode: { "mode": "local" }, or ranked on vbz.gg
 ```
 
 Two entries, and they become two files:
 
 | Entry | Becomes | Loaded by |
 |---|---|---|
-| `src/sim/index.ts` | the **simulation**, the rules code | the browser **and** the server that replays you |
-| `src/present.ts` | the **page module** | a page, in the browser: the game's own, or a studio's |
+| `src/sim/index.ts` | the **simulation**, the rules code | the browser, and whatever replays a run: the harness, or vbz.gg's server if you publish there |
+| `src/present.ts` | the **page module** | a page, in the browser: the game's own, or any other |
 
 `src/sim/index.ts` must never reach `src/present/`. The import graph is
 scanned transitively, and a simulation that can reach a canvas is a simulation
 that can decide a score from one. The page module does not carry its own copy
-of the simulation either: it imports `cw2:sim`, which the platform rewrites to
-the simulation's content address at upload. One object, fetched by the browser
-and loaded by the validator, same bytes and same hash.
+of the simulation either: it imports `cw2:sim`, which a page maps to
+`dist/sim.js` with an import map, so the simulation a page runs is the one
+file a replay loads, same bytes and same hash. If you publish to vbz.gg, the
+platform rewrites the specifier to the simulation's content address at
+upload instead.
 
-`bun run build` writes everything a page plays and an upload carries:
-`dist/sim.js`, `dist/present.js`, `dist/manifest.json`, the files folder the
-game's `package.json` names, copied to `dist/files/` and listed in
+`bun run build` writes everything a page plays: `dist/sim.js`,
+`dist/present.js`, `dist/manifest.json`, the files folder the game's
+`package.json` names, copied to `dist/files/` and listed in
 `dist/files.json`, and `dist/game.json`, which a page playing locally reads
 (`references/artifacts.md`).
 
 ## Replays and randomness
 
-A score on vbz is what a server computed, not what the page showed. The page
-records the player's inputs and sends them, the platform replays them against
-your rules code on a server, with the seed and config it issued for the run,
-and the board takes the counters that replay reached. A run whose replay
-disagrees with the page never reaches the board. So everything the simulation
-does has to follow from the seed, the config and the inputs, and randomness
-is where that breaks first:
+A run's recording is its seed, its config and the player's inputs, and a
+replay of it reaches the state the run reached: the harness replays every
+run you play to check it, and a page can replay a saved recording through
+the page module's own `mount`. If you publish to vbz.gg, a ranked score is
+what its server's replay computed, not what the page showed, and a run whose
+replay disagrees never reaches the board. So everything the simulation does
+has to follow from the seed, the config and the inputs, and randomness is
+where that breaks first:
 
 - One `Prng` from `@clockwork2/engine`, made in `init` from the seed `init`
   is given: `this.rng = new Prng(seed)`. Never `Math.random`, and never a
-  seed of your own from the clock, the URL or the device. The server has none
+  seed of your own from the clock, the URL or the device. A replay has none
   of them.
 - Each system draws from its own labelled sub-stream:
   `this.spawn = this.rng.stream("spawn")`, then
@@ -129,14 +128,15 @@ is where that breaks first:
 - The renderer may use `Math.random` for anything the simulation never reads,
   such as which way a spark flies.
 
-A game that ignores its seed passes every check the engine runs on every game
-and is still refused at upload. The engine's ranked set, which
-`vbz check --ranked` runs here, adds a seed check that plays one input log
-under two seeds, and the platform runs that check on an upload too: a game
-that passes through the same states under both is rejected with
-`E_SEED_IGNORED`, because every day would be the same puzzle and the daily
-board an all-time one. `clockwork2/references/determinism-rules.md`
-has the full rules, `dmath` and time included.
+A game that ignores its seed passes every check the engine runs on every
+game, and plays the same course whatever seed a page gives it. The engine's
+ranked set, which `vbz check --ranked` runs here, adds a seed check that
+plays one input log under two seeds, and if you publish to vbz.gg the
+platform runs it on an upload: a game that passes through the same states
+under both is rejected with `E_SEED_IGNORED`, because every day would be the
+same puzzle and the daily board an all-time one.
+`clockwork2/references/determinism-rules.md` has the full rules, `dmath` and
+time included.
 
 ## Inputs
 
@@ -167,9 +167,10 @@ where a finger is and whether it is down, and the simulation **hit-tests in
 
 ## Choosing what to record
 
-Every input a run records is sent, stored and replayed, and the platform
-refuses a run holding more than 16 inputs per tick, counted over the whole
-run (`E_INPUT_BUDGET`). What a game records is decided by the ranges in its
+Every input a run records goes into its recording, which a replay plays
+back. If you publish to vbz.gg, the platform refuses a ranked or practice
+run holding more than 16 inputs per tick, counted over the whole run
+(`E_INPUT_BUDGET`). What a game records is decided by the ranges in its
 manifest and by `src/capture.ts`:
 
 - Record changes, not streams. The device helpers record a level (where a
@@ -190,8 +191,8 @@ manifest and by `src/capture.ts`:
 
 `clockwork2/references/inputs.md` has the rules in full and a measured table
 of what each kind of device costs over a five-minute run. The harness reports
-every run's inputs against the budget, so try a new mapping there before
-publishing.
+every run's inputs and the recording's size, so try a new mapping there
+before you ship it.
 
 ## What the page module entry does
 
@@ -212,8 +213,8 @@ A renderer that has to get ready, because it compiles WebAssembly, starts
 workers or waits for a GPU, has a `prepare` that resolves once it can draw.
 The run's clock starts only then, so no tick runs and no input is recorded
 before the game can be drawn, and a device that cannot draw it fails with
-`E_PRESENTATION_FAILED` before tick 0, and before a ranked page asks the
-platform for a run.
+`E_PRESENTATION_FAILED` before tick 0, and, on a ranked page of vbz.gg's,
+before the page asks the platform for a run.
 
 ## The files folder and data packs
 
@@ -231,70 +232,128 @@ SHA-256, read by the rules code from `init` (a start pack) or once
 `packsNeeded()` names it (a demand pack). `references/files.md` has the
 folder, data packs, the needs and every limit.
 
-## Playing locally
+## Playing it on a page
 
 The game's own page, `site/`, plays the build beside it with `playLocal`
 while `site/config.json` says `{ "mode": "local" }`, which a new game ships
 with. It loads `game/game.json`, which `vbz build` writes, with
 `localAddress`, maps the page module's `cw2:sim` and `cw2:files/` with an
-import map, and talks to nobody. `playLocal` takes a seed and a config of
-the page's own or plays a fresh seed and every setting at its default, and
-hands `onEnded` the run's recording, which replays to the same counters. Its
-seed always starts `local:`, which no seed the platform issues does, so a
-local run can never be submitted as a ranked one. `references/page.md` has
-it whole.
+import map, and talks to nobody. Any page of yours plays the build the same
+way. `playLocal` takes a seed and a config of the page's own or plays a
+fresh seed and every setting at its default, and hands `onEnded` the run's
+recording, which replays to the same counters. Its seed always starts
+`local:`. `references/page.md` has it whole.
 
-## Opting in to ranked play
+## Distributing the build
 
-1. Keep the four rules above. `vbz check --ranked` runs the set the
-   platform runs on an upload.
-2. Name the ranked mode, the platform's addresses and the game's page key in
-   `site/config.json`, and try the page against the stand-in for the
-   platform with `bun run site`.
-3. Publish with `vbz publish`, from a build system holding the studio's
-   secret key. The build is the same one the page played locally.
+`dist/` is the whole game, and any host that serves files serves it: your
+own site, a static host, a CDN, a game portal, or a folder on a disk opened
+through a local server. It is served one of two ways.
 
-`references/page.md` has the client, the sign-in's box and a run from start
-to result, and `references/ingest.md` what the platform checks.
+**Beside the page that plays it**, on the page's own origin, as the
+template's `site/` does with `dist/` as `game/`. The page maps the page
+module's `cw2:sim` and `cw2:files/` with an import map and loads
+`game/game.json` ("Playing it on a page" above). `dist/sim.js` and
+`dist/present.js` keep their names from one build to the next, so a host
+caches them as any file that changes in place, or renames them by their
+hash.
+
+**From another origin**, such as a CDN or a files subdomain:
+`vbz build <dir> --addressed` builds as `vbz build` does and also writes
+`dist/addressed/`, the build at the content-addressed paths a page on
+another origin loads it from, and `dist/addressed.json` beside it, which
+says what the page needs. The folder holds the rules code at
+`g/<game id>/sim/<sha256>.js`, the page module at
+`g/<game id>/present/<sha256>.js`, its imports rewritten to name those
+paths, and each file of the files folder under
+`g/<game id>/t/<listing sha256>/`. Copy the folder as it is to the root of
+the origin. Its imports are root-relative, so it works only at the root: a
+host that serves only under a sub-path serves `dist/` beside the page
+instead. The game id is a UUID made from the manifest's `id`, the same for
+every version, so the page names one path for good. On a host that serves
+other people's games too, name a fresh UUID of your own with
+`--game <id>`, so no other game can share the path. The page then:
+
+- loads the game with `loadGame` from `@vbz-gg/sdk/host`, at that origin
+  and `addressed.json`'s `present` and `files`, with its `manifestHash`,
+  and needs no import map, since the page module names its own paths;
+- sends `pageCsp` from `@vbz-gg/sdk/harness` with that origin, the game id
+  and the needs `addressed.json` names, which admits that game's path on
+  the origin and nothing else there.
+
+`references/page.md` has both calls.
+
+Every file in `dist/addressed/` is named by its bytes, a module by its own
+digest and a file of the folder by the digest of a listing that names its
+bytes, so a host may cache all of it for a year as immutable, with
+`Cache-Control: public, max-age=31536000, immutable`. A build that changed
+anything writes new paths beside the old, and a page still naming an old
+one keeps working while the host keeps it.
+
+What the host sends with each file, either way:
+
+- every `.js` file as JavaScript, `text/javascript`, because a browser
+  refuses a module script of any other type, and a `.wasm` file as
+  `application/wasm`, the one type a browser compiles WebAssembly from as
+  it streams;
+- `X-Content-Type-Options: nosniff`, so a wrong type is a refusal in every
+  browser rather than a guess;
+- from an origin other than the page's, `Access-Control-Allow-Origin: *` on
+  every file and on a missing one, because every module import is a CORS
+  request, and `Cross-Origin-Resource-Policy: cross-origin`, which a page
+  that is cross-origin isolated needs;
+- `Content-Security-Policy: default-src 'none'; sandbox` on every file that
+  is not JavaScript, so a file opened at its own address, such as an SVG
+  holding a script, runs nothing there.
+
+Those are the headers `createBlobServer` in `@vbz-gg/sdk/serve` sends, and
+`vbz dev` serves the game with it in the layout `--addressed` writes, so a
+game you try in the harness is served as such a host serves it. The browser
+suite holds the list to a plain file server sending only these headers, by
+each file's extension, from which a page on another origin under `pageCsp`
+plays `dist/addressed/` in Chromium, Firefox and WebKit.
+
+A page beside its build sends `localPageCsp` from `@vbz-gg/sdk/harness`
+instead, under which everything the game loads is `'self'`, with the
+import map admitted by the SHA-256 of its exact text. Either policy takes
+what the game needs (`references/files.md`).
 
 ## Testing it
 
 `bun run check` builds the game and runs the engine's conformance checks
-every game needs over the rules code, holds `src/capture.ts` to the manifest,
-and prints the version, its release line and the line's contract hash. It
-exits 0 only when all of that passes. `vbz check --ranked` runs the engine's
-ranked set instead, which adds the seed check and that the manifest says how
-a run ranks. Run it before every upload: it is how to test that a recording
-replays to the state it recorded. The platform runs only part of that set on
-an upload, and none of the checks that test record and replay, so a game
-that is not deterministic passes the upload and fails its players;
-`references/ingest.md` says what the platform runs.
+every game needs over the rules code: determinism, a snapshot restored, a
+recording replaying to the state it recorded, the declared files and their
+budgets, a step's cost, and no banned API. It holds `src/capture.ts` to the
+manifest, and prints the version, its release line and the line's contract
+hash. It exits 0 only when all of that passes. `vbz check --ranked` runs the
+engine's ranked set instead, which adds the seed check and that the manifest
+says how a run ranks: what ranked play on vbz.gg needs, and nothing else
+does.
 
 `bun run dev` is your game's page on your laptop: the game's two modules and
-its files folder on one origin, and a page on another that loads the page
-module the way a studio's page does and plays it with `playLocal`, under the
-Content-Security-Policy a studio's page sends, with the game's needs. Two
-ports are two origins, so a module import that a studio's page would refuse
-is refused here first.
+its files folder on one origin, and a page on another origin that loads the
+page module from there and plays it with `playLocal`, under the policy a
+page loading a game from another origin sends, `pageCsp` with the game's
+needs. Two ports are two origins, so a module import that such a page would
+refuse is refused here first.
 
 When a run ends, the harness replays its recording against the built rules
 code and says three things under the game: whether the replay matches, how
-many inputs the recording holds against the budget the platform allows, and
-its size in bytes. A run that does not match, or inputs the platform would
-refuse, is what to fix before publishing. `references/harness.md` has the
-flags for a phone (`--address`, `--https`) and `--site`, which serves the
-game's own page in the mode `site/config.json` names: played locally from
-the build, which a new game ships with, or ranked, against a stand-in for
-the platform.
+many inputs the recording holds against the budget a ranked run on vbz.gg is
+held to, and its size in bytes. A run that does not match is what to fix
+before you ship. `references/harness.md` has the flags for a phone
+(`--address`, `--https`) and `--site`, which serves the game's own page in
+the mode `site/config.json` names: played locally from the build, which a
+new game ships with, or ranked, against a stand-in for vbz.gg.
 
-## When ingest refuses
+## When the build refuses
 
-Every refusal carries a code, and `vbz build` refuses most of the same
-things first, on the same bytes. The ones that are about this guide rather
+`vbz build` holds the built bytes to the contract a page relies on, and
+every refusal carries a code. The ones that are about this guide rather
 than about determinism:
 
-- `E_SIM_NOT_SELF_CONTAINED` - the simulation imports something. It runs with
-  no network at all, so an import is a fault on every session.
+- `E_SIM_NOT_SELF_CONTAINED` - the simulation imports something. A replay
+  loads it alone, so it carries everything it needs.
 - `E_PRESENT_IMPORT_MISSING` - the page module carries its own copy of the
   simulation instead of importing `cw2:sim`. Two copies is the thing the
   whole split exists to prevent.
@@ -310,8 +369,116 @@ than about determinism:
 - `E_PACK_UNLISTED`, `E_PACK_MISMATCH` - a data pack the manifest declares
   is not in the folder, or is not the size and SHA-256 it declares.
 - `E_VERSION_INVALID` - the version is not plain `MAJOR.MINOR.PATCH`.
+- `E_MANIFEST_INVALID` - the manifest is over 512 KiB as JSON with no white
+  space.
+
+## Drawing with null3d
+
+null3d draws from workers with a WebAssembly core. It goes in the files
+folder, built by its own Vite plugin, and its input stays off;
+`references/null3d.md` is the recipe, mouse look-around and isolation
+included.
+
+## Versions
+
+A `version` is `MAJOR.MINOR.PATCH`, and it is a promise about the rules. A
+**patch** changes how the game looks or fixes a bug and keeps what a score
+means, so a recording made on an earlier patch scores the same under it; a
+**minor** changes the rules; a **major** is a different game. All patches of
+one `MAJOR.MINOR` are one release line. `vbz build` refuses a version that
+is not plain `MAJOR.MINOR.PATCH`, and `vbz check` prints the line's contract
+hash, so two builds can be compared.
+
+## If you use vbz.gg: versions and release lines
+
+The platform treats a release line as one game. A ranked run plays the
+highest published patch of the day's line, highest by version number, so a
+patch that passes its checks reaches the next ranked start. A new minor
+waits for the next day's seed.
+
+Before bumping, compare the new manifest with the line's contract, which is
+its earliest version that was not rejected. If `schemaVersion`, `id`,
+`session`, `inputs` (each one's `min` and `max`), `counters` (each one's
+`name`, `direction` and `monotonic`), `rankBy`, `tiePolicy`, `params` (all
+but `label` and `description`), or the capabilities `deterministic`,
+`physics` and `multiplayer` differ, it is a minor: the platform refuses that
+patch with `E_PATCH_CHANGES_RULES`. If only the rules code changed, decide
+whether the same play could now score differently. If it could, it is a
+minor too: the platform cannot see that difference, and the board mixes a
+line's patches.
+
+A studio cannot take a version down. A broken version is replaced by
+publishing a newer patch, and until that patch passes its checks the broken
+one is what today's ranked runs play, so test a patch with `vbz dev` before
+publishing it. When an operator takes down the patch today's ranked runs
+play, nothing falls back to an older one: ranked play is paused until a
+newer patch passes, and practice carries on.
+
+## Never
+
+- **Build an input event.** The engine's helpers record them. This is why a
+  control is hit-tested in `tick` and not in the renderer.
+- **Hit-test in CSS pixels.** A pointer is measured across the element in the
+  range your manifest declares before the log sees it, so a coordinate in
+  your `tick` is already in that space.
+- **Draw a control somewhere the simulation does not believe it is.** Read one
+  set of numbers from both sides, as the template's renderer and its `tick`
+  both read the buttons' rectangles from `src/sim/field.ts`.
+- **Reach the renderer from the simulation.** Not for a canvas size, not for a
+  device pixel ratio, not once.
+- **Change what the simulation does without bumping `version`.** Every
+  recording already made stops replaying to what it showed, and nothing
+  announces it.
+- **Ship a rules change as a patch.** A patch is the same game, and on vbz.gg
+  its scores share a board with the line's earlier patches.
+- **Change `id` once the game is on vbz.gg.** It is the board.
+- **Put the seed in a URL.** The page hands it to the module's `mount`.
+
+## If you use vbz.gg: ranked and practice runs
+
+vbz.gg is a platform that ranks a studio's games. **A ranked run** is a
+kind of run it serves: the platform issues the seed and serves the config,
+the same build plays it on a studio's page and records the player's inputs,
+and the platform replays them on a server and ranks what its replay
+computed. **A practice run** is the same, and never on a board. A player
+signs in to the platform through a box over the studio's page, and that
+sign-in belongs to these runs alone. A game opts in by naming the ranked
+mode in `site/config.json` and publishing; the build does not change.
+
+Four rules bind only these runs, and a game played anywhere else may break
+them:
+
+- the seed changes the state (`E_SEED_IGNORED`), and the manifest says how
+  a run ranks (`E_RANK_UNDECLARED`);
+- a run holds at most 16 inputs a tick on average (`E_INPUT_BUDGET`);
+- inputs come only from the engine's device helpers, and an event a script
+  on the page made is ignored;
+- the platform's checks play the config a run is served: every declared
+  setting at its default.
+
+To opt in:
+
+1. Keep the four rules. `vbz check --ranked` holds a game to them, and runs
+   the set the platform runs on an upload.
+2. Name the ranked mode, the platform's addresses and the game's page key in
+   `site/config.json`, and try the page against the stand-in for the
+   platform with `bun run site`.
+3. Publish with `vbz publish`, from a build system holding the studio's
+   secret key. The build is the same one the page played locally.
+
+`references/page.md` has the client, the sign-in's box and a run from start
+to result, and `references/ingest.md` what the platform checks.
+
+## If you use vbz.gg: when an upload is refused
+
+An upload runs the build's checks again, on the bytes that arrived, and
+refuses what they refuse, with the same codes. It also holds the manifest
+to more than `vbz build` does:
+
 - `E_MANIFEST_INVALID` - the manifest's shape is wrong, or `rankBy` is
-  empty, names a counter you did not declare, or comes without `tiePolicy`.
+  empty, names a counter you did not declare, or comes without `tiePolicy`;
+  a setting it requires has no default, so no run could be served it; or it
+  is over 512 KiB as JSON, which `vbz build` refuses first.
 - `E_RANK_UNDECLARED` - the manifest declares neither `rankBy` nor
   `tiePolicy`, so a ranked run has nothing to be ordered by. A game played
   only on its own page may leave both out; `vbz check --ranked` reports the
@@ -324,6 +491,18 @@ end a version in these:
 - `E_SIM_NO_MANIFEST`, `E_MANIFEST_MISMATCH` - the built simulation exports
   no `MANIFEST`, or one that is not the uploaded `dist/manifest.json`. Build
   again rather than editing either by hand.
+- `E_CHECKS_OVER_BUDGET` - the engine's checks the platform runs at upload
+  ran out of time on the game's start or its steps. Each step they play is
+  given what one step of an hour of the game's own play at its own rate may
+  cost its replay: 2,777 microseconds of one CPU a step at 30 steps a
+  second, 1,388 at 60 and 694 at 120, so an hour of the game's steps at its
+  rate fits one replay's CPU budget. Start-up is allowed apart from the
+  steps: each time they load the rules code, once for the headless check and
+  up to six times for the seed check, importing it, reading its start packs
+  and running `init` are given 5 seconds of one CPU a load. Written only
+  once every attempt has run out, so a moment's slowness on the platform's
+  side refuses nothing. `vbz check --ranked` prints what a step cost on your
+  machine in its `performance` check; make the step, or the start, cheaper.
 - `E_PAGE_MODULE_UNLOADABLE`, `E_PAGE_MODULE_INVALID`,
   `E_PAGE_MODULE_THREW` - the page module would not load in the checks'
   browser, was not one a page plays, or failed while it was mounted in
@@ -331,6 +510,12 @@ end a version in these:
   steps. A game the checks' browser cannot draw, because it has no WebGL
   and no WebGPU, is mounted with `draw: false` and gets ready without
   drawing; that is reported, never refused.
+- `E_PAGE_MODULE_NOT_READY` - the page module did not load and get ready
+  within 60 seconds of the checks' browser starting: its presentation's
+  `prepare`, or its start packs, never settled. Written only once every
+  attempt has run out. A `prepare` that waits on something outside the
+  game's files folder, on a permission, or on a network the checks do not
+  have never gets ready there.
 - `E_REPLAY_MODULE` - the rules code would not load on the platform's
   replay service, which loads it with its data packs and runs a few steps
   with nothing pressed, or the replay died while it loaded them. The first
@@ -364,61 +549,6 @@ end a version in these:
 
 `references/ingest.md` has the whole path from an upload to a listing.
 
-## Drawing with null3d
-
-null3d draws from workers with a WebAssembly core. It goes in the files
-folder, built by its own Vite plugin, and its input stays off;
-`references/null3d.md` is the recipe, mouse look-around and isolation
-included.
-
-## Versions
-
-A `version` is `MAJOR.MINOR.PATCH`, and vbz reads it as a promise about the
-rules. A **patch** changes how the game looks or fixes a bug and keeps what a
-score means; a **minor** changes the rules; a **major** is a different game.
-All patches of one `MAJOR.MINOR` are one release line, which the platform
-treats as one game. A ranked run plays the highest published patch of the
-day's line, highest by version number, so a patch that passes its checks
-reaches the next ranked start. A new minor waits for the next day's seed.
-
-Before bumping, compare the new manifest with the line's contract, which is
-its earliest version that was not rejected. If `schemaVersion`, `id`,
-`session`, `inputs` (each one's `min` and `max`), `counters` (each one's
-`name`, `direction` and `monotonic`), `rankBy`, `tiePolicy`, `params` (all
-but `label` and `description`), or the capabilities `deterministic`,
-`physics` and `multiplayer` differ, it is a minor: the platform refuses that
-patch with `E_PATCH_CHANGES_RULES`. `vbz check` prints the line's contract
-hash, so two builds can be compared. If only the rules code changed, decide
-whether the same play could now score differently. If it could, it is a
-minor too: the platform cannot see that difference, and the board mixes a
-line's patches.
-
-A studio cannot take a version down. A broken version is replaced by
-publishing a newer patch, and until that patch passes its checks the broken
-one is what today's ranked runs play, so test a patch with `vbz dev` before
-publishing it. When an operator takes down the patch today's ranked runs
-play, nothing falls back to an older one: ranked play is paused until a
-newer patch passes, and practice carries on.
-
-## Never
-
-- **Build an input event.** The engine's helpers record them. This is why a
-  control is hit-tested in `tick` and not in the renderer.
-- **Hit-test in CSS pixels.** A pointer is measured across the element in the
-  range your manifest declares before the log sees it, so a coordinate in
-  your `tick` is already in that space.
-- **Draw a control somewhere the simulation does not believe it is.** Read one
-  set of numbers from both sides, as the template's renderer and its `tick`
-  both read the buttons' rectangles from `src/sim/field.ts`.
-- **Reach the renderer from the simulation.** Not for a canvas size, not for a
-  device pixel ratio, not once.
-- **Change what the simulation does without bumping `version`.** Every score
-  already recorded becomes unverifiable and nothing announces it.
-- **Ship a rules change as a patch.** A patch is the same game, and its scores
-  share a board with the line's earlier patches.
-- **Change `id` after publishing.** It is the board.
-- **Put the seed in a URL.** The page hands it to the module's `mount`.
-
 ## References
 
 - `references/artifacts.md` - the two entries, `cw2:sim`, the rewrite and
@@ -428,9 +558,11 @@ newer patch passes, and practice carries on.
 - `references/harness.md` - what `vbz dev` serves, the report on each run,
   the flags for a phone and for the game's own page, and what it does not
   reproduce.
-- `references/ingest.md` - what the platform checks, in the order it checks it.
-- `references/page.md` - a page: playing locally, signing a player in, a
-  ranked run from start to result, and the client's codes.
+- `references/ingest.md` - if you use vbz.gg: what the platform checks on an
+  upload, in the order it checks it.
+- `references/page.md` - a page: playing a game on it, and, if you use
+  vbz.gg, signing a player in, a ranked run from start to result, and the
+  client's codes.
 - `references/null3d.md` - drawing with null3d: the files folder, the
   readiness gate, input off, mouse look-around, its maths and isolation.
 
@@ -442,19 +574,29 @@ newer patch passes, and practice carries on.
   installed `@vbz-gg/sdk` and `@clockwork2/engine` ship. It stops, writing
   nothing, when either package or its guide is missing.
 - `vbz build <dir>` - the two modules, the manifest and the files folder a
-  submission carries.
-- `vbz check <dir>` - the engine's checks and the input mapping, with the
-  version, its release line and the line's contract hash. `--ranked` runs
-  the set a ranked or practice run needs, which tests record and replay;
-  the platform runs only part of it.
+  page plays and a host serves. `--addressed` also writes `dist/addressed/`
+  and `dist/addressed.json`, the build for the root of another origin,
+  under the game id `--game <id>` names or one made from the manifest's id.
+- `vbz check <dir>` - the engine's checks every game needs, record and
+  replay among them, and the input mapping, with the version, its release
+  line and the line's contract hash. `--ranked` adds what a ranked or
+  practice run on vbz.gg needs; the platform runs only part of that set.
 - `vbz dev <dir>` - your game's page, locally, on two origins, with a report
   on every run.
-- `vbz publish <dir> --game <id>` - upload `dist/`, each file of the
-  files folder the platform lacks and then the version, and wait for the
-  platform's verdict. The studio's secret key comes from `VBZ_STUDIO_KEY`,
-  never a flag. It exits 0 when the version passed its checks and is
-  published, and prints the release line it joined, which runs it serves,
-  and how many of the line's recent ranked runs end differently under it.
-  Anything else exits 1, a version an operator took down included: a
-  rejection prints the first check that failed, and a refusal the
-  platform's detail.
+- `vbz publish <dir> --game <id>` - if you use vbz.gg: upload `dist/`, each
+  file of the files folder the platform lacks and then the version, and wait
+  for the platform's verdict. The studio's secret key comes from
+  `VBZ_STUDIO_KEY`, never a flag. It exits 0 when the version passed its
+  checks and is published, and prints the release line it joined, which runs
+  it serves, and how many of the line's recent ranked runs end differently
+  under it. Anything else exits 1, a version an operator took down included:
+  a rejection prints the first check that failed, and a refusal the
+  platform's detail. A version still being checked when the wait runs out
+  exits 1 and says where to read its verdict later: the platform tries a
+  check that ran out of time again before it refuses anything, so that
+  refusal can come after the command has stopped.
+
+Each command takes only the flags it reads. Any other is refused before
+the command does anything, with the flag and the commands that do read it
+named: `--addressed` with `vbz dev`, for instance, says only `vbz build`
+reads it.

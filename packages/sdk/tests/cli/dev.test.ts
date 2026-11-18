@@ -10,6 +10,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { DEFAULT_ADDRESS, parseArgs } from "../../src/cli/args"
 import { devSettings } from "../../src/cli/dev"
+import { COMMANDS } from "../../src/cli/index"
 import { startHarness } from "../../src/harness"
 import { CONFIG_WITH_RANKED } from "../../src/harness/config"
 import { MANIFEST } from "../game/subject"
@@ -28,7 +29,7 @@ const read = async (path: string) => {
 
 async function refusal(argv: readonly string[]): Promise<string> {
   try {
-    await devSettings(parseArgs(["dev", ...argv]), read)
+    await devSettings(parseArgs(["dev", ...argv], COMMANDS), read)
   } catch (error) {
     return String(error)
   }
@@ -37,7 +38,7 @@ async function refusal(argv: readonly string[]): Promise<string> {
 
 describe("where vbz dev listens", () => {
   test("by default, this machine over plain http", async () => {
-    const settings = await devSettings(parseArgs(["dev"]), read)
+    const settings = await devSettings(parseArgs(["dev"], COMMANDS), read)
     expect(settings.listen).toEqual({ hostname: DEFAULT_ADDRESS, tls: null })
     expect(settings.site).toBe(false)
   })
@@ -45,7 +46,7 @@ describe("where vbz dev listens", () => {
   test("another name for this machine is still this machine", async () => {
     for (const address of ["localhost", "::1"]) {
       const settings = await devSettings(
-        parseArgs(["dev", "--address", address]),
+        parseArgs(["dev", "--address", address], COMMANDS),
         read,
       )
       expect(settings.listen.hostname).toBe(address)
@@ -54,21 +55,24 @@ describe("where vbz dev listens", () => {
 
   test("https reads the certificate and its key", async () => {
     const settings = await devSettings(
-      parseArgs([
-        "dev",
-        "--https",
-        "--cert",
-        "cert.pem",
-        "--key",
-        "key.pem",
-        "--address",
-        "192.168.1.20",
-        "--site",
-        "--host",
-        "9000",
-        "--bundles-port",
-        "9001",
-      ]),
+      parseArgs(
+        [
+          "dev",
+          "--https",
+          "--cert",
+          "cert.pem",
+          "--key",
+          "key.pem",
+          "--address",
+          "192.168.1.20",
+          "--site",
+          "--host",
+          "9000",
+          "--bundles-port",
+          "9001",
+        ],
+        COMMANDS,
+      ),
       read,
     )
     expect(settings).toEqual({
@@ -86,9 +90,12 @@ describe("where vbz dev listens", () => {
 
   /** A ranked run's budget is a figure on the harness page, red when asked. */
   test("--ranked holds the harness page's runs to a ranked run's budget, and not --site's", async () => {
-    expect((await devSettings(parseArgs(["dev"]), read)).ranked).toBe(false)
+    expect((await devSettings(parseArgs(["dev"], COMMANDS), read)).ranked).toBe(
+      false,
+    )
     expect(
-      (await devSettings(parseArgs(["dev", "--ranked"]), read)).ranked,
+      (await devSettings(parseArgs(["dev", "--ranked"], COMMANDS), read))
+        .ranked,
     ).toBe(true)
     expect(await refusal(["--site", "--ranked"])).toContain("give one")
   })
@@ -100,10 +107,16 @@ describe("where vbz dev listens", () => {
    */
   test("--config reads a JSON config for the harness page's runs", async () => {
     expect(
-      (await devSettings(parseArgs(["dev", "--config", "config.json"]), read))
-        .config,
+      (
+        await devSettings(
+          parseArgs(["dev", "--config", "config.json"], COMMANDS),
+          read,
+        )
+      ).config,
     ).toEqual({ endAt: 5 })
-    expect((await devSettings(parseArgs(["dev"]), read)).config).toBeUndefined()
+    expect(
+      (await devSettings(parseArgs(["dev"], COMMANDS), read)).config,
+    ).toBeUndefined()
     expect(await refusal(["--config", "gone.json"])).toContain(
       "--config gone.json could not be read",
     )
@@ -119,7 +132,7 @@ describe("where vbz dev listens", () => {
     let refused: unknown = null
     try {
       await devSettings(
-        parseArgs(["dev", "--config", "config.json", "--ranked"]),
+        parseArgs(["dev", "--config", "config.json", "--ranked"], COMMANDS),
         async (path) => {
           reads.push(path)
           return await read(path)
@@ -231,14 +244,17 @@ describe("the harness over https", () => {
 
   test("both origins are https, and answer with the certificate given", async () => {
     const settings = await devSettings(
-      parseArgs([
-        "dev",
-        "--https",
-        "--cert",
-        join(dir, "cert.pem"),
-        "--key",
-        join(dir, "key.pem"),
-      ]),
+      parseArgs(
+        [
+          "dev",
+          "--https",
+          "--cert",
+          join(dir, "cert.pem"),
+          "--key",
+          join(dir, "key.pem"),
+        ],
+        COMMANDS,
+      ),
     )
     const harness = await startHarness({
       source: {

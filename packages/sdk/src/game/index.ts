@@ -1,6 +1,6 @@
 /**
  * A game's page module: what `vbz build` bundles from a game's page entry,
- * with the game's own engine, and what a studio's page loads and plays.
+ * with the game's own engine, and what a page loads and plays.
  *
  * A value subpath, bundled into every page module. It reads nothing from the
  * browser when it loads, contains no dynamic import, and imports nothing of

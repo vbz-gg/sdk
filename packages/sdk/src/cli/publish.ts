@@ -127,7 +127,12 @@ export function checkWaitOf(parts: readonly number[]): number {
  * It covers one attempt. When the replay service gives no answer the
  * platform holds the replay to its whole wall budget and its margin, then
  * runs the version's job again, half a minute later at the soonest, which
- * this does not wait for.
+ * this does not wait for. Nor does it wait for the checks that run out of
+ * time: the engine's checks over `CHECK_STEP_BUDGET_US` a step at the game's
+ * rate or `CHECK_INIT_BUDGET_MS` a load, or a page module not ready within
+ * `CHECK_READY_MS`, are tried again, and the version is refused
+ * (`E_CHECKS_OVER_BUDGET`, `E_PAGE_MODULE_NOT_READY`) only once every
+ * attempt has run out, which can be after this has stopped.
  *
  * A version still pending after this is still being checked: the command
  * says so in the platform's terms, names where to read it later, and exits
@@ -347,7 +352,7 @@ function badOrigin(raw: string, why: string): PublishError {
  * manifest, its two modules and its folder's listing. The folder's files
  * are read one at a time, only when the platform lacks them.
  */
-export interface BuiltGame {
+export interface WrittenBuild {
   readonly manifest: Uint8Array<ArrayBuffer>
   readonly sim: Uint8Array<ArrayBuffer>
   readonly present: Uint8Array<ArrayBuffer>
@@ -357,7 +362,7 @@ export interface BuiltGame {
 }
 
 /** Reads `dist/`, naming a file that is missing. */
-export async function readBuild(dir: string): Promise<BuiltGame> {
+export async function readBuild(dir: string): Promise<WrittenBuild> {
   const dist = join(dir, DIST_DIR)
   const read = (name: string) => readBuilt(join(dist, name))
   const [manifest, sim, present, listingText] = await Promise.all([
@@ -439,7 +444,7 @@ type ResponseOf<Route extends keyof PlatformRoutes> =
 export async function publish(
   settings: PublishSettings,
   deps: PublishDeps,
-): Promise<VersionStatus> {
+): Promise<CheckedStatus> {
   const built = await readBuild(settings.dir)
   deps.log(`uploading ${join(settings.dir, DIST_DIR)} to ${settings.apiOrigin}`)
   await uploadFiles(settings, deps, built)
@@ -528,7 +533,7 @@ function gameUrl(settings: PublishSettings): string {
 async function uploadFiles(
   settings: PublishSettings,
   deps: PublishDeps,
-  built: BuiltGame,
+  built: WrittenBuild,
 ): Promise<void> {
   const { listing } = built
   const question: PlatformRoutes["POST /v1/games/:gameId/files/missing"]["body"] =
@@ -669,9 +674,7 @@ async function readStatus(
   deps: PublishDeps,
   settings: PublishSettings,
   url: string,
-): Promise<
-  ResponseOf<"GET /v1/studios/:studioId/versions/:versionId"> | undefined
-> {
+): Promise<CheckedStatus | undefined> {
   try {
     return asStatus(
       await call(deps, url, {
@@ -697,7 +700,10 @@ const TOO_MANY_REQUESTS = 429
 /**
  * Refusals answered with that status that mean "no" for longer than a
  * publish waits: the studio's uploads for the last 24 hours are used up,
- * which the question about files answers before anything goes up.
+ * which the question about files answers before anything goes up, or a
+ * file's upload would take the game's files that no version names past
+ * `MAX_UNNAMED_FILES_BYTES`, until a version names them or the platform
+ * removes them a day after each was last sent.
  */
 const NOT_WORTH_WAITING_FOR: ReadonlySet<string> = new Set<PublicRefusalCode>([
   "E_QUOTA_EXCEEDED",
@@ -822,14 +828,39 @@ const RANKED_SERVING: ReadonlySet<string> = new Set<VersionServing["ranked"]>([
   "none",
 ])
 
+/** A published version's patch check, which its answer always carries. */
+type PatchScores = NonNullable<VersionStatus["patchScores"]>
+
+/** A version's state in `state`, carrying `patchScores` of the given kind. */
+type StatusWith<State extends VersionState, Scores> = Omit<
+  VersionStatus,
+  "state" | "patchScores"
+> & {
+  readonly state: State
+  readonly patchScores: Scores
+}
+
+/**
+ * A version's state as the command has checked it: a published version
+ * carries its patch check, and a pending or rejected one carries none, as
+ * the platform's own constraint on its rows holds. `asStatus` is the one way
+ * to one, so the compiler holds the verdict to a published version's count.
+ */
+export type CheckedStatus =
+  | StatusWith<"published", PatchScores>
+  | StatusWith<"pending" | "rejected", null>
+
 /**
  * A version's state, checked in every field the verdict reads. A missing
  * `suspended` would otherwise read as served, a missing `serving` would print
  * nothing about which runs play it, a missing `firstFailure` would crash the
  * line that prints it, and a `patchScores` that is not two counts would
- * print a measurement the platform never made.
+ * print a measurement the platform never made. A published version always
+ * carries its count and a pending or rejected one never does, so an answer
+ * that breaks either half is not one the platform gives, and is refused
+ * rather than read.
  */
-function asStatus(value: unknown): VersionStatus {
+export function asStatus(value: unknown): CheckedStatus {
   if (
     isRecord(value) &&
     typeof value.gameVersionId === "string" &&
@@ -846,7 +877,20 @@ function asStatus(value: unknown): VersionStatus {
     (value.firstFailure === null || isFailure(value.firstFailure)) &&
     (value.patchScores === null || isPatchScores(value.patchScores))
   ) {
-    return value as unknown as VersionStatus
+    const status = value as unknown as VersionStatus
+    const { state, patchScores } = status
+    if (state === "published" && patchScores !== null) {
+      return { ...status, state, patchScores }
+    }
+    if (state !== "published" && patchScores === null) {
+      return { ...status, state, patchScores }
+    }
+    throw new PublishError(
+      PUBLISH_ERROR.ANSWER_UNREADABLE,
+      state === "published"
+        ? `the platform's answer says version ${status.version} is published and carries no patch check, which every published version has`
+        : `the platform's answer says version ${status.version} is ${state} and carries a patch check, which only a published version has`,
+    )
   }
   throw new PublishError(
     PUBLISH_ERROR.ANSWER_UNREADABLE,
@@ -896,40 +940,36 @@ function practiceLine(practice: boolean): string {
 
 /**
  * What the platform measured of a published version against its line's
- * recent ranked runs, in its own terms, or nothing when it has not measured
- * it. The count decides nothing; it is printed for the studio to read.
+ * recent ranked runs, in its own terms. The count decides nothing; it is
+ * printed for the studio to read.
  */
-function patchScoreLines(status: VersionStatus): string[] {
-  const scores = status.patchScores
-  if (scores === null) return []
+function patchScoreLine(line: string, scores: PatchScores): string {
   if (scores.compared === 0) {
-    return [
-      `patch check: line ${status.line} has no settled ranked runs yet to compare this version with`,
-    ]
+    return `patch check: line ${line} has no settled ranked runs yet to compare this version with`
   }
   const runs = scores.compared === 1 ? "run" : "runs"
   const end = scores.differing === 1 ? "ends" : "end"
-  return [
-    `patch check: ${scores.differing} of ${scores.compared} recent ranked ${runs} on line ${status.line} ${end} differently under this version`,
-  ]
+  return `patch check: ${scores.differing} of ${scores.compared} recent ranked ${runs} on line ${line} ${end} differently under this version`
 }
 
 /**
  * The verdict a build log shows. A version that passed its checks and is
  * published exits 0, with which runs it serves and what the platform
  * measured of it against its line's runs; one an operator has taken down is
- * published and still exits 1, because no player is served it.
+ * published and still exits 1, because no player is served it. It reads a
+ * state the command has checked, in which a published one carries its count.
  */
-export function verdictOf(status: VersionStatus): Verdict {
+export function verdictOf(status: CheckedStatus): Verdict {
   if (status.state === "pending") {
     throw new Error("a version still being checked has no verdict yet")
   }
   if (status.state === "published") {
+    const patch = patchScoreLine(status.line, status.patchScores)
     if (status.suspended) {
       return {
         lines: [
           `published version ${status.version}, but an operator has taken it down, so no player is served it`,
-          ...patchScoreLines(status),
+          patch,
         ],
         exitCode: 1,
       }
@@ -939,7 +979,7 @@ export function verdictOf(status: VersionStatus): Verdict {
         `published version ${status.version}, in release line ${status.line}`,
         RANKED_LINES[status.serving.ranked],
         practiceLine(status.serving.practice),
-        ...patchScoreLines(status),
+        patch,
       ],
       exitCode: 0,
     }

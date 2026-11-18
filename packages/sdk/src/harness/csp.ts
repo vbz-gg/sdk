@@ -1,14 +1,18 @@
 /**
  * The Content-Security-Policy the harness serves its pages under.
  *
- * It is the policy a studio's page is meant to run a game under: scripts
- * from the page's own origin and from one game's own path on the bundles
- * origin and nowhere else, no `unsafe-eval` and no inline script but the
- * ones named by hash. A page module that needs more, or a rules code it
- * cannot import under it, is refused here, on a laptop, rather than on a
- * studio's page. Naming the game's path rather than the whole bundles
- * origin is what keeps another game's code out of the page. In production
- * the bundles origin is `https://files.vbz.gg`, so a studio's page names
+ * It is the policy a page is meant to run a game under: scripts from the
+ * page's own origin and from one game's own path on the origin serving it,
+ * or the page's own origin alone, and nowhere else, no `unsafe-eval` and no
+ * inline script but the ones named by hash. A page module that needs more,
+ * or a rules code it cannot import under it, is refused here, on a laptop,
+ * rather than in front of players. Naming the game's path rather than the
+ * whole origin is what keeps any other game's code out of the page. The
+ * game's path is `/g/<game id>/` on the origin serving it, the layout
+ * `createBlobServer` answers and `vbz build --addressed` writes to
+ * `dist/addressed/`, so a host serving `dist/` as it is, under any other
+ * path, is not one `pageCsp` admits. On vbz.gg the bundles origin is
+ * `https://files.vbz.gg`, so a studio's page names
  * `https://files.vbz.gg/g/<game id>/`.
  *
  * A version may need more than its two modules, and each need is named, so
@@ -21,9 +25,9 @@
  * a page module of contract 2 fetches every data pack the manifest declares
  * from the folder, and the folder holds every one.
  *
- * A page that signs a player in frames the platform's sign-in, so its
- * policy names the sign-in origin in `frame-src`. Measured in Chromium and
- * Firefox: under `default-src 'none'` with no `frame-src` the frame is never
+ * A ranked page on vbz.gg signs a player in by framing the platform's
+ * sign-in, so its policy names the sign-in origin in `frame-src`. Measured
+ * in Chromium and Firefox: under `default-src 'none'` with no `frame-src` the frame is never
  * requested. A page that signs nobody in, such as the harness's, names none
  * and frames nothing.
  */
@@ -68,10 +72,10 @@ export interface PageCspOptions extends PolicyOptions {
   /** The game whose path the page may load scripts from. */
   readonly gameId: string
   /**
-   * Where the platform's sign-in is, `https://signin.vbz.gg`, which the page
-   * frames in its sign-in box; or null for a page that signs nobody in. Named
-   * either way, so a page that signs players in cannot leave it out by
-   * forgetting it.
+   * Where vbz.gg's sign-in is, `https://signin.vbz.gg`, which a ranked page
+   * frames in its sign-in box; or null for a page that signs nobody in, as
+   * any page off vbz.gg. Named either way, so a page that signs players in
+   * cannot leave it out by forgetting it.
    */
   readonly signInOrigin: string | null
 }
@@ -158,7 +162,10 @@ function policy(
   ].join("; ")
 }
 
-/** The policy for a studio's page playing a game served from the bundles origin. */
+/**
+ * The policy for a page playing a game served from another origin under
+ * `/g/<game id>/`, as `createBlobServer` and vbz.gg's public store serve it.
+ */
 export function pageCsp(options: PageCspOptions): string {
   return policy(
     gamePath(options.bundlesOrigin, options.gameId),
