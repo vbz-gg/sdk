@@ -181,8 +181,10 @@ version publishes.
 
 `vbz build` copies the folder to `dist/files/`, and a host serves it there
 beside the two modules, with the headers "Distributing the build" in
-`SKILL.md` lists. `vbz dev` serves it at
-`/g/<game id>/t/<listing sha256>/<path>`, the path `files.vbz.gg` uses.
+`SKILL.md` lists. `vbz build --addressed` also writes it under
+`dist/addressed/` at `g/<game id>/t/<listing sha256>/<path>`, for a host on
+another origin to serve from its root, and `vbz dev` serves it at that
+path, the one `files.vbz.gg` uses.
 
 ## If you use vbz.gg: where the files go
 

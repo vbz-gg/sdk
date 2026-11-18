@@ -998,8 +998,9 @@ that root:
 }
 ```
 
-The page hands `loadGame` the origin and `present`, the manifest hash, and
-the origin and `files`, and sends `pageCsp` with the origin, `gameId` and
+The page resolves `present` and `files` against the origin for `loadGame`,
+with `manifestHash` as it is, needs no import map, since the page module
+names its own paths, and sends `pageCsp` with the origin, `gameId` and
 `needs`. The game id is the version 5 UUID of the manifest's `id` in the
 kit's own namespace, `GAME_ID_NAMESPACE`, so every version of a game is
 under one path and a page's policy names it once; `--game <id>` names a

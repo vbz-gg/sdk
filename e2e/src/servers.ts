@@ -22,6 +22,10 @@
  * - **A package registry** holding that tarball and one of the engine, for
  *   the spec that makes a game with `vbz new` and `bunx` the way an author
  *   does. Every other package it fetches from npm.
+ * - **A host that is not this kit's**: a plain file server holding the
+ *   template's `dist/addressed/`, as `vbz build --addressed` wrote it, at
+ *   its root, sending only the headers the guide lists, and a page on an
+ *   origin of its own that plays the build from there.
  * - **A control origin** a spec asks where everything is, and reads the
  *   bundles origins' request logs from.
  *
@@ -54,6 +58,7 @@ import {
   sha256Hex,
   simPathFor,
 } from "../../packages/sdk/src/build/index"
+import type { AddressedBuild } from "../../packages/sdk/src/cli/build"
 import { main } from "../../packages/sdk/src/cli/index"
 import { filesDirOf, needsOf } from "../../packages/sdk/src/cli/source"
 import {
@@ -72,6 +77,10 @@ import {
 import { readBuiltManifest } from "../../packages/sdk/src/harness/dist-manifest"
 import { createBlobServer, JS_CONTENT_TYPE } from "../../packages/sdk/src/serve"
 import {
+  ADDRESSED_FILES_ORIGIN,
+  ADDRESSED_FILES_PORT,
+  ADDRESSED_PAGE_ORIGIN,
+  ADDRESSED_PAGE_PORT,
   CONTROL_PORT,
   PORTAL_ORIGIN,
   PORTAL_PORT,
@@ -87,6 +96,7 @@ import { hold, startRegistry } from "./registry"
 
 const ROOT = join(import.meta.dir, "..", "..")
 const PAGE = join(import.meta.dir, "..", "page")
+const ADDRESSED_PAGE = join(import.meta.dir, "..", "addressed")
 
 /** Where the entries are in every subject, as in every game `vbz new` makes. */
 const ENTRIES = {
@@ -160,6 +170,26 @@ for (const name of Object.keys(SUBJECTS) as SubjectName[]) {
     present: `/${keys.present}`,
   })
 }
+
+/**
+ * The template at its content addresses, written by the real CLI with
+ * `vbz build --addressed`, and moved out of the template's `dist/` into
+ * `work`: the folder this suite serves is the one the command wrote, and
+ * the package packed below carries none of it. Building again leaves the
+ * rest of `dist/` as the build above wrote it, byte for byte.
+ */
+const addressedFolder = join(work, "addressed")
+const addressedBuild = await (async (): Promise<AddressedBuild> => {
+  const dir = join(ROOT, ...SUBJECTS.template.dir)
+  const code = await main(["build", dir, "--addressed"])
+  if (code !== 0) throw new Error("the template did not build with --addressed")
+  await cp(join(dir, "dist", "addressed"), addressedFolder, { recursive: true })
+  const json = join(dir, "dist", "addressed.json")
+  const build = JSON.parse(await readFile(json, "utf8")) as AddressedBuild
+  await rm(join(dir, "dist", "addressed"), { recursive: true, force: true })
+  await rm(json, { force: true })
+  return build
+})()
 
 /**
  * This package as npm would hand it to a studio: packed, unpacked into a
@@ -548,6 +578,122 @@ Bun.serve({
   },
 })
 
+/**
+ * A host that is not this kit's: a plain file server holding the folder
+ * `vbz build --addressed` wrote, at its root, and sending what the guide's
+ * "Distributing the build" lists and nothing more, by each file's
+ * extension. It shares no code with `createBlobServer`, and sends no
+ * `ETag`, so a page that plays from it shows the list is enough for any
+ * host.
+ */
+const HOSTED_TYPES: Readonly<Record<string, string>> = {
+  js: "text/javascript",
+  wasm: "application/wasm",
+}
+
+/** What the host sends with a file at `pathname`, or with its miss. */
+function hostedHeaders(
+  pathname: string,
+  found: boolean,
+): Record<string, string> {
+  const extension = pathname.slice(pathname.lastIndexOf(".") + 1)
+  return {
+    "content-type": HOSTED_TYPES[extension] ?? "application/octet-stream",
+    "x-content-type-options": "nosniff",
+    "access-control-allow-origin": "*",
+    "cross-origin-resource-policy": "cross-origin",
+    // A path names the same bytes for good; a miss is not kept.
+    ...(found
+      ? { "cache-control": "public, max-age=31536000, immutable" }
+      : {}),
+    ...(extension === "js"
+      ? {}
+      : { "content-security-policy": "default-src 'none'; sandbox" }),
+  }
+}
+
+const addressedLog: string[] = []
+requests.set("addressed", addressedLog)
+Bun.serve({
+  port: ADDRESSED_FILES_PORT,
+  hostname: LOOPBACK.hostname,
+  fetch: async (request) => {
+    const { pathname } = new URL(request.url)
+    addressedLog.push(pathname)
+    const file = Bun.file(join(addressedFolder, ...pathname.split("/")))
+    if (pathname.endsWith("/") || !(await file.exists())) {
+      return new Response("not found", {
+        status: 404,
+        headers: hostedHeaders(pathname, false),
+      })
+    }
+    return new Response(await file.bytes(), {
+      headers: hostedHeaders(pathname, true),
+    })
+  },
+})
+
+const addressedBundle = await Bun.build({
+  entrypoints: [join(ADDRESSED_PAGE, "main.ts")],
+  target: "browser",
+  format: "esm",
+})
+const addressedOutput = addressedBundle.outputs[0]
+if (!addressedBundle.success || addressedOutput === undefined) {
+  throw new Error(
+    `the page on another origin did not build:\n${addressedBundle.logs.map(String).join("\n")}`,
+  )
+}
+const addressedScript = await addressedOutput.text()
+const addressedHtml = await readFile(join(ADDRESSED_PAGE, "index.html"), "utf8")
+
+// The page on an origin of its own, which ships `addressed.json` and plays
+// the build from the plain file server.
+Bun.serve({
+  port: ADDRESSED_PAGE_PORT,
+  hostname: LOOPBACK.hostname,
+  fetch: (request) => {
+    const url = new URL(request.url)
+    if (url.pathname === "/") {
+      return new Response(addressedHtml, {
+        headers: {
+          ...NO_STORE,
+          "content-type": "text/html; charset=utf-8",
+          // The policy the guide tells such a page to send: the host's
+          // origin, the build's game id and its needs, framing nothing; or,
+          // `?id=`, the same naming another game's path there.
+          "content-security-policy": pageCsp({
+            bundlesOrigin: ADDRESSED_FILES_ORIGIN,
+            gameId: url.searchParams.get("id") ?? addressedBuild.gameId,
+            needs: addressedBuild.needs,
+            signInOrigin: null,
+          }),
+        },
+      })
+    }
+    if (url.pathname === "/main.js") {
+      return new Response(addressedScript, {
+        headers: { ...NO_STORE, "content-type": JS_CONTENT_TYPE },
+      })
+    }
+    if (url.pathname === "/page.css") {
+      return new Response(pageStyle, {
+        headers: { ...NO_STORE, "content-type": "text/css; charset=utf-8" },
+      })
+    }
+    if (url.pathname === "/addressed.json") {
+      return Response.json(addressedBuild, { headers: NO_STORE })
+    }
+    if (url.pathname === "/config.json") {
+      return Response.json(
+        { filesOrigin: ADDRESSED_FILES_ORIGIN },
+        { headers: NO_STORE },
+      )
+    }
+    return new Response("not found", { status: 404 })
+  },
+})
+
 function json(body: unknown): Response {
   return new Response(JSON.stringify(body), {
     headers: { "content-type": "application/json" },
@@ -562,6 +708,13 @@ Bun.serve({
     if (url.pathname === "/health") return new Response("ok")
     if (url.pathname === "/subjects") {
       return json(Object.fromEntries(harnesses))
+    }
+    if (url.pathname === "/addressed") {
+      return json({
+        pageOrigin: ADDRESSED_PAGE_ORIGIN,
+        filesOrigin: ADDRESSED_FILES_ORIGIN,
+        build: addressedBuild,
+      })
     }
     if (url.pathname === "/studio") {
       return json({
@@ -606,3 +759,4 @@ for (const [name, harness] of harnesses) {
   process.stdout.write(`  ${name}  ${harness.hostOrigin}\n`)
 }
 process.stdout.write(`  studio  ${STUDIO_ORIGIN}\n`)
+process.stdout.write(`  addressed  ${ADDRESSED_PAGE_ORIGIN}\n`)

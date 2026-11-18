@@ -526,11 +526,13 @@ harness, as `vbz dev` serves it; the suite's studio page, `e2e/page/`, on an
 origin of its own under the policy the SDK recommends with each game's
 needs, against a stand-in for the platform per game whose sign-in is on
 another site, or playing a game locally; a bundles origin holding every
-game's modules and files under the game's own path; this package packed and installed apart; and a package
+game's modules and files under the game's own path; this package packed and installed apart; a package
 registry holding that tarball and one of the engine, packed from the copy
-installed here, which fetches every other package from npm. It keeps a
-request log per bundles origin and one for the registry, which a spec reads
-to see what was actually fetched.
+installed here, which fetches every other package from npm; and a plain file
+server holding the template's `dist/addressed/`, as `vbz build --addressed`
+wrote it, with a page on an origin of its own, `e2e/addressed/`, that plays
+it. It keeps a request log per bundles origin, one for the file server and
+one for the registry, which a spec reads to see what was actually fetched.
 
 The subjects are the template, which draws its own two buttons, the
 paddle fixture, which reads tilt and maps Space, and the folder fixture,
@@ -609,6 +611,14 @@ What only a browser can settle, and what each spec found:
   stand-in for `Worker`. Under the policy with the needs left
   out, Chromium and Firefox refuse its core's fetch (`connect-src`) and its
   worker (`worker-src`), and it never gets ready.
+- A build served by a host that is not this kit's: `dist/addressed/` from a
+  plain file server's root, sending only the headers the guide's
+  "Distributing the build" lists, by extension, and no `ETag`, loads and
+  plays with `playLocal` on a page on another origin under `pageCsp` with
+  the build's game id and needs, asking that host for the two modules
+  alone, and its run replays to its counters against the rules code the
+  host served. The same page under a policy naming another game's path
+  loads nothing and asks the host for nothing. Chromium, Firefox and WebKit.
 - Watching an abandoned run stops at its end tick.
 - Tilt through Chromium's orientation override: the first reading is recorded
   as it is, and after that a level only when it changes. A spec that plays
@@ -637,9 +647,9 @@ What only a browser can settle, and what each spec found:
   unreachable from the installed engine before `vbz new` runs.
 
 Chromium runs every spec; Firefox and WebKit run the ones about the
-policy, the sign-in's box and the files folder's loads, which are each
-engine's to decide. The fingers and the sensor override are Chromium's own
-protocol.
+policy, the sign-in's box, the files folder's loads and a build on another
+origin, which are each engine's to decide. The fingers and the sensor
+override are Chromium's own protocol.
 
 One thing about the tools themselves, measured rather than read:
 

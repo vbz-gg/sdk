@@ -380,7 +380,8 @@ A page plays a null3d game under the policy with the game's needs. For a
 build served from the page's own origin, `localPageCsp` in
 `@vbz-gg/sdk/harness` builds it from them, with `'self'` where the policy
 below names the game's path, and no API or sign-in. For a build served from
-another origin, `pageCsp` builds it, and for ranked play on vbz.gg it is:
+another origin, `dist/addressed/` from `vbz build --addressed`, `pageCsp`
+builds it, and for ranked play on vbz.gg it is:
 
 ```
 default-src 'none';

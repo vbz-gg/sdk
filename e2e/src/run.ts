@@ -304,16 +304,18 @@ export async function replayFrom(
   }
 }
 
-/** Forgets every path a bundles origin was asked for: a subject's, or `studio`. */
-export async function clearRequests(
-  name: SubjectName | "studio",
-): Promise<void> {
+/**
+ * A server whose requests the suite logs: a subject's bundles origin, the
+ * studio's, or the plain file server holding `dist/addressed/`.
+ */
+export type LoggedServer = SubjectName | "studio" | "addressed"
+
+/** Forgets every path a server was asked for. */
+export async function clearRequests(name: LoggedServer): Promise<void> {
   await fetch(`${CONTROL_ORIGIN}/requests/${name}`, { method: "DELETE" })
 }
 
-export async function requests(
-  name: SubjectName | "studio",
-): Promise<string[]> {
+export async function requests(name: LoggedServer): Promise<string[]> {
   const response = await fetch(`${CONTROL_ORIGIN}/requests/${name}`)
   return (await response.json()) as string[]
 }
