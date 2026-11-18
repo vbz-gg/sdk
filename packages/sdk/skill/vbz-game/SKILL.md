@@ -261,7 +261,10 @@ own. What the host sends with each file:
 - from an origin other than the page's, `Access-Control-Allow-Origin` on
   every file and on a missing one, because every module import is a CORS
   request, and `Cross-Origin-Resource-Policy: cross-origin`, which a page
-  that is cross-origin isolated needs.
+  that is cross-origin isolated needs;
+- `Content-Security-Policy: default-src 'none'; sandbox` on every file that
+  is not JavaScript, so a file opened at its own address, such as an SVG
+  holding a script, runs nothing there.
 
 Those are the headers `createBlobServer` in `@vbz-gg/sdk/serve` sends, and
 `vbz dev` serves the game with it, so a game you try in the harness is
@@ -276,7 +279,10 @@ The page sends a Content-Security-Policy that admits the game and nothing
 else: `localPageCsp` from `@vbz-gg/sdk/harness` for a game served from the
 page's own origin, or `pageCsp` for one served from another origin, each
 with what the game needs (`references/files.md`) and the page's import map
-admitted by the SHA-256 of its exact text.
+admitted by the SHA-256 of its exact text. `pageCsp` admits only
+`/g/<game id>/` on that origin, the content-addressed paths
+`createBlobServer` answers, so a build served from another origin is served
+under them rather than as `dist/` holds it.
 
 ## Testing it
 

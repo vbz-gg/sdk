@@ -2,9 +2,10 @@
  * The page that loads the game, as a page on another origin does.
  *
  * Full viewport and one floating mark. The game's page module is loaded from
- * the bundles origin with `loadGame`, the code every page loads one with, so a module a page would refuse is refused here first, and it is
- * played with `playLocal`, through the module's own `mount`. What it adds, which a player's
- * page does not need, is Start and End buttons, the recording of the run,
+ * the bundles origin with `loadGame`, the code every page loads one with,
+ * so a module a page would refuse is refused here first, and it is played
+ * with `playLocal`, through the module's own `mount`. What it adds, which a
+ * player's page does not need, is Start and End buttons, the recording of the run,
  * published into the page for the browser suite and saved for the author,
  * and the harness's report on it: whether it replays, whether its inputs
  * are ones the platform takes, and how big it is.

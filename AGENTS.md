@@ -381,12 +381,13 @@ replays.
 
 **The kit needs no platform, and the prose says so.** A game made with it
 may never upload, use vbz.gg or sign a player in. In the guide,
-`docs/sdk.md`, both READMEs, the template and the CLI's text, everything
-about vbz.gg sits in sections headed "If you use vbz.gg", and no sentence
-outside them assumes a game uploads, uses the platform, or signs a player
-in. The guide's test holds its headings to that, and its two main-path
-sections, "Playing it on a page" and "Distributing the build", to naming
-none of the platform.
+`docs/sdk.md`, both READMEs and the template, everything about vbz.gg sits
+in sections headed "If you use vbz.gg"; the CLI's help, which has no
+sections, names vbz.gg on the line that needs it ("for vbz.gg", "on
+vbz.gg"). No sentence anywhere else assumes a game uploads, uses the
+platform, or signs a player in. The guide's test holds its headings to
+that, and its two main-path sections, "Playing it on a page" and
+"Distributing the build", to naming none of the platform.
 
 Determinism belongs to the engine's guide, `clockwork2`, which the engine
 package ships, and this one points at it rather than repeating it - two copies

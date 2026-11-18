@@ -7,9 +7,12 @@
  * inline script but the ones named by hash. A page module that needs more,
  * or a rules code it cannot import under it, is refused here, on a laptop,
  * rather than in front of players. Naming the game's path rather than the
- * whole origin is what keeps any other game's code out of the page. On
- * vbz.gg the bundles origin is `https://files.vbz.gg`, so a studio's page
- * names `https://files.vbz.gg/g/<game id>/`.
+ * whole origin is what keeps any other game's code out of the page. The
+ * game's path is `/g/<game id>/` on the origin serving it, the layout
+ * `createBlobServer` answers, so a host serving `dist/` as `vbz build`
+ * wrote it, under any other path, is not one `pageCsp` admits. On vbz.gg
+ * the bundles origin is `https://files.vbz.gg`, so a studio's page names
+ * `https://files.vbz.gg/g/<game id>/`.
  *
  * A version may need more than its two modules, and each need is named, so
  * a page allows what its game uses and nothing else. A renderer that
@@ -22,8 +25,8 @@
  * from the folder, and the folder holds every one.
  *
  * A ranked page on vbz.gg signs a player in by framing the platform's
- * sign-in, so its policy names the sign-in origin in `frame-src`. Measured in Chromium and
- * Firefox: under `default-src 'none'` with no `frame-src` the frame is never
+ * sign-in, so its policy names the sign-in origin in `frame-src`. Measured
+ * in Chromium and Firefox: under `default-src 'none'` with no `frame-src` the frame is never
  * requested. A page that signs nobody in, such as the harness's, names none
  * and frames nothing.
  */
@@ -158,7 +161,10 @@ function policy(
   ].join("; ")
 }
 
-/** The policy for a page playing a game served from another origin, such as a CDN or vbz.gg's. */
+/**
+ * The policy for a page playing a game served from another origin under
+ * `/g/<game id>/`, as `createBlobServer` and vbz.gg's public store serve it.
+ */
 export function pageCsp(options: PageCspOptions): string {
   return policy(
     gamePath(options.bundlesOrigin, options.gameId),

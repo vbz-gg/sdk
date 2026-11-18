@@ -607,7 +607,9 @@ base-uri 'none'; form-action 'none'; frame-ancestors 'none'
 
 with the page's import map admitted by its hash, below. A page whose build is
 served from another origin sends `pageCsp`, which names the game's own path
-there, never the whole origin when it serves anything else. On vbz.gg every
+there, `/g/<game id>/`, never the whole origin when it serves anything else,
+so such a host serves the build at the content-addressed paths
+`createBlobServer` answers, below, rather than as `dist/` holds it. On vbz.gg every
 studio's games are served from `files.vbz.gg`, so a ranked page names its
 game's path there, the API and the sign-in:
 

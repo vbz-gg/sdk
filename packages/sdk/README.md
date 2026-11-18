@@ -216,7 +216,9 @@ in `@vbz-gg/sdk/serve` sends, which `vbz dev` serves the game with.
 `dist/sim.js` and `dist/present.js` keep their names from one build to the
 next, so cache them as files that change in place. A page that loads the
 game from another origin sends `pageCsp` from `@vbz-gg/sdk/harness` in place
-of `localPageCsp`, naming the game's path there. The agent guide's
+of `localPageCsp`, naming `/g/<game id>/` there, the paths
+`createBlobServer` answers, so the build is served under them rather than
+as `dist/` holds it. The agent guide's
 `SKILL.md` has it under "Distributing the build".
 
 ## If you use vbz.gg: ranked play

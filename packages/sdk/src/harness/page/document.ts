@@ -8,8 +8,8 @@
  * the platform would replay.
  *
  * The page is served under the Content-Security-Policy a page loading a
- * game from another origin is meant to send, so it carries no inline script and no inline style: its
- * script is a module and its style a stylesheet, both from its own origin.
+ * game from another origin is meant to send, so it carries no inline script
+ * and no inline style: its script is a module and its style a stylesheet, both from its own origin.
  * The config travels in a JSON script block, which is data and never runs,
  * rather than in the URL, so a seed does not end up in a referrer or a log.
  */

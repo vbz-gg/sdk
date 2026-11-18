@@ -106,12 +106,6 @@ loads what it is told and never chooses. The build is the same one; opting
 in is this file and `vbz publish`. A page key is public, so the file can
 ship as it is; without one, the page says which file to fill in.
 
-Ranked, on a day when play is paused, because the version the day's runs
-were playing was taken down, the page says "Ranked play is paused; practice
-is open" and reads the game again on every Play, so the first Play after a
-newer patch passes its checks is a ranked run again. A player barred for
-tampered submissions is told when the bar ends.
-
 `bun run site`, which is `vbz dev . --site`, serves it on this machine in
 the mode `site/config.json` names. Played locally, the build is served
 beside the page as `/game/`. Ranked, on vbz.gg, the page talks to a stand-in
@@ -144,6 +138,12 @@ local one does not: the seed has to change what happens, a run holds at most
 16 inputs a tick on average, inputs come from the engine's device helpers
 and never from a script on the page, and the checks play every setting at
 its default. `bunx vbz check . --ranked` runs those checks before an upload.
+
+On a day when ranked play is paused, because the version the day's runs
+were playing was taken down, the page says "Ranked play is paused; practice
+is open" and reads the game again on every Play, so the first Play after a
+newer patch passes its checks is a ranked run again. A player barred for
+tampered submissions is told when the bar ends.
 
 ### Releasing on vbz.gg
 

@@ -152,8 +152,8 @@ It neither replays nor ranks. A score it shows has not been checked.
   you. What the harness gives you instead is a run computed
   by the browser you play it in and replayed under bun, so a run played in
   Chrome and one in Firefox each hold V8 or SpiderMonkey to JavaScriptCore.
-  vbz.gg, if you publish there, replays every run on Cloudflare Workers,
-  which is V8.
+  vbz.gg, if you publish there, replays every ranked and practice run on
+  Cloudflare Workers, which is V8.
 
 Use a device emulation at phone width, or a phone through `--https`. Your
 game draws its own controls, so check that a thumb on one does not cover

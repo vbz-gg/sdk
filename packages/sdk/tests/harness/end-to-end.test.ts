@@ -186,7 +186,7 @@ describe("serving it", () => {
       built.simSha256,
     )
     expect(new TextDecoder().decode(built.present)).toContain(`/${keys.sim}`)
-    // The headers the platform's edge sends, so a page meets them here first.
+    // The headers a host serving the game to another origin sends.
     expect(present.headers.get("access-control-allow-origin")).toBe("*")
     expect(present.headers.get("cache-control")).toBe(
       "public, max-age=31536000, immutable",
