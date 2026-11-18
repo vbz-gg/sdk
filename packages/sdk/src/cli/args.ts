@@ -8,7 +8,9 @@
  *
  * A flag nobody declared is refused rather than ignored, so `--http` typed for
  * `--https` says so instead of serving plain http to a phone that then cannot
- * load the game.
+ * load the game. So is a flag the command does not read: each command names
+ * the flags it reads, so `vbz dev --addressed` says it writes nothing
+ * addressed rather than exiting 0 having ignored the flag.
  */
 
 import { resolve } from "node:path"
@@ -41,6 +43,15 @@ export const SWITCH_FLAGS = ["https", "site", "ranked", "addressed"] as const
 
 type ValueFlag = (typeof VALUE_FLAGS)[number]
 type SwitchFlag = (typeof SWITCH_FLAGS)[number]
+
+/** Any flag `vbz` takes, as written after `--`. */
+export type Flag = ValueFlag | SwitchFlag
+
+/** A command, as the parser needs it: its name, and every flag it reads. */
+export interface FlagReader {
+  readonly name: string
+  readonly flags: readonly Flag[]
+}
 
 export interface Options {
   readonly command: string
@@ -104,7 +115,33 @@ function portOf(
   return port
 }
 
-export function parseArgs(argv: readonly string[]): Options {
+/**
+ * The refusal for `flag` given to `command`, which does not read it, naming
+ * the commands that do.
+ */
+export function unreadFlag(
+  command: FlagReader,
+  flag: Flag,
+  commands: readonly FlagReader[],
+): string {
+  const readers = commands
+    .filter((row) => row.flags.includes(flag))
+    .map((row) => `vbz ${row.name}`)
+  const last = readers.pop()
+  const named =
+    readers.length === 0 ? `${last}` : `${readers.join(", ")} and ${last}`
+  return `vbz ${command.name} does not read --${flag}; ${named} ${readers.length === 0 ? "reads" : "read"} it`
+}
+
+/**
+ * What `argv` says, held to `commands`: a flag the named command does not
+ * read is refused. A command the table does not hold reads nothing to
+ * refuse, and the entry point prints the usage for it.
+ */
+export function parseArgs(
+  argv: readonly string[],
+  commands: readonly FlagReader[],
+): Options {
   const positional: string[] = []
   const values = new Map<ValueFlag, string>()
   const switches = new Set<SwitchFlag>()
@@ -128,6 +165,14 @@ export function parseArgs(argv: readonly string[]): Options {
     if (value === undefined) throw new Error(`${arg} needs a value`)
     values.set(name, value)
     i += 1
+  }
+  const command = commands.find((row) => row.name === positional[0])
+  if (command !== undefined) {
+    for (const flag of [...values.keys(), ...switches]) {
+      if (!command.flags.includes(flag)) {
+        throw new Error(unreadFlag(command, flag, commands))
+      }
+    }
   }
   return {
     command: positional[0] ?? "",

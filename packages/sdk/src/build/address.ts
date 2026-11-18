@@ -25,6 +25,7 @@ import { decodeArtifact, rewritePresentImports } from "./contract.js"
 import { sha256Hex } from "./digest.js"
 import { refuse } from "./errors.js"
 import { type FilesListing, type ListedFolder, listingSha256 } from "./files.js"
+import { manifestField } from "./manifest.js"
 import { filesBaseFor, GAME_ID, presentPathFor, simPathFor } from "./paths.js"
 
 /** A game's two modules and its folder at their content addresses. */
@@ -183,10 +184,7 @@ export function nameBasedUuid(namespace: string, name: string): string {
  * A manifest naming no id is `E_MANIFEST_INVALID`.
  */
 export function gameIdOf(manifest: unknown): string {
-  const id =
-    typeof manifest === "object" && manifest !== null
-      ? (manifest as { readonly id?: unknown }).id
-      : undefined
+  const id = manifestField(manifest, "id")
   if (typeof id !== "string" || id === "") {
     refuse(
       "E_MANIFEST_INVALID",

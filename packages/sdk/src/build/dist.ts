@@ -25,7 +25,7 @@ export const DIST_FILES = {
   game: "game.json",
   /**
    * What a page on another origin needs to load the build from the root of
-   * the origin serving `addressed/`: `AddressedBuild` in the CLI's build.
+   * the origin serving `addressed/`: `AddressedBuild` in `/harness`.
    * Beside the folder rather than in it, so the folder holds nothing but
    * what a host serves.
    */

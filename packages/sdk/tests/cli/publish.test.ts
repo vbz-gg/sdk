@@ -28,6 +28,7 @@ import {
   listingSha256,
 } from "../../src/build/files.js"
 import { parseArgs } from "../../src/cli/args.js"
+import { COMMANDS } from "../../src/cli/index.js"
 import { TEMPLATE_DIR } from "../../src/cli/new.js"
 import {
   API_ORIGIN_VARIABLE,
@@ -284,18 +285,14 @@ describe("what the command line and the environment say", () => {
   const env = { [STUDIO_KEY_VARIABLE]: KEY }
 
   test("the flags reach the options", () => {
-    const options = parseArgs([
-      "publish",
-      "./game",
-      "--game",
-      GAME,
-      "--api",
-      "http://localhost:3000",
-    ])
+    const options = parseArgs(
+      ["publish", "./game", "--game", GAME, "--api", "http://localhost:3000"],
+      COMMANDS,
+    )
     expect(options.command).toBe("publish")
     expect(options.game).toBe(GAME)
     expect(options.api).toBe("http://localhost:3000")
-    expect(parseArgs(["publish"]).game).toBeUndefined()
+    expect(parseArgs(["publish"], COMMANDS).game).toBeUndefined()
   })
 
   test("with no --api and nothing in the environment, the platform is api.vbz.gg", () => {

@@ -18,7 +18,7 @@ import {
   startHarness,
   startSite,
 } from "../harness/index.js"
-import { DEFAULT_ADDRESS, type Options, parseArgs } from "./args.js"
+import { DEFAULT_ADDRESS, type Flag, type Options, parseArgs } from "./args.js"
 import {
   addressBuild,
   addressedLines,
@@ -81,20 +81,16 @@ const FLAGS = `  --sim <path>       the simulation's entry   (default src/sim/in
   else, a version an operator took down included, is 1.
 `
 
-/** Writes what an upload carries, and says what it wrote. */
-async function build(options: Options): Promise<void> {
-  const built = await buildGame(await sourceOf(options))
-  await writeBuild(options.dir, built)
-  for (const line of buildLines(built)) process.stdout.write(`${line}\n`)
-}
-
 /**
- * `vbz build`: the build, and with `--addressed` the build at its content
- * addresses too. Both are worked out before anything is written, so a game
- * id that cannot be made leaves the last build as it was.
+ * Writes the build, and with an addressing the build at its content
+ * addresses too, and says what it wrote. Both are worked out before anything
+ * is written, so a game id that cannot be made leaves the last build as it
+ * was.
  */
-async function buildCommand(options: Options): Promise<number> {
-  const addressing = addressingOf(options)
+async function build(
+  options: Options,
+  addressing: ReturnType<typeof addressingOf> = null,
+): Promise<void> {
   const built = await buildGame(await sourceOf(options))
   const addressed =
     addressing === null ? null : addressBuild(built, addressing.gameId)
@@ -106,7 +102,6 @@ async function buildCommand(options: Options): Promise<number> {
       process.stdout.write(`${line}\n`)
     }
   }
-  return 0
 }
 
 async function dev(options: Options): Promise<void> {
@@ -224,16 +219,20 @@ async function upload(options: Options): Promise<number> {
   return verdict.exitCode
 }
 
+/** Where the game's code is, which every command that builds it reads. */
+const ENTRY_FLAGS = ["sim", "present", "capture"] as const satisfies Flag[]
+
 /**
- * Every command `vbz` takes, in the order its usage lists them. The
- * dispatcher, the usage and the agent guide's test all read this, so a new
- * command is one row here.
+ * Every command `vbz` takes, in the order its usage lists them, with the
+ * flags each reads. The dispatcher, the parser, the usage and the agent
+ * guide's test all read this, so a new command is one row here.
  */
 export const COMMANDS: readonly Command[] = [
   {
     name: "new",
     args: "[dir]",
     summary: ["copy a game that already conforms, and rename it"],
+    flags: [],
     run: newGame,
   },
   {
@@ -243,6 +242,7 @@ export const COMMANDS: readonly Command[] = [
       `replace ${GUIDES.map((guide) => `${SKILLS_DIR}/${guide.name}`).join(" and ")}`,
       "with the guides the game's installed kit and engine ship",
     ],
+    flags: [],
     run: guides,
   },
   {
@@ -253,7 +253,12 @@ export const COMMANDS: readonly Command[] = [
       "files folder package.json names as dist/files/, listed in dist/files.json;",
       "with --addressed, dist/addressed/ too, for the root of another origin",
     ],
-    run: buildCommand,
+    flags: [...ENTRY_FLAGS, "addressed", "game"],
+    run: async (options) => {
+      // Checked first, so a --game that cannot work stops before anything builds.
+      await build(options, addressingOf(options))
+      return 0
+    },
   },
   {
     name: "check",
@@ -262,18 +267,32 @@ export const COMMANDS: readonly Command[] = [
       "run the engine's checks every game needs, or with --ranked the set",
       "ranked play on vbz.gg needs, and hold src/capture.ts to the manifest",
     ],
+    flags: [...ENTRY_FLAGS, "ranked"],
     run: check,
   },
   {
     name: "dev",
     args: "[dir]",
     summary: ["serve the game to a page on another origin, and play it there"],
+    flags: [
+      ...ENTRY_FLAGS,
+      "host",
+      "bundles-port",
+      "address",
+      "https",
+      "cert",
+      "key",
+      "site",
+      "ranked",
+      "config",
+    ],
     run: serve,
   },
   {
     name: "publish",
     args: "[dir]",
     summary: ["for vbz.gg: upload dist/ and wait for the platform's verdict"],
+    flags: ["game", "api"],
     run: upload,
   },
 ]
@@ -281,7 +300,7 @@ export const COMMANDS: readonly Command[] = [
 const USAGE = usageText(COMMANDS, FLAGS)
 
 export async function main(argv: readonly string[]): Promise<number> {
-  const options = parseArgs(argv)
+  const options = parseArgs(argv, COMMANDS)
   const command = COMMANDS.find((row) => row.name === options.command)
   if (command === undefined) {
     process.stdout.write(USAGE)

@@ -49,6 +49,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { hashCanonical, type PlainValue } from "@clockwork2/engine"
 import { $ } from "bun"
+import { layoutOf } from "../../packages/sdk/src/build/address"
 import {
   EMPTY_LISTING,
   filesBaseFor,
@@ -58,10 +59,10 @@ import {
   sha256Hex,
   simPathFor,
 } from "../../packages/sdk/src/build/index"
-import type { AddressedBuild } from "../../packages/sdk/src/cli/build"
 import { main } from "../../packages/sdk/src/cli/index"
 import { filesDirOf, needsOf } from "../../packages/sdk/src/cli/source"
 import {
+  type AddressedBuild,
   type BuiltGame,
   blobKeys,
   buildAndAddress,
@@ -173,23 +174,26 @@ for (const name of Object.keys(SUBJECTS) as SubjectName[]) {
 
 /**
  * The template at its content addresses, written by the real CLI with
- * `vbz build --addressed`, and moved out of the template's `dist/` into
- * `work`: the folder this suite serves is the one the command wrote, and
- * the package packed below carries none of it. Building again leaves the
- * rest of `dist/` as the build above wrote it, byte for byte.
+ * `vbz build --addressed` into the template's own `dist/`, which the plain
+ * file server below serves from `dist/addressed/`. Building again leaves the
+ * rest of `dist/` as the build above wrote it, byte for byte, and the
+ * package packed below carries none of `dist/`: its `files` keeps the
+ * template's out, and `check:publishable` holds it to that.
  */
-const addressedFolder = join(work, "addressed")
-const addressedBuild = await (async (): Promise<AddressedBuild> => {
-  const dir = join(ROOT, ...SUBJECTS.template.dir)
-  const code = await main(["build", dir, "--addressed"])
-  if (code !== 0) throw new Error("the template did not build with --addressed")
-  await cp(join(dir, "dist", "addressed"), addressedFolder, { recursive: true })
-  const json = join(dir, "dist", "addressed.json")
-  const build = JSON.parse(await readFile(json, "utf8")) as AddressedBuild
-  await rm(join(dir, "dist", "addressed"), { recursive: true, force: true })
-  await rm(json, { force: true })
-  return build
-})()
+const templateDist = join(ROOT, ...SUBJECTS.template.dir, "dist")
+if (
+  (await main([
+    "build",
+    join(ROOT, ...SUBJECTS.template.dir),
+    "--addressed",
+  ])) !== 0
+) {
+  throw new Error("the template did not build with --addressed")
+}
+const addressedFolder = join(templateDist, "addressed")
+const addressedBuild = JSON.parse(
+  await readFile(join(templateDist, "addressed.json"), "utf8"),
+) as AddressedBuild
 
 /**
  * This package as npm would hand it to a studio: packed, unpacked into a
@@ -267,34 +271,30 @@ async function templateBuiltApart(
 interface Held {
   readonly game: SubjectName
   readonly manifest: unknown
-  readonly sim: Uint8Array
-  readonly simKey: string
-  readonly present: Uint8Array
+  /** Every file the bundles origin holds for it, by its key there. */
+  readonly blobs: ReadonlyMap<string, Uint8Array>
   readonly presentKey: string
   /** The files folder's base, without the leading slash. */
   readonly filesKey: string
-  /** Each file of the folder, by its key on the bundles origin. */
-  readonly files: ReadonlyMap<string, Uint8Array>
   /** What a page's policy has to allow for it beyond its two modules. */
   readonly needs: GameNeeds
 }
 
-/** A build, as the bundles origin holds it, with what its page's policy needs. */
+/**
+ * A build, as the bundles origin holds it: the layout `layoutOf` gives it,
+ * the one the harness serves and `vbz build --addressed` writes, with what
+ * its page's policy needs.
+ */
 async function held(game: SubjectName, built: BuiltGame): Promise<Held> {
+  const blobs = new Map<string, Uint8Array>()
+  for (const entry of layoutOf(built)) blobs.set(entry.key, await entry.read())
   const keys = blobKeys(built)
-  const files = new Map<string, Uint8Array>()
-  for (const [path, onDisk] of built.filesOnDisk) {
-    files.set(`${keys.files}${path}`, new Uint8Array(await readFile(onDisk)))
-  }
   return {
     game,
     manifest: manifests.get(game),
-    sim: built.sim,
-    simKey: keys.sim,
-    present: built.present,
+    blobs,
     presentKey: keys.present,
     filesKey: keys.files,
-    files,
     needs: versionNeeds(
       await needsOf(join(ROOT, ...SUBJECTS[game].dir)),
       built,
@@ -317,17 +317,19 @@ async function frozen(folder: string): Promise<Held> {
   if (!new TextDecoder().decode(present).includes(`"/${simKey}"`)) {
     throw new Error(`${folder}/present.js does not import ${folder}/sim.js`)
   }
+  // Stored as their release addressed them, which is never redone here.
+  const presentKey = presentPathFor(gameId, sha256Hex(present)).slice(1)
   return {
     game: "template",
     manifest: JSON.parse(await readFile(join(dir, "manifest.json"), "utf8")),
-    sim,
-    simKey,
-    present,
-    presentKey: presentPathFor(gameId, sha256Hex(present)).slice(1),
+    blobs: new Map([
+      [simKey, sim],
+      [presentKey, present],
+    ]),
+    presentKey,
     // Neither frozen build has files: contract 1 knows no folder, and a
     // page names one all the same.
     filesKey: filesBaseFor(gameId, listingSha256(EMPTY_LISTING)).slice(1),
-    files: new Map(),
     needs: {},
   }
 }
@@ -367,9 +369,7 @@ type ModuleName = keyof typeof studioModules
 
 const studioBlobs = new Map<string, Uint8Array>()
 for (const module of Object.values(studioModules)) {
-  studioBlobs.set(module.simKey, module.sim)
-  studioBlobs.set(module.presentKey, module.present)
-  for (const [key, bytes] of module.files) studioBlobs.set(key, bytes)
+  for (const [key, bytes] of module.blobs) studioBlobs.set(key, bytes)
 }
 const studioLog: string[] = []
 requests.set("studio", studioLog)

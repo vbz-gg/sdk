@@ -352,7 +352,7 @@ function badOrigin(raw: string, why: string): PublishError {
  * manifest, its two modules and its folder's listing. The folder's files
  * are read one at a time, only when the platform lacks them.
  */
-export interface BuiltGame {
+export interface WrittenBuild {
   readonly manifest: Uint8Array<ArrayBuffer>
   readonly sim: Uint8Array<ArrayBuffer>
   readonly present: Uint8Array<ArrayBuffer>
@@ -362,7 +362,7 @@ export interface BuiltGame {
 }
 
 /** Reads `dist/`, naming a file that is missing. */
-export async function readBuild(dir: string): Promise<BuiltGame> {
+export async function readBuild(dir: string): Promise<WrittenBuild> {
   const dist = join(dir, DIST_DIR)
   const read = (name: string) => readBuilt(join(dist, name))
   const [manifest, sim, present, listingText] = await Promise.all([
@@ -533,7 +533,7 @@ function gameUrl(settings: PublishSettings): string {
 async function uploadFiles(
   settings: PublishSettings,
   deps: PublishDeps,
-  built: BuiltGame,
+  built: WrittenBuild,
 ): Promise<void> {
   const { listing } = built
   const question: PlatformRoutes["POST /v1/games/:gameId/files/missing"]["body"] =

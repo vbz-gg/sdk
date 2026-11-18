@@ -595,3 +595,8 @@ end a version in these:
   exits 1 and says where to read its verdict later: the platform tries a
   check that ran out of time again before it refuses anything, so that
   refusal can come after the command has stopped.
+
+Each command takes only the flags it reads. Any other is refused before
+the command does anything, with the flag and the commands that do read it
+named: `--addressed` with `vbz dev`, for instance, says only `vbz build`
+reads it.

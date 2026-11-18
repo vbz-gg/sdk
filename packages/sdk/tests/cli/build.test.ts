@@ -29,6 +29,7 @@ import {
 import { failureLine } from "../../src/cli/failure"
 import { OWN_ROOT } from "../../src/cli/guides"
 import { pageCsp } from "../../src/harness/csp"
+import type { AddressedBuild } from "../../src/harness/index"
 import { startBundleServer } from "../../src/harness/servers"
 import { localAddress } from "../../src/host/local"
 import { createBlobServer, isServedPath } from "../../src/serve/blobs"
@@ -582,6 +583,32 @@ describe("the build at its content addresses", () => {
         signInOrigin: null,
       }),
     ).toContain(`script-src 'self' ${origin}/g/${page.gameId}/;`)
+  })
+
+  /**
+   * A page author reads the file through the type `/harness` exports for it,
+   * beside `pageCsp`, which the same page calls. Imported from the subpath's
+   * own entry, so the typecheck fails if it stops exporting it, and held
+   * here to name every field the written file holds and no other.
+   */
+  test("addressed.json is the AddressedBuild /harness exports, field for field", async () => {
+    await writeGame({ id: "probe", version: "1.0.0", name: "Probe" })
+    const addressed = addressBuild(await buildGame({ root, ...SOURCE }), null)
+    await writeAddressed(root, addressed)
+    const read = JSON.parse(
+      await readFile(join(root, "dist", "addressed.json"), "utf8"),
+    ) as AddressedBuild
+    const fields: Record<keyof AddressedBuild, true> = {
+      name: true,
+      gameId: true,
+      present: true,
+      sim: true,
+      files: true,
+      manifestHash: true,
+      needs: true,
+    }
+    expect(Object.keys(read).sort()).toEqual(Object.keys(fields).sort())
+    expect(read).toEqual(addressed.page)
   })
 
   test("says where the folder is, under which id, and what a page loads", async () => {

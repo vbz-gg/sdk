@@ -78,15 +78,18 @@ serves it from the build.
 
 `vbz build --addressed` writes `dist/addressed/`, which a host serves as it
 is from the root of another origin, and `dist/addressed.json` beside it
-(`SKILL.md`, "Distributing the build"). The page module there already names
-its rules code and its folder by path, so the page needs no import map. The
-page loads it at that origin:
+(`SKILL.md`, "Distributing the build"). The file's type is `AddressedBuild`
+in `@vbz-gg/sdk/harness`. The page module there already names its rules
+code and its folder by path, so the page needs no import map. The page
+loads it at that origin:
 
 ```ts
+import type { AddressedBuild } from "@vbz-gg/sdk/harness"
 import { loadGame, playLocal } from "@vbz-gg/sdk/host"
 
 const origin = "https://files.example.com" // where dist/addressed/ is served
-const build = await (await fetch("/addressed.json")).json() // shipped with the page
+// addressed.json, shipped with the page
+const build: AddressedBuild = await (await fetch("/addressed.json")).json()
 const game = await loadGame({
   presentUrl: new URL(build.present, origin).href,
   manifestHash: build.manifestHash,
@@ -99,9 +102,9 @@ and whatever sends the page sends its policy, naming that origin, the game
 id and what the game needs:
 
 ```ts
-import { pageCsp } from "@vbz-gg/sdk/harness"
+import { type AddressedBuild, pageCsp } from "@vbz-gg/sdk/harness"
 
-const build = JSON.parse(await Bun.file("dist/addressed.json").text())
+const build: AddressedBuild = await Bun.file("dist/addressed.json").json()
 const policy = pageCsp({
   bundlesOrigin: "https://files.example.com",
   gameId: build.gameId,

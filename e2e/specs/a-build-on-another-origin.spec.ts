@@ -14,7 +14,7 @@
  */
 
 import { expect, test } from "@playwright/test"
-import type { AddressedBuild } from "../../packages/sdk/src/cli/build"
+import type { AddressedBuild } from "../../packages/sdk/src/harness"
 import { CONTROL_ORIGIN } from "../src/env"
 import { clearRequests, replayAgainst, requests } from "../src/run"
 import { type ModuleEnd, moduleAt, published } from "../src/studio"

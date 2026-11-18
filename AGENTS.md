@@ -241,8 +241,8 @@ content-addressed paths a page on another origin loads it from, and
 What to hold while changing it:
 
 **The layout has one implementation, `src/build/address.ts`.** The harness
-serves `layoutOf` and the command writes it, and nothing else rewrites a page
-module. It reaches nothing of `/harness`, `/host`, `/platform`, `/serve` or
+serves `layoutOf`, the command writes it, the browser suite's bundles origin
+holds each build through it, and nothing else rewrites a page module. It reaches nothing of `/harness`, `/host`, `/platform`, `/serve` or
 the CLI. `tests/build/address.test.ts` holds both.
 
 **`dist/addressed/` holds nothing but content-addressed files**, so a host
@@ -310,11 +310,27 @@ that took it for one of its own loads no game. `check:publishable` holds the
 packed `dist` to carrying both, and the browser suite's packed install
 measures what they are for.
 
+**Nothing under the template that `vbz new` never copies ships.** npm packs
+whatever is on disk under a `files` entry, and the tests build the template
+in place, so `files` negates `templates/game/dist` and
+`templates/game/node_modules`, one entry per name in `NOT_COPIED`, and
+`check:publishable` fails on any such file in the tarball.
+
 **A command's path in `bin` is written the way `npm publish` writes it**: no
 leading `./`. `npm pack` leaves the entry alone and `npm publish` rewrites
 it, and npm 12 logs the rewrite as the command being removed while keeping
 it. The check holds each entry to the published form, and to a file the
 tarball carries.
+
+## What a command reads
+
+**Each command names the flags it reads, in its row of `COMMANDS`, and the
+parser refuses any other**, with a sentence naming the flag, the command and
+the commands that read it, so no command takes a flag and ignores it. A
+new flag joins the row of every command that reads it. The usage's labels
+(`dev:`, `build --addressed:`) and every call the docs, the guide and the
+template's scripts show are held to the table by
+`tests/cli/commands.test.ts`.
 
 ## Where a game's code runs
 

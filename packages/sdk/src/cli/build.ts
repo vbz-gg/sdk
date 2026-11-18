@@ -51,16 +51,18 @@ import {
   type ListedFolder,
   listingSha256,
 } from "../build/index.js"
+import { manifestField } from "../build/manifest.js"
 import { GAME_ID } from "../build/paths.js"
 import { parseReleaseVersion, releaseLine } from "../build/version.js"
+import type { AddressedBuild } from "../harness/addressed.js"
 import { type GameNeeds, versionNeeds } from "../harness/csp.js"
 import type { LocalBuild } from "../host/local.js"
 import type { Options } from "./args.js"
 import { readManifestFromSim } from "./manifest.js"
 import { needsOf } from "./source.js"
 
-/** A game built in memory, before anything is written. */
-export interface BuiltGame {
+/** A version of the game built in memory, before anything is written. */
+export interface BuiltVersion {
   readonly sim: Uint8Array
   readonly present: Uint8Array
   /** What the rules code exports as `MANIFEST`. */
@@ -82,10 +84,7 @@ export function releaseOf(manifest: unknown): {
   readonly version: string
   readonly line: string
 } {
-  const version =
-    typeof manifest === "object" && manifest !== null
-      ? (manifest as { readonly version?: unknown }).version
-      : undefined
+  const version = manifestField(manifest, "version")
   if (typeof version !== "string") {
     refuse(
       "E_VERSION_INVALID",
@@ -100,10 +99,7 @@ export function releaseOf(manifest: unknown): {
  * size and hash it declares, and within the packs' limits.
  */
 function packsOf(manifest: unknown): Parameters<typeof assertPacksListed>[0] {
-  const assets =
-    typeof manifest === "object" && manifest !== null
-      ? (manifest as { readonly assets?: unknown }).assets
-      : undefined
+  const assets = manifestField(manifest, "assets")
   return Array.isArray(assets)
     ? (assets as Parameters<typeof assertPacksListed>[0])
     : []
@@ -116,7 +112,7 @@ function packsOf(manifest: unknown): Parameters<typeof assertPacksListed>[0] {
  * what the build does: a page module that starts a worker is refused unless
  * the game says it needs workers.
  */
-export async function buildGame(source: GameSource): Promise<BuiltGame> {
+export async function buildGame(source: GameSource): Promise<BuiltVersion> {
   const { sim, present, imports, files } = await buildGameArtifacts(source)
   const needs = versionNeeds(await needsOf(source.root), {
     workers: imports.workers,
@@ -136,7 +132,7 @@ export async function buildGame(source: GameSource): Promise<BuiltGame> {
  */
 export async function writeBuild(
   root: string,
-  built: BuiltGame,
+  built: BuiltVersion,
 ): Promise<void> {
   const dist = join(root, DIST_DIR)
   await rm(dist, { recursive: true, force: true })
@@ -164,21 +160,18 @@ export async function writeBuild(
 }
 
 /** The game's name, from its manifest, or empty when it names none. */
-function nameOf(built: BuiltGame): string {
-  const name =
-    typeof built.manifest === "object" && built.manifest !== null
-      ? (built.manifest as { readonly name?: unknown }).name
-      : undefined
+function nameOf(built: BuiltVersion): string {
+  const name = manifestField(built.manifest, "name")
   return typeof name === "string" ? name : ""
 }
 
 /** The engine's canonical hash of the manifest, which the page module must report. */
-function manifestHashOf(built: BuiltGame): string {
+function manifestHashOf(built: BuiltVersion): string {
   return hashCanonical(built.manifest as PlainValue)
 }
 
 /** `dist/game.json`: where each part of the build is, beside the file. */
-export function localBuildOf(built: BuiltGame): LocalBuild {
+export function localBuildOf(built: BuiltVersion): LocalBuild {
   return {
     name: nameOf(built),
     present: DIST_FILES.present,
@@ -189,29 +182,6 @@ export function localBuildOf(built: BuiltGame): LocalBuild {
     listing: DIST_FILES.listing,
     filesSha256: listingSha256(built.files.listing),
   }
-}
-
-/**
- * `dist/addressed.json`: what a page on another origin needs to load the
- * build from the root of the origin serving `dist/addressed/`. Each path is
- * from that root, so `new URL(path, origin)` is the address `loadGame`
- * takes; `gameId` and `needs` are what `pageCsp` takes with the origin.
- */
-export interface AddressedBuild {
-  /** The game's name, from its manifest. */
-  readonly name: string
-  /** The game id every path names, `/g/<game id>/`. */
-  readonly gameId: string
-  /** The page module, rewritten to import the two below. */
-  readonly present: string
-  /** The rules code, which the page module imports itself. */
-  readonly sim: string
-  /** The files folder, ending in `/`. */
-  readonly files: string
-  /** The engine's canonical hash of the manifest, which the page module must report. */
-  readonly manifestHash: string
-  /** What the version needs of the page's policy beyond its two modules. */
-  readonly needs: GameNeeds
 }
 
 /** A build at its content addresses, and what a page needs to load it there. */
@@ -252,7 +222,7 @@ export function addressingOf(
  * from the manifest's own when it is null, and what a page needs to load it.
  */
 export function addressBuild(
-  built: BuiltGame,
+  built: BuiltVersion,
   gameId: string | null,
 ): Addressed {
   const game = addressGame(built, gameId ?? gameIdOf(built.manifest))
@@ -310,7 +280,7 @@ export function addressedLines(addressed: Addressed): string[] {
 }
 
 /** What `vbz build` prints. */
-export function buildLines(built: BuiltGame): string[] {
+export function buildLines(built: BuiltVersion): string[] {
   const { files } = built.files.listing
   const bytes = files.reduce((total, file) => total + file.bytes, 0)
   return [

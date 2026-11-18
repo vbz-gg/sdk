@@ -8,7 +8,7 @@
  * reads it.
  */
 
-import type { AddressedBuild } from "../../packages/sdk/src/cli/build.js"
+import type { AddressedBuild } from "../../packages/sdk/src/harness/index.js"
 import {
   type LoadedGame,
   type LocalRun,

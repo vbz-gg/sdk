@@ -283,6 +283,7 @@ export {
   blobKeys,
   buildAndAddress,
 } from "../build/address.js"
+export type { AddressedBuild } from "./addressed.js"
 export {
   type DeclaredNeeds,
   type GameNeeds,

@@ -8,10 +8,13 @@
  * here, where the coverage floor measures it.
  */
 
-import type { Options } from "./args.js"
+import type { FlagReader, Options } from "./args.js"
 
-/** One command: how the usage names it, and what it does. */
-export interface Command {
+/**
+ * One command: how the usage names it, the flags it reads, and what it does.
+ * The parser refuses any other flag given to it.
+ */
+export interface Command extends FlagReader {
   readonly name: string
   /** What follows the name on its usage line, such as `[dir]`. */
   readonly args: string

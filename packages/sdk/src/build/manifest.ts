@@ -25,3 +25,13 @@ export function assertManifestBytes(manifest: unknown): void {
     )
   }
 }
+
+/**
+ * One field of a manifest the build has not checked the shape of yet, or
+ * undefined when it is not an object or names no such field.
+ */
+export function manifestField(manifest: unknown, key: string): unknown {
+  return typeof manifest === "object" && manifest !== null
+    ? (manifest as Readonly<Record<string, unknown>>)[key]
+    : undefined
+}

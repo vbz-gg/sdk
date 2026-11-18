@@ -34,7 +34,7 @@ import { tmpdir } from "node:os"
 import { join, posix, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 import { $ } from "bun"
-import { RENAMED_IN_GAME } from "../packages/sdk/src/cli/new.js"
+import { NOT_COPIED, RENAMED_IN_GAME } from "../packages/sdk/src/cli/new.js"
 
 export const PUBLIC_PACKAGES = ["sdk"] as const
 
@@ -356,6 +356,28 @@ export const RUNTIME_FILES: readonly string[] = [
   "templates/game/site/main.ts",
 ]
 
+/** Where the template sits in the tarball, which `vbz new` copies a game from. */
+export const TEMPLATE_IN_PACKAGE = "templates/game/"
+
+/**
+ * Files under the template that `vbz new` never copies into a game: what a
+ * build or an install left in it, `NOT_COPIED`. npm packs whatever is on
+ * disk under a `files` entry, and the release job publishes from the tree
+ * its gate built the template in, so without the negated entries in
+ * `files` every release would carry the template's last build, which
+ * nothing reads.
+ */
+export function uncopiedTemplateFiles(files: readonly string[]): string[] {
+  return files.filter(
+    (file) =>
+      file.startsWith(TEMPLATE_IN_PACKAGE) &&
+      file
+        .slice(TEMPLATE_IN_PACKAGE.length)
+        .split("/")
+        .some((segment) => NOT_COPIED.has(segment)),
+  )
+}
+
 /**
  * The file holding `loadGame`'s import of a game's page module, and the
  * comments that keep a studio's bundler off it. That import takes a URL
@@ -477,6 +499,11 @@ export function problemsWith(shipped: Shipped): string[] {
         `${shipped.name} would ship no ${published}, which the "${command}" command runs`,
       )
     }
+  }
+  for (const file of uncopiedTemplateFiles(shipped.files)) {
+    problems.push(
+      `${shipped.name} would ship ${file}, which vbz new never copies into a game; keep it out with a negated entry in files`,
+    )
   }
   for (const comment of shipped.bundlerComments) {
     problems.push(

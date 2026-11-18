@@ -62,6 +62,8 @@ it" below). `check` runs the engine's checks every game needs, a recording
 replaying to the state it recorded among them, and prints the version, its
 release line and the line's contract hash, so two builds of a line can be
 compared. `check --ranked` adds the two checks ranked play on vbz.gg needs.
+Each command takes only the flags it reads, and refuses any other by name
+rather than ignoring it.
 
 `dev` is your game's page on your laptop. The game's two modules and its
 files folder are served on one port with the headers a host serving them to
@@ -242,7 +244,8 @@ const game = await loadGame({
 
 and sends `pageCsp` from `@vbz-gg/sdk/harness` in place of `localPageCsp`,
 with that origin, `gameId` and `needs`, which admits `/g/<game id>/` there
-and nothing else on it. The game id is a UUID made from the manifest's id,
+and nothing else on it. `AddressedBuild`, also from `@vbz-gg/sdk/harness`,
+is the type of `addressed.json`. The game id is a UUID made from the manifest's id,
 the same for every version, unless `--game <id>` names one of your own. The
 agent guide's `SKILL.md` has it under "Distributing the build".
 

@@ -984,7 +984,7 @@ the folder as it is from the root of an origin. The page module's imports
 are root-relative, so there is no base path to give it, and a host that
 serves only under a sub-path serves `dist/` beside the page instead. Beside
 the folder, `dist/addressed.json` says what the page needs, each path from
-that root:
+that root, and `AddressedBuild` in `/harness` is its type:
 
 ```json
 {

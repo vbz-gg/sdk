@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
+import { NOT_COPIED } from "../packages/sdk/src/cli/new"
 import {
   BUNDLER_COMMENTS,
   type CommittedFile,
@@ -16,6 +17,7 @@ import {
   problemsWith,
   RUNTIME_FILES,
   type Shipped,
+  TEMPLATE_IN_PACKAGE,
   unimportableSubpaths,
 } from "./check-publishable"
 
@@ -125,6 +127,50 @@ describe("what a tarball would do to a consumer", () => {
       expect(problems).toEqual([
         `@vbz-gg/sdk would ship no ${file}, which it reads at runtime`,
       ])
+    }
+  })
+
+  /**
+   * The tests build the template in place, and npm packs what is on disk,
+   * so a template's `dist/` reached every release until `files` negated it.
+   * `vbz new` never copies it, so nothing read it either.
+   */
+  test("a build or an install left in the template is caught, file by file", () => {
+    const left = [
+      "templates/game/dist/sim.js",
+      "templates/game/dist/addressed/g/x/sim/y.js",
+      "templates/game/node_modules/probe/index.js",
+    ]
+    const problems = problemsWith(
+      shipped({ files: [...shipped().files, ...left] }),
+    )
+    expect(problems).toEqual(
+      left.map(
+        (file) =>
+          `@vbz-gg/sdk would ship ${file}, which vbz new never copies into a game; keep it out with a negated entry in files`,
+      ),
+    )
+    // The template's own files, its `site/` among them, are not caught.
+    expect(
+      problemsWith(
+        shipped({
+          files: [...shipped().files, "templates/game/site/distant.ts"],
+        }),
+      ),
+    ).toEqual([])
+  })
+
+  /**
+   * What keeps them out is the package's own `files`: one negated entry
+   * per directory `vbz new` never copies, measured with npm 10.9.9 to drop
+   * a template's `dist/` and `node_modules/` from the tarball.
+   */
+  test("the package's files negate every directory vbz new never copies", async () => {
+    const manifest = (await Bun.file(
+      join(import.meta.dir, "..", "packages", "sdk", "package.json"),
+    ).json()) as { readonly files: readonly string[] }
+    for (const name of NOT_COPIED) {
+      expect(manifest.files).toContain(`!${TEMPLATE_IN_PACKAGE}${name}`)
     }
   })
 
