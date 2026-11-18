@@ -667,6 +667,26 @@ policy, the sign-in's box, the files folder's loads and a build on another
 origin, which are each engine's to decide. The fingers and the sensor
 override are Chromium's own protocol.
 
+**In CI the suite runs inside Playwright's own image**,
+`mcr.microsoft.com/playwright`, which carries the three browsers and every
+system library they load, so no run downloads a browser or installs anything
+with apt. Installing those libraries from Ubuntu's mirrors on every run sat
+for 15 to 25 minutes twice on 17 and 18 November, against under 4 minutes for
+the whole suite. The image holds the browser builds of one Playwright version,
+and any other version looks for builds that are not there, so its tag names
+the version `bun.lock` installs and `scripts/release-version.test.ts` holds
+the two equal. No script moves Playwright: a bump moves the tag in `ci.yml`
+in the same commit, and the test fails until it does. The job runs as uid
+1001, the runner's own user, because as root Firefox will not start in the
+home GitHub mounts, which that user owns, and with `--ipc=host` and `--init`,
+as Playwright's Docker page recommends. bun comes from npm rather than
+`oven-sh/setup-bun`, which unpacks a zip with an `unzip` the image does not
+carry; it is the same binary byte for byte, at the version every other job
+installs, and the same test holds those equal. On a laptop,
+`bun run --cwd e2e install:browsers` installs the three browsers through the
+workspace's own Playwright, never `bunx playwright`, which fetches the newest
+release and downloads builds the pinned one does not look for.
+
 One thing about the tools themselves, measured rather than read:
 
 - **A CDP `touchEnd` carries the finger being lifted**, not the ones still

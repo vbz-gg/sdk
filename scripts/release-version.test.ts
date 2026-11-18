@@ -19,9 +19,9 @@
  * something does, it joins `bumpFiles` and this file grows the search that
  * finds the next one.
  *
- * The rest of this file holds the two workflows' shape. Each assertion is a
- * mistake clockwork2 made and paid for, and a workflow cannot be unit tested,
- * so reading it is the only check there is.
+ * The rest of this file holds the workflows' shape. Each assertion is a
+ * mistake clockwork2 made and paid for, or one CI made here, and a workflow
+ * cannot be unit tested, so reading it is the only check there is.
  */
 
 import { describe, expect, test } from "bun:test"
@@ -247,5 +247,100 @@ describe("the engine update", () => {
     expect(workflow).toContain("bun run test:coverage")
     expect(workflow).toContain("gh pr create")
     expect(workflow).toContain("carries no checks of its own")
+  })
+})
+
+/** One job of a workflow: its own lines, up to the next job or the end. */
+function jobOf(workflow: string, name: string): string {
+  const start = workflow.indexOf(`\n  ${name}:\n`)
+  if (start === -1) throw new Error(`no job named ${name}`)
+  const next = /\n {2}[a-z][a-z-]*:\n/.exec(workflow.slice(start + 1))
+  return workflow.slice(start, next ? start + 1 + next.index : undefined)
+}
+
+function workflowText(file: string): string {
+  return readFileSync(join(ROOT, ".github/workflows", file), "utf8")
+}
+
+describe("the browser suite's job", () => {
+  const job = jobOf(workflowText("ci.yml"), "browser")
+
+  /**
+   * The image holds the browser builds of one Playwright version, and a
+   * Playwright of any other version looks for builds that are not in it.
+   * CI installs from bun.lock, so a Playwright bump that leaves the tag
+   * behind fails here rather than as a suite that cannot start a browser.
+   * Every Playwright package the lockfile resolves is counted, nested ones
+   * included, so the root's `playwright` and the suite's `@playwright/test`
+   * cannot drift apart either.
+   */
+  test("runs in Playwright's image at the version bun.lock installs", () => {
+    const tag =
+      /\n {6}image: mcr\.microsoft\.com\/playwright:v(\d+\.\d+\.\d+)-noble\n/.exec(
+        job,
+      )?.[1]
+    expect(tag, "the job names Playwright's noble image").toBeDefined()
+    const lock = readFileSync(join(ROOT, "bun.lock"), "utf8")
+    const resolved = [
+      ...lock.matchAll(
+        /\["(@playwright\/test|playwright|playwright-core)@([^"]+)"/g,
+      ),
+    ]
+    expect(new Set(resolved.map(([, name]) => name))).toEqual(
+      new Set(["@playwright/test", "playwright", "playwright-core"]),
+    )
+    for (const [, name, version] of resolved) {
+      expect(version, `${name} in bun.lock against the image's tag`).toBe(
+        tag as string,
+      )
+    }
+  })
+
+  /**
+   * Playwright's options for its image. The hosted runner's user is 1001 and
+   * owns the home GitHub mounts, and as root Firefox will not start in a home
+   * another user owns. Without --ipc=host Chromium can run out of shared
+   * memory and crash, and --init reaps what a spec leaves behind.
+   */
+  test("runs as the runner's user, with the host's IPC and an init", () => {
+    expect(job).toContain("\n      options: --user 1001 --ipc=host --init\n")
+  })
+
+  /**
+   * The point of the image. Installing the browsers' libraries with apt sat
+   * for 15 to 25 minutes on a slow mirror, and a browser download or a cache
+   * of one is what the image already holds.
+   */
+  test("installs no browser and nothing with apt", () => {
+    for (const install of [
+      "install:browser",
+      "playwright install",
+      "apt-get",
+      "actions/cache",
+    ]) {
+      expect(job, `the job runs ${install}`).not.toContain(install)
+    }
+  })
+
+  /**
+   * setup-bun unpacks bun's zip with `unzip`, which the image does not carry,
+   * so this job takes bun from npm. It is the version every other job's
+   * setup-bun installs, so the suite runs on the bun the rest of CI does.
+   */
+  test("installs the bun every other job does, without setup-bun", () => {
+    expect(job).not.toContain("uses: oven-sh/setup-bun")
+    // The step sets pipefail, and a container's default shell is dash.
+    expect(job).toContain("\n    defaults:\n      run:\n        shell: bash\n")
+    const pinned = /@oven\/bun-linux-x64@(\S+)\n/.exec(job)?.[1]
+    expect(pinned, "the job installs bun from npm").toBeDefined()
+    for (const file of ["ci.yml", "release.yml", "engine-update.yml"]) {
+      const versions = [
+        ...workflowText(file).matchAll(/\n\s+bun-version: (\S+)\n/g),
+      ].map(([, version]) => version)
+      expect(versions.length, `${file} sets up bun`).toBeGreaterThan(0)
+      for (const version of versions) {
+        expect(version, `${file}'s bun`).toBe(pinned as string)
+      }
+    }
   })
 })

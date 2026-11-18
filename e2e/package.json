@@ -8,8 +8,7 @@
     "test": "playwright test",
     "test:ui": "playwright test --ui",
     "report": "playwright show-report",
-    "install:browsers": "playwright install --with-deps chromium firefox webkit",
-    "install:browser-deps": "playwright install-deps chromium firefox webkit"
+    "install:browsers": "playwright install --with-deps chromium firefox webkit"
   },
   "devDependencies": {
     "@playwright/test": "1.56.1",
