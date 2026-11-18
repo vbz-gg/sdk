@@ -329,6 +329,8 @@ describe("the browser suite's job", () => {
    */
   test("installs the bun every other job does, without setup-bun", () => {
     expect(job).not.toContain("uses: oven-sh/setup-bun")
+    // The step sets pipefail, and a container's default shell is dash.
+    expect(job).toContain("\n    defaults:\n      run:\n        shell: bash\n")
     const pinned = /@oven\/bun-linux-x64@(\S+)\n/.exec(job)?.[1]
     expect(pinned, "the job installs bun from npm").toBeDefined()
     for (const file of ["ci.yml", "release.yml", "engine-update.yml"]) {

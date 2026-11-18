@@ -56,6 +56,13 @@ jobs:
     env:
       CI: "true"
 
+    # In a container a run step's default shell is `sh -e`, and sh in this
+    # image is dash, which has no pipefail: run 44231102103 stopped at the
+    # first line of the bun step with "set: Illegal option -o pipefail".
+    defaults:
+      run:
+        shell: bash
+
     steps:
       - uses: actions/checkout@v4
 
