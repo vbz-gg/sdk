@@ -1,6 +1,6 @@
 {
   "name": "@vbz-gg/sdk",
-  "version": "0.7.3",
+  "version": "0.7.4",
   "type": "module",
   "description": "Build a game that runs on vbz.gg: its rules code and the page module a studio's page loads, the checks, a page's client and host for the platform, and a harness that runs it all on your laptop",
   "license": "MIT",

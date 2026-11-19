@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [0.7.4](https://github.com/vbz-gg/sdk/compare/v0.7.3...v0.7.4) (2026-11-19)
+
+
+### Documentation
+
+* record a game page's shader words with a click ([#28](https://github.com/vbz-gg/sdk/issues/28)) ([d98ea29](https://github.com/vbz-gg/sdk/commit/d98ea29547047b4fc18035fe27267c23c05fcc45))
+
+
+### CI
+
+* run the browser suite in Playwright's prebuilt image ([#27](https://github.com/vbz-gg/sdk/issues/27)) ([0d17458](https://github.com/vbz-gg/sdk/commit/0d1745881cb01fdd127841908928b5c172b6a221))
+
 ## [0.7.3](https://github.com/vbz-gg/sdk/compare/v0.7.2...v0.7.3) (2026-11-18)
 
 
