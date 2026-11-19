@@ -434,6 +434,11 @@ vbz.gg puts up:
    another site from the page in all three engines. Use `require-corp`:
    null3d's hosting guide says Safari does not support `credentialless`.
 
+A game starts in either mode. Do not gate its Play button on
+`crossOriginIsolated`, and do not offer a single-threaded mode of its own:
+null3d falls back by itself. Read `engine.capabilities.threaded` to record
+the mode in the run log.
+
 ## What can go wrong
 
 | What | Where it shows |
