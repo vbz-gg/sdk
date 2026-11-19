@@ -942,7 +942,11 @@ recipe, file by file. In short:
   bytes, naming 7,428 files Bun cannot ship, measured. Build only the shader
   permutations the game draws with: a three-lane scene drew with 5 words
   and a folder of 297 files and 26,057,130 bytes, where null3d's full shader
-  set is 4,117,799,356 bytes, over `MAX_FILES_BYTES`.
+  set is 4,117,799,356 bytes, over `MAX_FILES_BYTES`. Record those words
+  against a development build of the folder, and give null3d's recorder
+  `--click` for a page that starts its engine on a button: a production
+  build ignores the recording switches. A null3d release asset holds the
+  full set, so narrow it first.
 - **Its needs**: `"vbz": { "needs": { "wasm": true, "workers": true } }`,
   and the game's path in `connect-src`, which the build adds because the
   folder lists files.
