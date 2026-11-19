@@ -380,6 +380,18 @@ asking, until the site's data is cleared in the browser's settings; the
 sentence for `E_MOTION_DENIED` says so. A request whose promise is rejected
 rather than answered fails the run with `E_UNEXPECTED`.
 
+**On a phone, the Play click can take the whole screen.** A game played
+landscape wants the browser's bars gone, and Chrome allows an orientation
+lock only in fullscreen. Both need the click: call `requestFullscreen()` on
+the document, then `screen.orientation.lock()` with the game's orientation,
+from the same handler that calls `playLocal`, and let a refusal through
+without failing the run. Fullscreen the document rather than the game's
+element, so the page's own bar, and with it the run's end and its recording,
+stay reachable. iPhone Safari has no element fullscreen, so a game that only
+works landscape should show a turn notice in portrait with a stylesheet
+rule, not rely on the lock. A game that reads tilt asks in the same click,
+after the fullscreen request.
+
 ## If you use vbz.gg: a ranked run on a page
 
 On vbz.gg, a local run can never pass for a ranked or practice run. Its seed
