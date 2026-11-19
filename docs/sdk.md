@@ -968,7 +968,9 @@ recipe, file by file. In short:
   both coming in null3d's next release.
 - **Isolation for threads**: no headers, which plays single-threaded;
   `Document-Isolation-Policy`; or COOP with COEP. All three were measured
-  with the sign-in's box a ranked page on vbz.gg puts up.
+  with the sign-in's box a ranked page on vbz.gg puts up. A game starts
+  either way: do not gate Play on isolation, and read
+  `engine.capabilities.threaded` to log the mode.
 
 ## Serving
 
