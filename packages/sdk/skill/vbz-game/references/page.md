@@ -72,7 +72,12 @@ playButton.onclick = () => {
 
 The template's `site/` is such a page while `site/config.json` says
 `{ "mode": "local" }`, which a new game ships with, and `vbz dev --site`
-serves it from the build.
+serves it from the build. That server builds the page module when it starts:
+a change to the page code, or a new module it imports, is not served until
+the server restarts, while the HTML and CSS are served directly. A page
+change can therefore look half-applied: a new panel appears, but the code
+that hides it is still the old bundle. Restart the server after a page
+change.
 
 ### On a phone
 
@@ -108,6 +113,13 @@ playButton.onclick = async () => {
   request, so that request has the click's permission.
 - Ask again on each Play, not on a timer: a player who left fullscreen gets
   it back when they press Play, and is never trapped in it.
+- An overlay panel -- settings, a run list, a start pick -- must fit the
+  screen it is on. Give it `box-sizing: border-box` and
+  `max-height: calc(100dvh - <its top offset>)`, with `overflow-y: auto` and
+  `overscroll-behavior: contain`. A bare `100vh` follows the layout viewport,
+  which a phone's address bar and toolbars do not, and a height limit that
+  excludes the panel's padding lets it hang below the screen. Test in a short
+  landscape window, not only portrait.
 
 ### From another origin
 
