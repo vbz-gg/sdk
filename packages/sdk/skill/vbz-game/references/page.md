@@ -74,6 +74,41 @@ The template's `site/` is such a page while `site/config.json` says
 `{ "mode": "local" }`, which a new game ships with, and `vbz dev --site`
 serves it from the build.
 
+### On a phone
+
+A landscape game wants the whole screen: the browser's bars take height a
+thumb wants. Both the bars and the orientation lock need the Play tap, and
+Chrome locks the orientation only in fullscreen:
+
+```ts
+playButton.onclick = async () => {
+  if (matchMedia("(pointer: coarse)").matches) {
+    try {
+      await document.documentElement.requestFullscreen()
+      await screen.orientation?.lock("landscape") // the game's orientation
+    } catch {
+      // Refused, or unsupported: the page plays as it is.
+    }
+  }
+  playLocal(stage, { game, /* ... */ })
+}
+```
+
+- Ask for fullscreen first, then the lock: the lock is refused without it on
+  Chrome. `screen.orientation` and `requestFullscreen` are missing on some
+  browsers, so guard both and take a refusal as final for that tap.
+- Fullscreen the document, not the game's element, unless the page's own
+  controls (end, save) live inside it. A player must always be able to end
+  the run and keep its recording.
+- Element fullscreen is missing on iPhone Safari. A game that only works
+  landscape should say "turn your phone sideways" in portrait, with a
+  stylesheet rule (`@media (orientation: portrait) and (pointer: coarse)`),
+  rather than play squeezed or rotate the game.
+- A game that reads tilt asks in the same click, after the fullscreen
+  request, so that request has the click's permission.
+- Ask again on each Play, not on a timer: a player who left fullscreen gets
+  it back when they press Play, and is never trapped in it.
+
 ### From another origin
 
 `vbz build --addressed` writes `dist/addressed/`, which a host serves as it
