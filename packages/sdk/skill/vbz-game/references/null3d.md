@@ -85,8 +85,18 @@ modules decide the folder's size. null3d's guide,
 `docs/guides/deterministic-simulation.md` in its repository, has the steps:
 record the permutation words from a run of the game's page on both GPU paths
 and at the low and high presets, build the shader modules from that list in
-the checkout, and build the game with `NULL3D_ENGINE_SHADERS` naming them. A
-three-lane scene drew with 5 words, and its folder held 297 files and
+the checkout, and build the game with `NULL3D_ENGINE_SHADERS` naming them.
+
+A game page starts its engine on a click, and a production engine folder
+ignores `?gpu`, `?preset` and `?permutations`. Record against a development
+build of the folder (`vite build --mode development`), and give null3d's
+recorder `--live` pages with `--click <selector>`, such as
+`--click "#play"`. Then build the narrowed set and rebuild the folder in
+production. A game recorded this way drew with 5 words and held 300 files
+and 26 MB, where null3d's 172-word examples list made 762 files and 226 MB.
+A null3d release asset holds the full set, so it does not replace the list.
+
+A three-lane scene drew with 5 words, and its folder held 297 files and
 26,057,130 bytes, 4,737,421 after Brotli. Built against null3d's 172-word
 examples list it held 759 files and 225,683,678 bytes, and null3d's full
 shader set is 4,117,799,356 bytes in 8,148 files, over the 512 MiB and the
