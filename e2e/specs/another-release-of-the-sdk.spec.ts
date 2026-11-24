@@ -7,7 +7,7 @@
  * The earlier releases here are the first ones whose page modules speak
  * contract 1 and contract 2: the template as each built it, committed under
  * `e2e/frozen/` and never rebuilt, played by a page built from this tree.
- * The later one is this package packed, with its contract raised to 3, as a
+ * The later one is this package packed, with its contract raised to 4, as a
  * release that has moved on would be.
  */
 
@@ -50,8 +50,8 @@ for (const frozen of ["contract-1", "contract-2"] as const) {
 test("a module speaking a contract this page does not drive is refused, naming both", async ({
   page,
 }) => {
-  expect(await openModule(page, "contract-3")).toBe("E_GAME_CONTRACT_UNKNOWN")
+  expect(await openModule(page, "contract-4")).toBe("E_GAME_CONTRACT_UNKNOWN")
   const said = (await page.locator("#state").textContent()) ?? ""
-  expect(said).toContain('"module":3')
-  expect(said).toContain('"driven":[1,2]')
+  expect(said).toContain('"module":4')
+  expect(said).toContain('"driven":[1,2,3]')
 })
