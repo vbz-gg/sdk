@@ -40,14 +40,14 @@ export interface GuideSpec {
   readonly name: string
 }
 
-export const KIT_GUIDE: GuideSpec = { package: "@vbz-gg/sdk", name: "vbz-game" }
+export const SDK_GUIDE: GuideSpec = { package: "@vbz-gg/sdk", name: "vbz-game" }
 export const ENGINE_GUIDE: GuideSpec = {
   package: "@clockwork2/engine",
   name: "clockwork2",
 }
 
 /** Every guide a game carries. */
-export const GUIDES: readonly GuideSpec[] = [KIT_GUIDE, ENGINE_GUIDE]
+export const GUIDES: readonly GuideSpec[] = [SDK_GUIDE, ENGINE_GUIDE]
 
 /** A guide found in an installed package. */
 export interface Guide {
@@ -133,15 +133,15 @@ async function installed(
  * engine installed beside this package, found from `from` the way node would
  * find it from this module.
  */
-export async function guidesBesideKit(
+export async function guidesBesideSdk(
   ownRoot: string = OWN_ROOT,
   from: string = import.meta.dir,
 ): Promise<readonly Guide[]> {
   return [
-    await guideIn(KIT_GUIDE, ownRoot),
+    await guideIn(SDK_GUIDE, ownRoot),
     await guideIn(
       ENGINE_GUIDE,
-      await installed(ENGINE_GUIDE, from, `beside ${KIT_GUIDE.package}`),
+      await installed(ENGINE_GUIDE, from, `beside ${SDK_GUIDE.package}`),
     ),
   ]
 }
@@ -226,9 +226,9 @@ export async function assertGameRoot(dir: string): Promise<void> {
     ...Object.keys(manifest.dependencies ?? {}),
     ...Object.keys(manifest.devDependencies ?? {}),
   ]
-  if (!names.includes(KIT_GUIDE.package)) {
+  if (!names.includes(SDK_GUIDE.package)) {
     throw new Error(
-      `${notRoot}: its package.json names no ${KIT_GUIDE.package} in dependencies or devDependencies.`,
+      `${notRoot}: its package.json names no ${SDK_GUIDE.package} in dependencies or devDependencies.`,
     )
   }
 }

@@ -1,17 +1,17 @@
 /**
- * A game started the way an author starts one: the kit and the engine
+ * A game started the way an author starts one: the SDK and the engine
  * installed from their packed tarballs, `vbz new`, the game's own install,
  * `vbz guides`, `vbz check` and `vbz dev`, each run as the installed command.
  *
  * Everything an installed copy reads by path rather than imports is only
- * found here: the template, the kit's guide, and the engine's guide in the
- * engine installed beside the kit. A source tree has all three in reach
+ * found here: the template, the SDK's guide, and the engine's guide in the
+ * engine installed beside the SDK. A source tree has all three in reach
  * whether or not the tarball carries them.
  *
  * The packages come from the suite's registry, which holds the two tarballs
  * and fetches every other package from npm, through `BUN_CONFIG_REGISTRY`.
  * Each run gets its own `TMPDIR` and bun cache: `bunx` keeps its install
- * under `TMPDIR` and reuses it, and npm already has a kit and an engine at
+ * under `TMPDIR` and reuses it, and npm already has an SDK and an engine at
  * these version numbers.
  *
  * The commands run on a machine as an author's would be before they have
@@ -156,7 +156,7 @@ async function registryLog(): Promise<string[]> {
 
 /**
  * Holds a registry log to both packages having come from the registry: each
- * one's document and its tarball. npm has a kit and an engine at the same
+ * one's document and its tarball. npm has an SDK and an engine at the same
  * version numbers, so a request that never reached the registry would still
  * install something.
  */
@@ -191,7 +191,7 @@ function pageOf(dev: ChildProcess): Promise<string> {
   })
 }
 
-test("a game made from the packed kit installs, refreshes its guides, checks and plays", async ({
+test("a game made from the packed SDK installs, refreshes its guides, checks and plays", async ({
   page,
 }) => {
   const { registry, tarballs, nodeModules } = await studio()
@@ -200,7 +200,7 @@ test("a game made from the packed kit installs, refreshes its guides, checks and
     const env = await isolated(dir, registry)
     await registryLog()
 
-    // The kit and the engine, from their tarballs, into a directory of their
+    // The SDK and the engine, from their tarballs, into a directory of their
     // own, and the game made by the command that installed.
     await writeFile(join(dir, "package.json"), '{ "private": true }\n')
     await run("bun", ["add", tarballs.sdk, tarballs.engine], dir, env)
@@ -229,7 +229,7 @@ test("a game made from the packed kit installs, refreshes its guides, checks and
 
     // Both guides, as the tarballs carry them, and the files an agent reads
     // first under the names it reads them by.
-    const kitGuide = join(nodeModules, "@vbz-gg", "sdk", "skill", "vbz-game")
+    const sdkGuide = join(nodeModules, "@vbz-gg", "sdk", "skill", "vbz-game")
     const engineGuide = join(
       nodeModules,
       "@clockwork2",
@@ -238,7 +238,7 @@ test("a game made from the packed kit installs, refreshes its guides, checks and
       "clockwork2",
     )
     expect(await files(join(game, ".claude", "skills", "vbz-game"))).toEqual(
-      await files(kitGuide),
+      await files(sdkGuide),
     )
     expect(await files(join(game, ".claude", "skills", "clockwork2"))).toEqual(
       await files(engineGuide),
@@ -321,8 +321,8 @@ test("a game made from the packed kit installs, refreshes its guides, checks and
 })
 
 /**
- * The command the kit's README and guide tell an author to run first, which
- * installs the kit into `bunx`'s own directory and the engine beside it as
+ * The command the SDK's README and guide tell an author to run first, which
+ * installs the SDK into `bunx`'s own directory and the engine beside it as
  * its peer.
  */
 test("bunx @vbz-gg/sdk new makes the same game from the registry", async () => {

@@ -22,7 +22,7 @@
  * - **A package registry** holding that tarball and one of the engine, for
  *   the spec that makes a game with `vbz new` and `bunx` the way an author
  *   does. Every other package it fetches from npm.
- * - **A host that is not this kit's**: a plain file server holding the
+ * - **A host that is not this SDK's**: a plain file server holding the
  *   template's `dist/addressed/`, as `vbz build --addressed` wrote it, at
  *   its root, sending only the headers the guide lists, and a page on an
  *   origin of its own that plays the build from there.
@@ -579,7 +579,7 @@ Bun.serve({
 })
 
 /**
- * A host that is not this kit's: a plain file server holding the folder
+ * A host that is not this SDK's: a plain file server holding the folder
  * `vbz build --addressed` wrote, at its root, and sending what the guide's
  * "Distributing the build" lists and nothing more, by each file's
  * extension. It shares no code with `createBlobServer`, and sends no

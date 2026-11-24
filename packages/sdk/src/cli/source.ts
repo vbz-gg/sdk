@@ -24,7 +24,7 @@ import type { GameSource } from "../build/index.js"
 import type { DeclaredNeeds } from "../harness/csp.js"
 import type { Options } from "./args.js"
 
-/** The key in a game's `package.json` that holds what the kit reads there. */
+/** The key in a game's `package.json` that holds what the SDK reads there. */
 export const PACKAGE_KEY = "vbz"
 
 /** Whether `child` is `parent` or somewhere under it. */

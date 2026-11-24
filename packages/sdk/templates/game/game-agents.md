@@ -1,6 +1,6 @@
 # Lane Runner
 
-Lane Runner is a game built with the vbz kit (`@vbz-gg/sdk`) on the
+Lane Runner is a game built with the vbz.gg SDK (`@vbz-gg/sdk`) on the
 Clockwork 2 engine (`@clockwork2/engine`). It is one build, shipped any way
 its author chooses: their own site, a static host, a game portal, or a page
 that is never online. Its own page in `site/` plays it and talks to nobody
@@ -49,7 +49,7 @@ Two guides hold the rest, written for an agent to follow:
 
 - `.claude/skills/clockwork2/SKILL.md` is the engine's: how to write a
   simulation that replays to the same state anywhere.
-- `.claude/skills/vbz-game/SKILL.md` is the kit's: everything between that
+- `.claude/skills/vbz-game/SKILL.md` is the SDK's: everything between that
   simulation and a game a page plays, from inputs and controls to shipping
   the build, and, if you use vbz.gg, publishing it.
 

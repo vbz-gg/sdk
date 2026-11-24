@@ -23,10 +23,10 @@ import { join, resolve } from "node:path"
 import { buildGameArtifacts } from "../../src/build/index.js"
 import {
   ENGINE_GUIDE,
-  guidesBesideKit,
-  KIT_GUIDE,
+  guidesBesideSdk,
   OWN_ROOT,
   packageRoot,
+  SDK_GUIDE,
   SKILLS_DIR,
 } from "../../src/cli/guides.js"
 import {
@@ -255,7 +255,7 @@ describe("what a copy is", () => {
       const agents = await readFile(join(dir, "AGENTS.md"), "utf8")
       expect(agents).toStartWith("# Tiki Kong\n")
       expect(agents).not.toContain(TEMPLATE_TITLE)
-      for (const guide of [KIT_GUIDE, ENGINE_GUIDE]) {
+      for (const guide of [SDK_GUIDE, ENGINE_GUIDE]) {
         expect(agents).toContain(`${SKILLS_DIR}/${guide.name}/SKILL.md`)
       }
       expect(agents).toContain("vbz guides")
@@ -337,7 +337,7 @@ describe("what a copy is", () => {
    */
   test("a guide that cannot be copied leaves no half-made game", async () => {
     const broken = async () => [
-      ...(await guidesBesideKit()).slice(0, 1),
+      ...(await guidesBesideSdk()).slice(0, 1),
       {
         name: ENGINE_GUIDE.name,
         package: ENGINE_GUIDE.package,
@@ -363,7 +363,7 @@ describe("what a copy is", () => {
   }, 30_000)
 
   /**
-   * The kit's guide from this package and the engine's from the engine
+   * The SDK's guide from this package and the engine's from the engine
    * installed beside it, byte for byte, so the guide an agent reads is the
    * one for the versions that made the game.
    */
@@ -371,13 +371,13 @@ describe("what a copy is", () => {
     await into("guided", async (dir) => {
       const made = await createGame({ dir, versions: VERSIONS })
       expect(made.guides.map((guide) => guide.name)).toEqual([
-        KIT_GUIDE.name,
+        SDK_GUIDE.name,
         ENGINE_GUIDE.name,
       ])
       const engine = await packageRoot(ENGINE_GUIDE.package, OWN_ROOT)
       if (engine === null) throw new Error("no engine beside this package")
       const sources = {
-        [KIT_GUIDE.name]: join(OWN_ROOT, "skill", KIT_GUIDE.name),
+        [SDK_GUIDE.name]: join(OWN_ROOT, "skill", SDK_GUIDE.name),
         [ENGINE_GUIDE.name]: join(engine, "skill", ENGINE_GUIDE.name),
       }
       for (const [name, source] of Object.entries(sources)) {
@@ -427,7 +427,7 @@ describe("what a copy is", () => {
             await createGame({
               dir,
               versions: VERSIONS,
-              guides: () => guidesBesideKit(OWN_ROOT, from),
+              guides: () => guidesBesideSdk(OWN_ROOT, from),
             })
           } catch (error) {
             thrown = error

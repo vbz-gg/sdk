@@ -2,14 +2,14 @@
 
 [null3d](https://github.com/null3d-engine/null3d) draws from workers with a
 WebAssembly core, on WebGPU or WebGL2. This page is how a game made with
-this kit draws with it: where its code goes, how the page module reaches it,
+this SDK draws with it: where its code goes, how the page module reaches it,
 how the run's clock waits for its first frame, why its input stays off, how
 a mouse turns a camera that changes the result, which of its maths the rules
 code may use, and what a page's policy and headers need.
 
-null3d is not on npm yet, so this kit does not depend on it, and nothing
+null3d is not on npm yet, so this SDK does not depend on it, and nothing
 here is a template: it is a recipe. Every figure is from a study that drew
-the kit's template with null3d in Chromium 141 and 153 and Firefox 142,
+the SDK's template with null3d in Chromium 141 and 153 and Firefox 142,
 unless the sentence names another source.
 
 ## What goes where
@@ -266,7 +266,7 @@ helpers listen on the element the game is mounted in, so a press that lands
 on null3d's canvas is still recorded (measured).
 
 A camera a viewer orbits while watching a replay changes no result, so the
-kit refuses nothing of `@null3d/controls`. With input off it hears nothing,
+SDK refuses nothing of `@null3d/controls`. With input off it hears nothing,
 though, and a presentation is the same for a run played and one watched, so
 a camera in a vbz game is the rules code's, in the view.
 

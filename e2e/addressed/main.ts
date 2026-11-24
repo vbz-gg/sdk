@@ -1,6 +1,6 @@
 /**
  * A page on one origin playing a game another origin serves, as a page that
- * is not this kit's does: it reads `addressed.json`, which
+ * is not this SDK's does: it reads `addressed.json`, which
  * `vbz build --addressed` wrote and the page ships with, loads the page
  * module at the host's origin and the path the file names with `loadGame`,
  * with no import map, and plays it with `playLocal`, asking nobody

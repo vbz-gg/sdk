@@ -240,7 +240,7 @@ export const COMMANDS: readonly Command[] = [
     args: "[dir]",
     summary: [
       `replace ${GUIDES.map((guide) => `${SKILLS_DIR}/${guide.name}`).join(" and ")}`,
-      "with the guides the game's installed kit and engine ship",
+      "with the guides the game's installed SDK and engine ship",
     ],
     flags: [],
     run: guides,

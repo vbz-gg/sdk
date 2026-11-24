@@ -64,7 +64,7 @@ export const PORTAL_PORT = 4326
 
 /**
  * A plain file server holding the template's `dist/addressed/` at its root,
- * standing in for any host that is not this kit's, and a page on an origin
+ * standing in for any host that is not this SDK's, and a page on an origin
  * of its own that plays the build from there.
  */
 export const ADDRESSED_FILES_PORT = 4329

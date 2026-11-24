@@ -1,7 +1,7 @@
 # Lane Runner
 
-A starting point for a game on the Clockwork 2 engine, built with the vbz
-kit. Three lanes, rocks coming towards you, motes to collect.
+A starting point for a game on the Clockwork 2 engine, built with the vbz.gg
+SDK. Three lanes, rocks coming towards you, motes to collect.
 
 ```bash
 bun install
@@ -33,7 +33,7 @@ src/present.ts        the page module's entry, which a page loads
 site/                 your game's page: played locally, or on vbz.gg sign-in, Play, Practice and the board
 site/config.json      which of the two the page is: { "mode": "local" } as it ships
 AGENTS.md             what an agent working on the game reads first
-.claude/skills/       the engine's guide and the kit's, for an agent to follow
+.claude/skills/       the engine's guide and the SDK's, for an agent to follow
 ```
 
 The line that matters is between `src/sim/` and everything else. The
@@ -50,7 +50,7 @@ either, `bunx vbz guides` replaces them with the ones the new versions ship.
 Lane Runner ships no files folder. A game that needs one, for a renderer's
 engine, art, or data the rules code reads, names it in `package.json` as
 `"vbz": { "files": "files" }`, and says there what a page's policy has to
-allow for it. The kit's guide has it in `references/files.md`, and drawing
+allow for it. The SDK's guide has it in `references/files.md`, and drawing
 with null3d in `references/null3d.md`.
 
 ## Controls
@@ -123,7 +123,7 @@ To deploy it, bundle `site/main.ts` for the browser with whatever builds the
 rest of your site and serve it as `main.js` beside `index.html` and
 `site.css`, with `dist/` beside them as `game/` when the page plays locally.
 Any host that serves files will do, as long as it sends every `.js` file as
-JavaScript and a `.wasm` file as `application/wasm`; the kit's guide has
+JavaScript and a `.wasm` file as `application/wasm`; the SDK's guide has
 the rest under "Distributing the build", with the policy the page sends.
 `dist/sim.js` and `dist/present.js` keep their names from one build to the
 next, so cache them as files that change in place.
@@ -134,7 +134,7 @@ every file at a content-addressed path, to copy as it is to the root of
 that origin, and `dist/addressed.json`, which says what the page needs. The
 page then loads the game from there with no import map, in place of
 `game/game.json`, and sends `pageCsp` naming that origin in place of
-`localPageCsp`. The host sends the headers the kit's guide lists under
+`localPageCsp`. The host sends the headers the SDK's guide lists under
 "Distributing the build", and may cache everything in `dist/addressed/` for
 a year, since a path there never names other bytes.
 
