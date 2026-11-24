@@ -1,5 +1,5 @@
 /**
- * A package registry that holds the packed kit and engine, for the spec that
+ * A package registry that holds the packed SDK and engine, for the spec that
  * installs them the way an author does.
  *
  * It answers each held package's document and tarball as npm's registry
@@ -10,8 +10,8 @@
  *
  * bun reads the registry from `BUN_CONFIG_REGISTRY`, for `bun install` and
  * for `bunx` alike. Measured with bun 1.3.11: `bunx @vbz-gg/sdk new` asked
- * this registry for both packages, installed the engine as the kit's peer
- * beside it, and ran the kit's `vbz`. A `bunfig.toml` naming the registry in
+ * this registry for both packages, installed the engine as the SDK's peer
+ * beside it, and ran the SDK's `vbz`. A `bunfig.toml` naming the registry in
  * the directory `bunx` ran in reached nothing here, and `bunx` installed
  * npm's published 0.5.1 instead. And `bunx` keeps its install in
  * `$TMPDIR/bunx-<uid>-@vbz-gg/sdk@latest/`, lockfile included, and reused it

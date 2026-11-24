@@ -4,7 +4,7 @@
  * Every module the entry point imports statically is loaded to run any
  * command at all, `vbz new` included. A game made by `vbz new` has none of
  * the engine's optional peers until its own install runs, which is after
- * `vbz new`, and `bunx @vbz-gg/sdk new` runs from an install holding the kit
+ * `vbz new`, and `bunx @vbz-gg/sdk new` runs from an install holding the SDK
  * and the engine and nothing else. So nothing the entry point reaches
  * statically may need one: not TypeScript, whose parser the engine's upload
  * checks read a game's code with, and not a renderer. Only `vbz check` runs

@@ -26,7 +26,7 @@ export interface StudioInfo {
   readonly nodeModules: string
   /** A registry holding the two tarballs, and npm's packages beside them. */
   readonly registry: string
-  /** The packed kit and the engine packed from the copy installed here. */
+  /** The packed SDK and the engine packed from the copy installed here. */
   readonly tarballs: { readonly sdk: string; readonly engine: string }
 }
 

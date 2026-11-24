@@ -25,7 +25,7 @@ import {
   writeFile,
 } from "node:fs/promises"
 import { basename, join, relative, sep } from "node:path"
-import { type Guide, guidesBesideKit, installGuides } from "./guides.js"
+import { type Guide, guidesBesideSdk, installGuides } from "./guides.js"
 
 /** The template this package ships, wherever it is installed. */
 export const TEMPLATE_DIR = join(
@@ -174,7 +174,7 @@ export async function createGame(options: NewGameOptions): Promise<NewGame> {
   const versions = options.versions ?? (await versionsFor())
   // Found before anything is written: an engine without its guide stops
   // here, rather than after a game half-made without one.
-  const guides = await (options.guides ?? guidesBesideKit)()
+  const guides = await (options.guides ?? guidesBesideSdk)()
 
   await mkdir(dir, { recursive: true })
   try {

@@ -11,7 +11,7 @@ This repository sits between two others. [clockwork2](https://github.com/vbz-gg/
 is the engine and owns determinism, the manifest, the host that runs a game
 in a page and the device helpers that record its inputs; the
 [platform](https://github.com/vbz-gg/platform) is the backend that checks an
-upload, replays a run and ranks it. A game made with this kit is one build:
+upload, replays a run and ranks it. A game made with this SDK is one build:
 played locally on its own page with no platform, and, opted in, played as
 ranked and practice runs on a studio's page.
 
@@ -353,12 +353,12 @@ runs**, through an `import()` in the entry point. Everything the entry point
 imports statically is loaded before it reads which command it was given, and
 the engine's checks import `typescript`, an optional peer of the engine. A
 game has TypeScript once its own install has run, which is after `vbz new`,
-and `bunx @vbz-gg/sdk new` runs from an install holding the kit and the
+and `bunx @vbz-gg/sdk new` runs from an install holding the SDK and the
 engine alone. The same goes for anything importing `pixi.js` or `three`.
 `tests/cli/startup.test.ts` walks what the entry point loads, as `tsc` emits
 it, into the installed engine.
 
-The kit declares no peer on `typescript`. The engine declares it, with the
+The SDK declares no peer on `typescript`. The engine declares it, with the
 range its checks need, wherever the engine is installed, and the template's
 `devDependencies` carry it, so `vbz check` finds it in any game `vbz new`
 made.
@@ -420,7 +420,7 @@ between a conforming simulation and a game a page plays, wherever its author
 ships it, and, for a game that uses vbz.gg, runs the platform checks and
 replays.
 
-**The kit needs no platform, and the prose says so.** A game made with it
+**The SDK needs no platform, and the prose says so.** A game made with it
 may never upload, use vbz.gg or sign a player in. In the guide,
 `docs/sdk.md`, both READMEs and the template, everything about vbz.gg sits
 in sections headed "If you use vbz.gg"; the CLI's help, which has no
@@ -627,7 +627,7 @@ What only a browser can settle, and what each spec found:
   stand-in for `Worker`. Under the policy with the needs left
   out, Chromium and Firefox refuse its core's fetch (`connect-src`) and its
   worker (`worker-src`), and it never gets ready.
-- A build served by a host that is not this kit's: `dist/addressed/` from a
+- A build served by a host that is not this SDK's: `dist/addressed/` from a
   plain file server's root, sending only the headers the guide's
   "Distributing the build" lists, by extension, and no `ETag`, loads and
   plays with `playLocal` on a page on another origin under `pageCsp` with
@@ -648,7 +648,7 @@ What only a browser can settle, and what each spec found:
   Without its comment webpack turns `loadGame`'s import into a lookup of its
   own and the page loads nothing; Vite 8 and esbuild leave it alone either
   way.
-- A game made the way an author makes one: the kit and the engine installed
+- A game made the way an author makes one: the SDK and the engine installed
   from their tarballs, `vbz new`, the game's own install from the registry,
   `vbz guides`, `vbz check`, and `vbz dev` with no studio key, its page
   loaded and played. And `bunx @vbz-gg/sdk new`, against the registry
