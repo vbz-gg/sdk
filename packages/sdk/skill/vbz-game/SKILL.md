@@ -1,9 +1,9 @@
 ---
 name: vbz-game
-description: Make a browser game on a Clockwork 2 simulation with the vbz kit, build it, and ship it any way you like - your own site, a static host, a game portal, or offline. Covers the build, loadGame and playLocal on any page, the headers and page policy a host needs, why a recording replays and what that asks of a game - one seeded Prng and never Math.random - drawing your own controls and hit-testing them in tick, mapping keys, fingers, tilt and a locked mouse to declared inputs through the engine's device helpers, choosing what to record, the manifest, data packs, the limits, and null3d. Optionally, ranked runs on vbz.gg, which replays each run on a server - publishing, sign-in, boards, and the platform's checks, which refuse a game that ignores its seed. Use when starting, shipping or publishing a game, adding randomness or data, mapping inputs, testing against the harness, or reading a refused build or upload. For the simulation's full rules - Prng streams, dmath, snapshots - use the engine's guide, clockwork2.
+description: Make a browser game on a Clockwork 2 simulation with @vbz-gg/sdk, build it, and ship it any way you like - your own site, a static host, a game portal, or offline. Covers the build, loadGame and playLocal on any page, the headers and page policy a host needs, why a recording replays and what that asks of a game - one seeded Prng and never Math.random - drawing your own controls and hit-testing them in tick, mapping keys, fingers, tilt and a locked mouse to declared inputs through the engine's device helpers, choosing what to record, the manifest, data packs, the limits, and null3d. Optionally, ranked runs on vbz.gg, which replays each run on a server - publishing, sign-in, boards, and the platform's checks, which refuse a game that ignores its seed. Use when starting, shipping or publishing a game, adding randomness or data, mapping inputs, testing against the harness, or reading a refused build or upload. For the simulation's full rules - Prng streams, dmath, snapshots - use the engine's guide, clockwork2.
 ---
 
-# Building a game with the vbz kit
+# Building a game with the vbz.gg SDK
 
 Two guides. The engine's, **clockwork2**, is how to write a simulation that
 replays to the same state anywhere: fixed ticks, `Prng`, `dmath`, snapshots,

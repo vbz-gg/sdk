@@ -198,7 +198,7 @@ const CHECK_CODES = apiUnion("VersionCheckCode").literals
 const RETIRED_CHECK_CODES = apiUnion("VersionCheckCode").retired
 /**
  * The platform's refusals, which the guide keeps in a section of their own,
- * headed as one use of the kit a game may never have.
+ * headed as one use of the SDK a game may never have.
  */
 const REFUSAL_LIST = section(
   await read("SKILL.md"),
@@ -241,11 +241,11 @@ describe("the guide's front matter", () => {
 })
 
 /**
- * A game made with the kit may never meet vbz.gg: its author builds it and
+ * A game made with the SDK may never meet vbz.gg: its author builds it and
  * ships it any way they choose. So the guide leads with that, and keeps
  * everything about the platform in sections headed as one optional use.
  */
-describe("the kit without the platform", () => {
+describe("the SDK without the platform", () => {
   test("the description leads with making and shipping a game, and names vbz.gg only as an option", async () => {
     const front = (await read("SKILL.md")).split("---")[1] ?? ""
     const description = /^description: (.+)$/m.exec(front)?.[1] ?? ""

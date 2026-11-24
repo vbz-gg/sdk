@@ -1,5 +1,5 @@
 /**
- * Running a game's own code from the kit's commands.
+ * Running a game's own code from the SDK's commands.
  *
  * A game's code is a studio's, and so is everything it imports, which nobody
  * here has read. The commands run where an author or a build system keeps a

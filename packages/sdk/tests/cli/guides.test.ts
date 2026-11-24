@@ -26,12 +26,12 @@ import {
   type GuideSpec,
   guideIn,
   guideLines,
-  guidesBesideKit,
+  guidesBesideSdk,
   installGuides,
-  KIT_GUIDE,
   OWN_ROOT,
   packageRoot,
   refreshGuides,
+  SDK_GUIDE,
   SKILLS_DIR,
 } from "../../src/cli/guides.js"
 
@@ -68,7 +68,7 @@ async function install(
   return root
 }
 
-/** Makes `dir` a game's root: a package.json that names the kit. */
+/** Makes `dir` a game's root: a package.json that names the SDK. */
 async function asGame(
   dir: string,
   dependencies: Record<string, string> = { "@vbz-gg/sdk": "^9.1.0" },
@@ -142,7 +142,7 @@ describe("the guides' names", () => {
       await readFile(join(OWN_ROOT, "package.json"), "utf8"),
     ) as { files: readonly string[] }
     expect(files.filter((entry) => entry.startsWith("skill"))).toEqual([
-      `skill/${KIT_GUIDE.name}`,
+      `skill/${SDK_GUIDE.name}`,
     ])
   })
 
@@ -151,13 +151,13 @@ describe("the guides' names", () => {
    * game keeps it in is that name, so the two have to agree for both guides.
    */
   test("each guide declares the name it is installed under", async () => {
-    for (const guide of await guidesBesideKit()) {
+    for (const guide of await guidesBesideSdk()) {
       const skill = await readFile(join(guide.source, "SKILL.md"), "utf8")
       const front = skill.split("---")[1] ?? ""
       expect(/^name: (.+)$/m.exec(front)?.[1]).toBe(guide.name)
     }
     expect(GUIDES.map((guide) => guide.name)).toEqual([
-      KIT_GUIDE.name,
+      SDK_GUIDE.name,
       ENGINE_GUIDE.name,
     ])
   })
@@ -218,8 +218,8 @@ describe("a guide in an installed package", () => {
 })
 
 describe("vbz guides", () => {
-  const KIT_FILES = {
-    "SKILL.md": "---\nname: vbz-game\n---\nthe game's own kit\n",
+  const SDK_FILES = {
+    "SKILL.md": "---\nname: vbz-game\n---\nthe game's own SDK\n",
     "references/page.md": "page\n",
   }
   const ENGINE_FILES = {
@@ -234,7 +234,7 @@ describe("vbz guides", () => {
   test("copies both guides from the packages the game installed", async () => {
     await scratch(async (game) => {
       await asGame(game)
-      await install(game, KIT_GUIDE, "9.1.0", KIT_FILES)
+      await install(game, SDK_GUIDE, "9.1.0", SDK_FILES)
       await install(game, ENGINE_GUIDE, "9.2.0", ENGINE_FILES)
       const guides = await refreshGuides(game)
       // Printed with forward slashes on every platform: it is a path a
@@ -249,7 +249,7 @@ describe("vbz guides", () => {
       ])
       expect(
         await readFile(join(game, SKILLS_DIR, "vbz-game", "SKILL.md"), "utf8"),
-      ).toContain("the game's own kit")
+      ).toContain("the game's own SDK")
       expect(
         await readFile(
           join(game, SKILLS_DIR, "clockwork2", "SKILL.md"),
@@ -266,7 +266,7 @@ describe("vbz guides", () => {
   test("removes a file the installed guide no longer has", async () => {
     await scratch(async (game) => {
       await asGame(game)
-      await install(game, KIT_GUIDE, "9.1.0", KIT_FILES)
+      await install(game, SDK_GUIDE, "9.1.0", SDK_FILES)
       await install(game, ENGINE_GUIDE, "9.2.0", ENGINE_FILES)
       const stale = join(game, SKILLS_DIR, "clockwork2", "references")
       await mkdir(stale, { recursive: true })
@@ -292,28 +292,28 @@ describe("vbz guides", () => {
   test.each([
     [
       "the engine is not installed",
-      "kit",
+      "sdk",
       null,
       /@clockwork2\/engine is not installed in /,
     ],
     [
-      "the kit is not installed",
+      "the SDK is not installed",
       null,
       "engine",
       /@vbz-gg\/sdk is not installed in /,
     ],
     [
       "the engine ships no guide",
-      "kit",
+      "sdk",
       "bare",
       /@clockwork2\/engine 9\.2\.0 at .* ships no guide/,
     ],
   ] as const)(
     "%s: refused, and nothing is written",
-    async (_, kit, engine, refusal) => {
+    async (_, sdk, engine, refusal) => {
       await scratch(async (game) => {
         await asGame(game)
-        if (kit !== null) await install(game, KIT_GUIDE, "9.1.0", KIT_FILES)
+        if (sdk !== null) await install(game, SDK_GUIDE, "9.1.0", SDK_FILES)
         if (engine !== null) {
           await install(
             game,
@@ -324,7 +324,7 @@ describe("vbz guides", () => {
         }
         // Without a node_modules above the scratch directory holding either
         // package, which is what makes the lookup's answer this game's.
-        expect(await packageRoot(KIT_GUIDE.package, tmpdir())).toBeNull()
+        expect(await packageRoot(SDK_GUIDE.package, tmpdir())).toBeNull()
         expect(await packageRoot(ENGINE_GUIDE.package, tmpdir())).toBeNull()
 
         let thrown: unknown = null
@@ -359,7 +359,7 @@ describe("vbz guides", () => {
       /\/missing is not a game's root: it has no package\.json/,
     ],
     [
-      "has a package.json that does not name the kit",
+      "has a package.json that does not name the SDK",
       { "@clockwork2/engine": "0.8.0" },
       /\/missing is not a game's root: its package\.json names no @vbz-gg\/sdk in dependencies or devDependencies/,
     ],
@@ -369,7 +369,7 @@ describe("vbz guides", () => {
       await scratch(async (parent) => {
         // The packages are installed above it, where node's lookup from the
         // directory would find them.
-        await install(parent, KIT_GUIDE, "9.1.0", KIT_FILES)
+        await install(parent, SDK_GUIDE, "9.1.0", SDK_FILES)
         await install(parent, ENGINE_GUIDE, "9.2.0", ENGINE_FILES)
         const dir = join(parent, "missing")
         if (root === "none") await mkdir(dir)
@@ -403,14 +403,14 @@ describe("vbz guides", () => {
     })
   })
 
-  test("a dependency in dependencies names the kit as well as one in devDependencies", async () => {
+  test("a dependency in dependencies names the SDK as well as one in devDependencies", async () => {
     await scratch(async (game) => {
       await mkdir(game, { recursive: true })
       await writeFile(
         join(game, "package.json"),
         JSON.stringify({ dependencies: { "@vbz-gg/sdk": "^9.1.0" } }),
       )
-      await install(game, KIT_GUIDE, "9.1.0", KIT_FILES)
+      await install(game, SDK_GUIDE, "9.1.0", SDK_FILES)
       await install(game, ENGINE_GUIDE, "9.2.0", ENGINE_FILES)
       expect((await refreshGuides(game)).length).toBe(2)
     })
@@ -419,22 +419,22 @@ describe("vbz guides", () => {
   /**
    * Both guides are copied before either replaces what the game has. A copy
    * that fails part-way, through a full disk or a file it cannot read, would
-   * otherwise leave the kit's guide from one release beside the engine's
+   * otherwise leave the SDK's guide from one release beside the engine's
    * from another, and an agent follows both.
    */
   test("a copy that fails leaves the guides the game had, and nothing else", async () => {
     await scratch(async (game) => {
       await asGame(game)
-      await install(game, KIT_GUIDE, "9.1.0", KIT_FILES)
+      await install(game, SDK_GUIDE, "9.1.0", SDK_FILES)
       await install(game, ENGINE_GUIDE, "9.2.0", ENGINE_FILES)
       await refreshGuides(game)
       const before = {
-        kit: await copied(game, "vbz-game"),
+        sdk: await copied(game, "vbz-game"),
         engine: await copied(game, "clockwork2"),
       }
       const newer = await guideIn(
-        KIT_GUIDE,
-        await install(join(game, "newer"), KIT_GUIDE, "9.3.0", {
+        SDK_GUIDE,
+        await install(join(game, "newer"), SDK_GUIDE, "9.3.0", {
           "SKILL.md": "newer\n",
         }),
       )
@@ -451,10 +451,10 @@ describe("vbz guides", () => {
         thrown = error
       }
       expect(thrown).not.toBeNull()
-      expect(await copied(game, "vbz-game")).toEqual(before.kit)
+      expect(await copied(game, "vbz-game")).toEqual(before.sdk)
       expect(
         await readFile(join(game, SKILLS_DIR, "vbz-game", "SKILL.md"), "utf8"),
-      ).toContain("the game's own kit")
+      ).toContain("the game's own SDK")
       expect(await copied(game, "clockwork2")).toEqual(before.engine)
       // No temporary folder left beside them.
       expect((await readdir(join(game, SKILLS_DIR))).sort()).toEqual([
@@ -471,7 +471,7 @@ describe("the command", () => {
   test("prints each guide it wrote, and the version it came from", async () => {
     await scratch(async (game) => {
       await asGame(game)
-      await install(game, KIT_GUIDE, "9.1.0", { "SKILL.md": "kit\n" })
+      await install(game, SDK_GUIDE, "9.1.0", { "SKILL.md": "sdk\n" })
       await install(game, ENGINE_GUIDE, "9.2.0", { "SKILL.md": "engine\n" })
       const result = await $`bun ${CLI} guides ${game}`.quiet().nothrow()
       expect(result.exitCode).toBe(0)
@@ -485,7 +485,7 @@ describe("the command", () => {
   test("exits 1 with one line naming what is missing", async () => {
     await scratch(async (game) => {
       await asGame(game)
-      await install(game, KIT_GUIDE, "9.1.0", { "SKILL.md": "kit\n" })
+      await install(game, SDK_GUIDE, "9.1.0", { "SKILL.md": "sdk\n" })
       const result = await $`bun ${CLI} guides ${game}`.quiet().nothrow()
       expect(result.exitCode).toBe(1)
       expect(result.stdout.toString()).toBe("")

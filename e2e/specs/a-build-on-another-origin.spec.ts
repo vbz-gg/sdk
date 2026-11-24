@@ -1,5 +1,5 @@
 /**
- * A build served from another origin by a host that is not this kit's.
+ * A build served from another origin by a host that is not this SDK's.
  *
  * `vbz build --addressed` writes `dist/addressed/`, and a plain file server
  * serves it as it is from its root, sending only the headers the guide's

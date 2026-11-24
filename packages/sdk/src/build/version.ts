@@ -10,7 +10,7 @@
  * one an upload to vbz.gg takes.
  *
  * The engine keeps its own wider pattern, for games built without this
- * kit.
+ * SDK.
  */
 
 import { refuse } from "./errors.js"

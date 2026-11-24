@@ -7,7 +7,7 @@ page.
 
 ## One build, played anywhere
 
-A game made with this kit is one build, and it plays wherever its author
+A game made with this SDK is one build, and it plays wherever its author
 puts it. On a page, the game's own or any other, it is whatever the author
 intends: a story, free play, an endless session, a page that is never
 online. That needs no platform, no upload, no account and no sign-in, and
@@ -64,7 +64,7 @@ a server's replay stand for the player's run:
 A game played anywhere else may break any of these. A game that wants
 ranked play has to keep them before its first upload.
 
-## The engine, the kit, and vbz.gg
+## The engine, the SDK, and vbz.gg
 
 A game is a [Clockwork 2](https://github.com/vbz-gg/clockwork2)
 simulation. The engine owns determinism: the seed, `dmath`, the manifest, the
@@ -73,7 +73,7 @@ that turn keys, fingers, controllers and tilt into recorded inputs. It knows
 nothing about vbz.gg.
 
 The [vbz.gg](https://vbz.gg) platform is an optional backend for game
-studios, and a game made with the kit may never meet it. It owns studios
+studios, and a game made with the SDK may never meet it. It owns studios
 and their keys, player sign-in, the checks on an upload, the daily seed,
 the server-side replay and the board. Its API is
 `https://api.vbz.gg` and its sign-in `https://signin.vbz.gg`. Once a version
@@ -968,7 +968,7 @@ set of files, forever, which is what makes "the browser and the validator
 ran the same code" checkable rather than asserted.
 
 `addressGame` in `src/build/address.ts` performs that sequence on a build,
-the same one vbz.gg performs on an upload, and it is the one place the kit
+the same one vbz.gg performs on an upload, and it is the one place the SDK
 performs it: `vbz dev` serves its result through `buildAndAddress`, which
 `/harness` exports, and `vbz build --addressed` writes it to
 `dist/addressed/` ("Serving" below). `vbz build` writes the page module
@@ -1149,7 +1149,7 @@ The page resolves `present` and `files` against the origin for `loadGame`,
 with `manifestHash` as it is, needs no import map, since the page module
 names its own paths, and sends `pageCsp` with the origin, `gameId` and
 `needs`. The game id is the version 5 UUID of the manifest's `id` in the
-kit's own namespace, `GAME_ID_NAMESPACE`, so every version of a game is
+SDK's own namespace, `GAME_ID_NAMESPACE`, so every version of a game is
 under one path and a page's policy names it once; `--game <id>` names a
 UUID of the author's own instead, which a host serving other people's games
 too gives each game, since a policy admitting a game's path admits whatever
@@ -1280,7 +1280,7 @@ a directory it made goes, and one that was there empty is left empty.
 
 `vbz guides ./my-game` replaces both guides with the ones the game's own
 packages ship, each found from the game's directory rather than from the
-copy of the kit running the command, so a game that upgraded either package
+copy of the SDK running the command, so a game that upgraded either package
 gets the guides of the versions it now has. The directory has to be a game's
 root, one whose `package.json` names `@vbz-gg/sdk` in its dependencies or
 devDependencies; anything else is refused and never made, since node would
@@ -1293,7 +1293,7 @@ which is the author's to edit.
 Both commands copy the guides into temporary folders beside their targets,
 and replace what the game had only once every copy exists. A copy that fails
 part-way, on a file it cannot read or a full disk, leaves the game's guides
-as they were and the temporary folders gone, so a game never holds the kit's
+as they were and the temporary folders gone, so a game never holds the SDK's
 guide from one release beside the engine's from another.
 
 ## Checking a game
@@ -1370,7 +1370,7 @@ the checks do not have never gets ready there.
 ## Where a game's code runs
 
 A game's code is its author's, and so is everything it imports, which nobody
-in the kit has read. The commands run where an author or a build system
+behind the SDK has read. The commands run where an author or a build system
 keeps secrets in the environment, cloud credentials or a vbz.gg studio's
 secret key, so every command that evaluates a game's code does it in a
 process of its own, started with an empty environment, and never in its own
