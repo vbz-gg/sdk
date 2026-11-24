@@ -94,12 +94,13 @@ game with no platform at all, how a build is served, how an author builds
 and tries all of it before it ships, and, for vbz.gg, how a page holds a run
 to the platform's rules. That set is this package.
 
-So the SDK owns seven things, one per subpath export:
+So the SDK owns eight things, one per subpath export:
 
 | Subpath | What it is |
 |---|---|
 | `/api` | vbz.gg only: the shapes of the platform's public routes, as types only |
 | `/platform` | vbz.gg only: a game page's client for those routes, sign-in, runs and the board |
+| `/server` | vbz.gg only: a studio's own server's client, with its secret key: who a player's token names |
 | `/host` | The game on a page: loading its page module, a local run, and on vbz.gg a platform run through it, watching a run, and two widgets |
 | `/game` | What a page module is built from: `definePageModule` and the contract a page drives it through |
 | `/build` | A game's source to the two modules and the files folder a build carries, every limit `vbz build` holds them to, and what a version and a release line are |
@@ -115,7 +116,7 @@ follow literally.
 A game's page module is built from `/game`. Any page loads and plays the
 game with `/host`, and an author runs `/harness`, whose page loads the game
 with `/host` too. On vbz.gg, a studio's page talks to the platform through
-`/platform`. The platform imports `/api`, and declares each public route's
+`/platform`, and a studio's own server through `/server`. The platform imports `/api`, and declares each public route's
 answer with its types. It imports `/build`, so it reads a version, a release
 line, a patch's contract and a files folder's listing with the same
 functions `vbz check` and `vbz build` use, and `/serve` for its development
@@ -560,6 +561,11 @@ about the new one. The page also holds the player in memory and reads that
 copy once it has one, so a browser that keeps nothing (a private window, a
 blocked or full store) still plays this visit, and signs in again on the next.
 
+**`playerToken()`** answers the kept player's token, or null: what a page
+sends to the studio's own server, which asks the platform who it names
+(below). A run start renews the token, so a page reads it each time it
+sends one rather than holding a copy.
+
 **`onPlayerChange(listener)`** tells a page each time the client's player
 changes: a sign-in, a sign-out, a token the platform stopped honouring, or one
 the client finds expired when it next reads it. A renewed token for the same
@@ -603,6 +609,59 @@ The client's own failures are `PlatformClientError`, with codes from
 `CLIENT_ERROR`; the platform's are `PlatformRefusal`, with a
 `PublicRefusalCode`. The two sets never share a code, and a compile-time check
 holds them apart.
+
+## If you use vbz.gg: the studio's own server
+
+A studio may run a server of its own beside a game: head-to-head matches,
+coins, anything the platform does not hold. It signs nobody in. The
+player signs in on the studio's page, the page sends the server the
+player's token, `playerToken()` above, and the server asks the platform who
+the token names, at `POST /v1/players/verify` with the studio's secret key.
+The answer is `VerifiedPlayer` in `/api`: the player ID the studio sees, the
+display name, and when the token expires. It never carries an address.
+
+`/server` makes that call:
+
+```ts
+import { createServerClient, PlatformRefusal } from "@vbz-gg/sdk/server"
+
+const vbz = createServerClient({
+  apiOrigin: "https://api.vbz.gg",
+  secretKey: secrets.VBZ_STUDIO_KEY, // vbz_sk_..., from wherever the server keeps secrets
+})
+
+try {
+  const { player } = await vbz.verifyPlayer(tokenFromThePage)
+  // player.id is this studio's player ID, the same at every game it has
+} catch (error) {
+  if (error instanceof PlatformRefusal && error.code === "E_PLAYER_TOKEN_INVALID") {
+    // tell the page to sign the player in again
+  }
+}
+```
+
+The client takes the key from its caller and from nowhere else: no
+environment variable, no file. It sends the key as `Authorization: Bearer`
+and no `Origin` header, which is how the platform tells a server from a
+browser, and it is made only for an origin a key may travel to, the rule
+`vbz publish` holds its own origin to: https, or http to this machine, and
+the origin alone. It refuses to be made where a page's `document` is,
+because a key in a page's code is one anybody can read. Its `request` is
+keyed by `PlatformRoutes`, as the page's is, and offers the studio's
+secret-key routes that take JSON; the version's upload and a file's are
+`vbz publish`'s. A failure is the page client's `PlatformRefusal` or
+`PlatformClientError`, so a server switches on `code` the way a page does.
+
+The platform answers a token only while it is good at the key's studio:
+signed by the platform, not expired, issued at that studio, from after the
+player's latest sign-out there, and for a player and a studio the platform
+has not disabled. Everything else is one refusal,
+`E_PLAYER_TOKEN_INVALID`, so a caller holding a token that is not its own
+learns nothing about why. No game is named: a token is issued for a
+studio, and good at every game it has. An answer holds when it is given; a
+sign-out ends the token at once, whatever its expiry says, so a server that
+keeps an answer to save asking again keeps a sign-out from reaching it for
+as long.
 
 ## What a page needs
 

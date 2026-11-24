@@ -105,6 +105,15 @@ export interface PlatformClient {
   /** The signed-in player, or null. */
   player(): SignedInPlayer["player"] | null
   /**
+   * The signed-in player's token, or null: what the page hands the studio's
+   * own server, which asks the platform who it names at
+   * `POST /v1/players/verify`. Every run start renews it, so a page reads it
+   * here each time it sends one rather than holding a copy. Send it only to
+   * the studio's own server, over https: it plays as the player at every
+   * game of the studio until it expires or the player signs out.
+   */
+  playerToken(): string | null
+  /**
    * Calls `listener` with the player each time the client's player changes:
    * a sign-in, a sign-out, a token the platform stopped honouring, or one
    * found expired. A renewed token for the same player is no change. It is
@@ -278,6 +287,7 @@ export function createPlatformClient(
     game: () => request("GET /v1/game", {}),
 
     player: () => kept()?.player ?? null,
+    playerToken: () => kept()?.token ?? null,
 
     onPlayerChange(listener) {
       listeners.add(listener)
