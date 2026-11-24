@@ -80,6 +80,26 @@ export const CLIENT_ERROR = {
     "the game's page module is another version of the game than the one this run plays",
   /** The run's tick rate is not one the engine runs at. */
   E_TICK_RATE_UNSUPPORTED: "the run's tick rate is not 30, 60 or 120",
+  /**
+   * A played run of a game with more than one seat did not say which seat
+   * the page plays, or that it only follows the match.
+   */
+  E_SEATS_REQUIRED:
+    "the game is played by several players taking turns, so a run says which seat this page plays, or that it only follows the match",
+  /**
+   * A run was given seats where it takes none: a game of one seat, a page
+   * module built before seats, or a recorded run watched, which replays every
+   * seat's inputs from its log.
+   */
+  E_SEATS_UNEXPECTED:
+    "the run was given seats, and this game or this run has one seat to play; leave seats out",
+  /**
+   * `playRun` was handed a game with more than one seat. vbz.gg ranks one
+   * player's run, so a game of turns is played on a page of its own with
+   * `playLocal`. Nothing was started.
+   */
+  E_SEATED_RUN_UNSUPPORTED:
+    "this game is played by several players taking turns, and vbz.gg ranks one player's run, so no run was started; play it with playLocal on the game's own page",
   /** The run's own module reads tilt, and the tap that started it did not ask. */
   E_MOTION_NEEDS_TAP:
     "this run's game reads tilt, which a browser grants only from a tap; tap Play again to carry on with the same run",

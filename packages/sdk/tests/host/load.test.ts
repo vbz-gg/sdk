@@ -63,6 +63,11 @@ function goodTwo(overrides: Record<string, unknown> = {}) {
   })
 }
 
+/** A contract-3 module whose every part a page reads is right. */
+function goodThree(overrides: Record<string, unknown> = {}) {
+  return goodTwo({ contract: 3, seats: 2, ...overrides })
+}
+
 /** A played run, as a page hands one to a loaded game. */
 function run(handlers: Partial<MountHandlers> = {}): GameMountOptions {
   return {
@@ -201,10 +206,13 @@ describe("what a page module has to be", () => {
 
   /** A newer module's shape could mean anything, so it is not guessed at. */
   test("a contract this release does not drive, naming both", async () => {
-    for (const contract of [3, 0, "1", undefined]) {
+    for (const contract of [4, 0, "1", undefined]) {
       const error = await refusal(ADDRESS, { default: good({ contract }) })
       expect(error.code).toBe("E_GAME_CONTRACT_UNKNOWN")
-      expect(error.cause).toMatchObject({ module: contract, driven: [1, 2] })
+      expect(error.cause).toMatchObject({
+        module: contract,
+        driven: [1, 2, 3],
+      })
     }
   })
 
@@ -237,6 +245,15 @@ describe("what a page module has to be", () => {
       })
       expect(error.code).toBe("E_GAME_MODULE_INVALID")
       expect(error.cause).toMatchObject({ field })
+    }
+  })
+
+  /** A page that read no seat count could not tell a game of turns from one played alone. */
+  test("a seat count that is not a number, on contract 3", async () => {
+    for (const seats of [undefined, "2"]) {
+      const error = await refusal(ADDRESS, { default: goodThree({ seats }) })
+      expect(error.code).toBe("E_GAME_MODULE_INVALID")
+      expect(error.cause).toMatchObject({ field: "seats" })
     }
   })
 
@@ -414,10 +431,137 @@ describe("a module that passes", () => {
       contract: 2,
       needsMotion: true,
       tickHz: 60,
+      seats: 1,
       servedConfig: { speed: 1 },
     })
     expect(await game.requestMotion()).toEqual({ granted: true })
     expect(asked).toEqual(["motion"])
+    const seated = await loadGame(ADDRESS, serving({ default: goodThree() }))
+    expect(seated).toMatchObject({ contract: 3, seats: 2 })
+  })
+
+  /** Contract 3 is handed what contract 2 is, and its handle is its own. */
+  test("a contract-3 module is handed its own files folder, prepared or mounted", async () => {
+    const given: string[] = []
+    const remote = { append: () => null, confirm: () => null }
+    const handle = { ...HANDLE, remote }
+    const game = await loadGame(
+      ADDRESS,
+      serving({
+        default: goodThree({
+          prepare: (_element: HTMLElement, options: { files: string }) => {
+            given.push(`prepare ${options.files}`)
+            return {
+              ready: Promise.resolve(null),
+              mount: () => handle,
+              release() {},
+            }
+          },
+          mount: (_element: HTMLElement, options: MountOptions) => {
+            given.push(`mount ${options.files}`)
+            return handle
+          },
+        }),
+      }),
+    )
+    game.prepare({} as HTMLElement)
+    expect(game.mount({} as HTMLElement, run()).remote).toBe(remote)
+    expect(given).toEqual([`prepare ${FILES}`, `mount ${FILES}`])
+  })
+
+  /**
+   * A module from before seats plays a game of one: a run asking for seats
+   * is refused before it reaches the module, its frames wait for nobody and
+   * its handle has no remote, whichever way it is mounted.
+   */
+  test("a module of contract 1 or 2 is a game of one seat", async () => {
+    const reached: string[] = []
+    const played =
+      (contract: number) => (_element: HTMLElement, options: MountOptions) => {
+        reached.push(`mount ${contract}`)
+        options.handlers.onFrame({ tick: 1, counters: { n: 1 } } as never)
+        options.handlers.onCheckpoint({ tick: 0, hash: "h" })
+        options.handlers.onNotice?.({ code: "E_GAMEPAD_BLOCKED" } as never)
+        options.handlers.onError({ code: "E_UNEXPECTED", message: "m" })
+        options.handlers.onEnded({ tick: 1 } as never)
+        return {
+          recorded: () => [{ tick: 0, code: "left", value: 1 }],
+          stop: (reason?: string) => reached.push(`stop ${reason}`),
+          destroy: () => reached.push(`destroy ${contract}`),
+        }
+      }
+    const one = await loadGame(
+      ADDRESS,
+      serving({ default: good({ mount: played(1) }) }),
+    )
+    const two = await loadGame(
+      ADDRESS,
+      serving({
+        default: goodTwo({
+          mount: played(2),
+          prepare: (element: HTMLElement) => ({
+            ready: Promise.resolve(null),
+            mount: (options: MountOptions) => played(2)(element, options),
+            release: () => reached.push("release 2"),
+          }),
+        }),
+      }),
+    )
+    for (const game of [one, two]) {
+      expect(game.seats).toBe(1)
+      const heard: string[] = []
+      const handlers = run({
+        onFrame: (frame) => heard.push(`frame ${frame.waitingForSeat}`),
+        onCheckpoint: (checkpoint) =>
+          heard.push(`checkpoint ${checkpoint.tick}`),
+        onNotice: (notice) => heard.push(`notice ${notice.code}`),
+        onError: (error) => heard.push(`error ${error.code}`),
+        onEnded: (ended) => heard.push(`ended ${ended.tick}`),
+      }).handlers
+      for (const mount of [
+        (options: GameMountOptions) => game.mount({} as HTMLElement, options),
+        (options: GameMountOptions) =>
+          game.prepare({} as HTMLElement).mount(options),
+      ]) {
+        heard.length = 0
+        reached.length = 0
+        const refused = mount({
+          ...run(),
+          handlers,
+          seats: { local: 0 },
+        } as GameMountOptions)
+        expect(heard).toEqual(["error E_SEATS_UNEXPECTED"])
+        expect(reached).toEqual([])
+        expect(refused.remote).toBeNull()
+
+        heard.length = 0
+        const handle = mount({ ...run(), handlers })
+        expect(heard).toEqual([
+          "frame null",
+          "checkpoint 0",
+          "notice E_GAMEPAD_BLOCKED",
+          "error E_UNEXPECTED",
+          "ended 1",
+        ])
+        expect(handle.remote).toBeNull()
+        expect(handle.recorded()).toEqual([{ tick: 0, code: "left", value: 1 }])
+        handle.stop("abandoned")
+        handle.destroy()
+        expect(reached.slice(1)).toEqual([
+          "stop abandoned",
+          `destroy ${game.contract}`,
+        ])
+      }
+      // A page that will not play after all lets the game go.
+      reached.length = 0
+      const prepared = game.prepare({} as HTMLElement)
+      expect(await prepared.ready).toBeNull()
+      prepared.mount({ ...run(), handlers: run().handlers })
+      prepared.release()
+      expect(reached.at(-1)).toBe(
+        game.contract === 1 ? "destroy 1" : "release 2",
+      )
+    }
   })
 
   /** The page never names a folder: every run is handed its version's own. */

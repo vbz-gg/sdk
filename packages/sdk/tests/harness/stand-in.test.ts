@@ -716,6 +716,7 @@ describe("the game and a run", () => {
         recording,
       })
       return {
+        remote: null,
         recorded: () => recording.inputs,
         stop: () => {},
         destroy: () => {},
@@ -776,6 +777,7 @@ describe("the game and a run", () => {
       (options) => {
         handlers = options.handlers
         return {
+          remote: null,
           recorded: () => recording.inputs,
           stop: () => {},
           destroy: () => {},

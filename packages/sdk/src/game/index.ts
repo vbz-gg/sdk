@@ -18,6 +18,7 @@ export {
   type MountedCheckpoint,
   type MountedEnd,
   type MountedFrame,
+  type MountedRemote,
   type MountHandle,
   type MountHandlers,
   type MountMode,
@@ -31,6 +32,10 @@ export {
   type PreparedGame,
   type PrepareOptions,
   type RunMount,
+  type SeatlessFrame,
+  type SeatlessHandlers,
+  type SeatlessMountHandle,
+  type SeatMount,
   type WatchMount,
 } from "./contract.js"
 export {

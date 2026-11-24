@@ -209,6 +209,14 @@ always starts `local:`. The page's policy is `localPageCsp` from
 `@vbz-gg/sdk/harness`, with the import map admitted by its hash. The
 template's `site/` is such a page.
 
+A game whose players take turns, with `session.seats` above 1 in its
+manifest, is played one seat per page: every page of a match passes
+`playLocal` the same seed and its own `seats: { local, onLocalInputs }`,
+sends what `onLocalInputs` hands it to the other pages, and hands their
+inputs to the run's `remote`. The recording is every seat's inputs merged,
+and replays like any other. The agent guide's `references/page.md` has it
+under "Players taking turns".
+
 ## Shipping it
 
 `dist/` is the whole game, and any host that serves files serves it, as long
@@ -342,6 +350,9 @@ It moves focus to `stage` so keys reach the game, and keeps the game to one
 tab of the browser in each mode, so a second tab cannot close the first
 tab's run. The platform says which version each run plays, and a resumed
 run plays its own, which `playRun` loads when it is not the one you did.
+vbz.gg ranks one player's run, so a game whose players take turns is not
+played this way: `playRun` fails it with `E_SEATED_RUN_UNSUPPORTED` before it
+asks for anything.
 
 Your page's Content-Security-Policy has to let the game in and keep every
 other game out. Name your game's own path on the platform's file origin, the

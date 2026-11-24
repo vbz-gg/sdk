@@ -98,10 +98,12 @@ beforeEach(() => {
 })
 
 class FakeGame implements LoadedGame {
-  readonly contract = 2
+  readonly contract = 3
   readonly tickHz = 60
   readonly servedConfig = {}
   readonly filesUrl: string
+  /** How many seats its game has: one, unless a test says otherwise. */
+  seats = 1
   mounted: GameMountOptions | null = null
   /** What `prepare` answers once the game is ready, or not. */
   unready: MountError | null = null
@@ -140,6 +142,7 @@ class FakeGame implements LoadedGame {
     expect(element).toBe(stage)
     this.mounted = options
     return {
+      remote: null,
       recorded: () => [],
       stop: (reason) => {
         calls.push(`stop ${reason}`)
@@ -838,6 +841,61 @@ describe("the page around the run", () => {
     expect(states.at(-1)?.errorCode).toBe("E_BROWSER_UNSUPPORTED")
     expect(calls.some((call) => call.startsWith("start"))).toBe(false)
     expect(calls.some((call) => call.startsWith("mount"))).toBe(false)
+  })
+
+  /**
+   * vbz.gg ranks one player's run. A game of turns asks for no tilt, takes
+   * no lock and starts nothing, so it spends no run and holds no tab.
+   */
+  test("a game of more than one seat starts no run, asks for nothing, and says why", async () => {
+    const states: RunState[] = []
+    const game = new FakeGame(PRESENT, "mh-new", true)
+    game.seats = 2
+    const held = locks()
+    const played = playRun(stage, {
+      client: client(),
+      game,
+      mode: "ranked",
+      locks: held,
+      onState: (state) => states.push(state),
+    })
+    expect(played.motion).toBeNull()
+    await settle()
+    expect(states.at(-1)).toMatchObject({
+      phase: RUN_PHASE.FAILED,
+      errorCode: "E_SEATED_RUN_UNSUPPORTED",
+    })
+    expect(calls).toEqual([])
+    expect(held.held.size).toBe(0)
+  })
+
+  test("a resumed run whose own module has seats starts nothing, and lets the lock go", async () => {
+    const states: RunState[] = []
+    const seated = new FakeGame(OLDER, "mh-old")
+    seated.seats = 2
+    playRun(stage, {
+      client: client({
+        start: {
+          ...RUN,
+          game: { ...RUN.game, presentUrl: OLDER, manifestHash: "mh-old" },
+        },
+      }),
+      game: new FakeGame(PRESENT, "mh-new"),
+      mode: "ranked",
+      locks: locks(),
+      onState: (state) => states.push(state),
+      load: loader([seated]),
+    })
+    await settle()
+    expect(states.at(-1)?.errorCode).toBe("E_SEATED_RUN_UNSUPPORTED")
+    expect(calls).toEqual([
+      `lock ${runLockName(PAGE_KEY, "ranked")}`,
+      `prepare ${PRESENT}`,
+      "start {}",
+      `release ${PRESENT}`,
+      `load ${OLDER} mh-old`,
+      `unlock ${runLockName(PAGE_KEY, "ranked")}`,
+    ])
   })
 
   /**

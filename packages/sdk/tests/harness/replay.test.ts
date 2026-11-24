@@ -17,6 +17,9 @@ import {
   type Recording,
 } from "@clockwork2/engine"
 import { ManualScheduler } from "@clockwork2/engine/host"
+import createTurns, {
+  MANIFEST as TURNS_MANIFEST,
+} from "../../../../fixtures/turns/src/sim/index"
 import { buildGame, writeBuild } from "../../src/cli/build"
 import { isCopied, TEMPLATE_DIR } from "../../src/cli/new"
 import type { MountedEnd } from "../../src/game/contract"
@@ -33,6 +36,7 @@ import { capture as templateCapture } from "../../templates/game/src/capture"
 import createTemplate, {
   MANIFEST as TEMPLATE_MANIFEST,
 } from "../../templates/game/src/sim/index"
+import { playMatch } from "../game/match"
 import {
   type Config,
   Drawn,
@@ -102,6 +106,24 @@ function report(recording: unknown): DevReport {
 }
 
 describe("replaying a recording", () => {
+  /**
+   * A game of turns answers `seat()` every tick, and a session told of one
+   * seat stops at the first answer of 1. The merged log of a match replays
+   * as one page recorded it, with the manifest's seats.
+   */
+  test("a match of a game of turns replays from its merged log", async () => {
+    const { a } = await playMatch()
+    const recording = a.heard.recordings[0]
+    expect(recording?.inputs.length).toBeGreaterThan(5)
+    const answer = replayRecording(
+      createTurns,
+      TURNS_MANIFEST,
+      JSON.stringify(recording),
+    )
+    expect(answer.replay.kind).toBe("matches")
+    expect(answer.inputs.problem).toBeNull()
+  })
+
   test("a run as a page recorded it replays, and every input is one the platform takes", async () => {
     const recording = await played()
     const answer = report(recording)

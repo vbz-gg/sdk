@@ -1,7 +1,7 @@
 /**
  * The engine's version is written in more than one place.
  *
- * Six, today. The risk is the seventh: a file grows the literal, nothing
+ * Eight, today. The risk is the ninth: a file grows the literal, nothing
  * rewrites it, and a template ships asking for an engine two releases old
  * while everything still builds against whatever the workspace resolved. So
  * these tests do two things - check the rewriting on a tree built for it, and
@@ -58,6 +58,7 @@ describe("bumping a tree", () => {
     })
     await mkdir(join(dir, "fixtures/paddle/src/sim"), { recursive: true })
     await mkdir(join(dir, "fixtures/folder/src/sim"), { recursive: true })
+    await mkdir(join(dir, "fixtures/turns/src/sim"), { recursive: true })
     await mkdir(join(dir, "docs"), { recursive: true })
 
     await writeFile(
@@ -79,6 +80,7 @@ describe("bumping a tree", () => {
       "packages/sdk/templates/game/src/sim/manifest.ts",
       "fixtures/paddle/src/sim/manifest.ts",
       "fixtures/folder/src/sim/manifest.ts",
+      "fixtures/turns/src/sim/manifest.ts",
     ]) {
       await writeFile(
         join(dir, manifest),
@@ -106,7 +108,7 @@ describe("bumping a tree", () => {
       const result = await bumpEngine("0.8.0", dir)
       expect(result.from.pinned).toBe("0.7.1")
       expect(result.range).toBe(">=0.8.0 <0.9.0")
-      expect(result.files.length).toBe(7)
+      expect(result.files.length).toBe(8)
 
       // And nothing anywhere still says 0.7.1.
       for (const file of result.files) {
@@ -143,8 +145,8 @@ describe("bumping a tree", () => {
 
   /**
    * The case this script exists to fail on. A file that does not hold what
-   * was expected means the literal moved or a seventh place grew, and both
-   * want a person rather than a rewrite that quietly does five of six.
+   * was expected means the literal moved or a ninth place grew, and both
+   * want a person rather than a rewrite that quietly does seven of eight.
    */
   test("a file that lost the literal stops the bump", async () => {
     await withTree(async (dir) => {
@@ -184,7 +186,7 @@ describe("the real repository", () => {
   })
 
   /**
-   * The search for the seventh place, by kind rather than by name.
+   * The search for the ninth place, by kind rather than by name.
    *
    * Three kinds can grow: a package.json depending on the engine, a game
    * manifest declaring the kernel it was built against, and a doc quoting the
@@ -201,6 +203,7 @@ describe("the real repository", () => {
       "packages/sdk/templates/game/src/sim/manifest.ts",
       "fixtures/paddle/src/sim/manifest.ts",
       "fixtures/folder/src/sim/manifest.ts",
+      "fixtures/turns/src/sim/manifest.ts",
       "docs/sdk.md",
     ])
     const { pinned, range } = await currentEngine(REPO)

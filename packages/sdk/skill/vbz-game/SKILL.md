@@ -244,6 +244,12 @@ fresh seed and every setting at its default, and hands `onEnded` the run's
 recording, which replays to the same counters. Its seed always starts
 `local:`. `references/page.md` has it whole.
 
+A game whose players take turns, with `session.seats` above 1 in its
+manifest, is played one seat per page: each page passes `playLocal` its
+seat, sends what its seat recorded to the other pages and hands their
+inputs to the run's `remote`. `references/page.md` has it under "Players
+taking turns".
+
 ## Distributing the build
 
 `dist/` is the whole game, and any host that serves files serves it: your
