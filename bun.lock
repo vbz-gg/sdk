@@ -30,7 +30,7 @@
     },
     "packages/sdk": {
       "name": "@vbz-gg/sdk",
-      "version": "0.7.4",
+      "version": "0.8.0",
       "bin": {
         "vbz": "dist/cli/index.js",
       },

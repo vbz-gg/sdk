@@ -1,6 +1,6 @@
 {
   "name": "@vbz-gg/sdk",
-  "version": "0.7.4",
+  "version": "0.8.0",
   "type": "module",
   "description": "Build a game that runs on vbz.gg: its rules code and the page module a studio's page loads, the checks, a page's client and host for the platform, and a harness that runs it all on your laptop",
   "license": "MIT",
@@ -55,6 +55,11 @@
       "development": "./src/serve/index.ts",
       "types": "./dist/serve/index.d.ts",
       "default": "./dist/serve/index.js"
+    },
+    "./server": {
+      "development": "./src/server/index.ts",
+      "types": "./dist/server/index.d.ts",
+      "default": "./dist/server/index.js"
     }
   },
   "peerDependencies": {

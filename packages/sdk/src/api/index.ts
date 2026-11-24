@@ -2,7 +2,7 @@
  * The vbz.gg platform's public routes, as types.
  *
  * Public here means what a studio's own code calls: its game page, through a
- * page key, and its build system, through a secret key. The platform imports
+ * page key, and its build system and its own server, through a secret key. The platform imports
  * these and declares its routes' answers with them, and a studio's code and
  * this package's own client call the routes through them, so no two of them
  * can disagree about a shape without one failing to compile.
@@ -169,6 +169,16 @@ export type PublicRefusalCode =
   | "E_CODE_VERIFIER_INVALID"
   /** A run route called with no player token, or one that no longer works. */
   | "E_SIGN_IN_REQUIRED"
+  /**
+   * `POST /v1/players/verify` with a player's token that is not good at the
+   * secret key's studio: not a token, signed by anybody but the platform,
+   * expired, issued at another studio, from before the player signed out,
+   * or for a player or a studio the platform disabled. One answer for every
+   * reason, so a caller holding a token that is not its own learns nothing
+   * about why it failed. The page that sent the token signs the player in
+   * again.
+   */
+  | "E_PLAYER_TOKEN_INVALID"
   // Starting a run.
   /** No version of the game is being served for this run. */
   | "E_NO_GAME"
@@ -634,19 +644,25 @@ export interface VersionStatusList {
 }
 
 /**
- * `POST /v1/oauth/token`, traded from a game's page: a player signed in to
- * the page key's studio. The id is the player ID that studio sees, and no
+ * A player as one studio sees them. The id is the player ID that studio
+ * sees, a different one at every studio the person signs in to, and no
  * studio sees a player's address.
+ */
+export interface PlayerIdentity {
+  readonly id: string
+  /** One name per person, the same at every studio. */
+  readonly displayName: string
+}
+
+/**
+ * `POST /v1/oauth/token`, traded from a game's page: a player signed in to
+ * the page key's studio.
  */
 export interface SignedInPlayer {
   readonly token: string
   /** Seconds until the token expires. Every run start renews it. */
   readonly expiresIn: number
-  readonly player: {
-    readonly id: string
-    /** One name per person, the same at every studio. */
-    readonly displayName: string
-  }
+  readonly player: PlayerIdentity
 }
 
 /** The body of `POST /v1/oauth/token`. */
@@ -707,6 +723,33 @@ export interface SignInCancel {
 
 /** Every message the sign-in posts to the page that framed it. */
 export type SignInMessage = SignInReady | SignInHandoff | SignInCancel
+
+/**
+ * The body of `POST /v1/players/verify`: a player's token, as a studio's
+ * page holds it, handed to the studio's own server.
+ */
+export interface VerifyPlayerRequest {
+  readonly token: string
+}
+
+/**
+ * `POST /v1/players/verify`: who a player's token names, asked by the
+ * studio's own server with its secret key, so the server signs nobody in
+ * itself. Answered only while the token is good at the key's studio: signed
+ * by the platform, not expired, issued at that studio, in the generation
+ * the player's latest sign-out left, and for a player and a studio the
+ * platform has not disabled. Anything else is `E_PLAYER_TOKEN_INVALID`.
+ *
+ * The answer holds at the moment it was given. A sign-out ends a token at
+ * once, whatever `expiresAt` says, so a server that keeps an answer to save
+ * asking again keeps a sign-out from reaching it for that long.
+ */
+export interface VerifiedPlayer {
+  /** The player ID the key's studio sees, and the player's display name. */
+  readonly player: PlayerIdentity
+  /** ISO 8601: when the token expires, unless a sign-out ends it first. */
+  readonly expiresAt: string
+}
 
 /** A ranked run reaches the board; a practice run is replayed and never does. */
 export type RunMode = "ranked" | "practice"
@@ -933,9 +976,10 @@ export interface WatchedRun {
  * game's allowed pages, and a player token in `Authorization: Bearer` where
  * the route reads one. `player`: both, the token required. `secret-key`: a
  * studio's secret key in `Authorization: Bearer`, never from a browser, which
- * is what a build system sends; the platform takes a member's access token
- * there too, from its dashboard, when the member's role holds the
- * permission the route names. `public`: neither header.
+ * is what a build system and a studio's own server send; the platform takes
+ * a member's access token there too, from its dashboard, when the member's
+ * role holds the permission the route names, and never on a route that
+ * names none. `public`: neither header.
  */
 export type RouteAuth = "page-key" | "player" | "secret-key" | "public"
 
@@ -1012,6 +1056,17 @@ export interface PlatformRoutes {
     readonly auth: "public"
     readonly body: TokenRequest
     readonly response: SignedInPlayer
+  }
+  /**
+   * The studio's secret key alone, from the studio's own server: the route
+   * names no permission, so no member's token is taken, and a key sent from
+   * a browser is refused as any secret key is. No game: a player's token is
+   * issued for a studio, and good on every page of every game it has.
+   */
+  readonly "POST /v1/players/verify": {
+    readonly auth: "secret-key"
+    readonly body: VerifyPlayerRequest
+    readonly response: VerifiedPlayer
   }
   readonly "POST /v1/runs": {
     readonly auth: "player"

@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [0.8.0](https://github.com/vbz-gg/sdk/compare/v0.7.4...v0.8.0) (2026-11-24)
+
+
+### Features
+
+* verify a player's token from a studio's own server ([#33](https://github.com/vbz-gg/sdk/issues/33)) ([c630dbb](https://github.com/vbz-gg/sdk/commit/c630dbb0423d5cf7156b101caee0a96c64a9fbb0))
+
+
+### Documentation
+
+* a game starts whichever build null3d picks ([#29](https://github.com/vbz-gg/sdk/issues/29)) ([420df66](https://github.com/vbz-gg/sdk/commit/420df6651dd8080c767d9d8deb29f26cb5d50c0c))
+* fit page panels and restart the site server ([#31](https://github.com/vbz-gg/sdk/issues/31)) ([00401cb](https://github.com/vbz-gg/sdk/commit/00401cb543710725721eae44f8a945e106247157))
+* take the whole screen on a phone ([#30](https://github.com/vbz-gg/sdk/issues/30)) ([d0d4c32](https://github.com/vbz-gg/sdk/commit/d0d4c326c3447b227915ff2663cee2b09b762c06))
+
 ## [0.7.4](https://github.com/vbz-gg/sdk/compare/v0.7.3...v0.7.4) (2026-11-19)
 
 

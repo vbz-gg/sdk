@@ -105,6 +105,24 @@ in `errors.ts` is the client's table, a compile-time check keeps it apart from
 held both ways by `packages/sdk/skill/tests/skill.test.ts`. A new code is a
 new row in both.
 
+## The server's client
+
+`packages/sdk/src/server/` is a studio's own server's client, with its secret
+key, and `docs/sdk.md` describes it. What to hold while changing it:
+
+**It sends through the page client's `sendRoute`**, keyed by
+`PlatformRoutes` and offering `ServerRoute`, the secret-key routes whose body
+is JSON, so a server and a page cannot build a path or read a refusal two
+ways, and a page's route is never a server's.
+
+**The key comes from the caller alone and goes nowhere a key may not.** No
+environment variable, file or storage is read for it; it is sent as
+`Authorization: Bearer` with no `Origin`, to an origin `keyOriginOf` in
+`src/wire/keys.ts` allows, the rule `vbz publish` holds its own origin to;
+and no client is made where a page's `document` is.
+`tests/server/client.test.ts` holds all three, and holds the subpath to
+reaching none of the page's sign-in, run or host, nor the CLI.
+
 ## The page module
 
 `packages/sdk/src/game/` is what every page module is built from, and

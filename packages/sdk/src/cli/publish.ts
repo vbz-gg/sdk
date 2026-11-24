@@ -36,7 +36,6 @@ import type {
   FilesListing,
   FilesMissingDetail,
   MissingFiles,
-  PageKey,
   PatchChangesRulesDetail,
   PlatformRoutes,
   PublicRefusalCode,
@@ -58,6 +57,11 @@ import {
   REPLAY_WALL_BUDGET_MS,
 } from "../build/limits.js"
 import { SHA256 } from "../build/paths.js"
+import {
+  keyOriginOf,
+  PAGE_KEY_PREFIX,
+  SECRET_KEY_PREFIX,
+} from "../wire/keys.js"
 
 /**
  * The platform's API, unless a flag or the environment names another.
@@ -162,16 +166,10 @@ export const FILE_RETRY_MS = 2_000
 export const READ_TIMEOUT_MS = 30_000
 
 /**
- * The prefixes that say which kind a key is. Each is held to the key types in
- * `@vbz-gg/sdk/api` below, so a prefix that moved there fails to compile here
- * rather than refusing every real key.
+ * The prefixes that say which kind a key is, shared with `/server`'s client,
+ * which holds a key to them too.
  */
-export const SECRET_KEY_PREFIX = "vbz_sk_"
-export const PAGE_KEY_PREFIX = "vbz_pk_"
-const _secretKeyPrefixHeld: SecretKey = `${SECRET_KEY_PREFIX}held`
-const _pageKeyPrefixHeld: PageKey = `${PAGE_KEY_PREFIX}held`
-void _secretKeyPrefixHeld
-void _pageKeyPrefixHeld
+export { PAGE_KEY_PREFIX, SECRET_KEY_PREFIX }
 
 /** Why a publish stopped. Each code names one thing to fix or to check. */
 export const PUBLISH_ERROR = {
@@ -247,12 +245,6 @@ export interface PublishInput {
   readonly api: string | undefined
 }
 
-const LOOPBACK_HOSTS: ReadonlySet<string> = new Set([
-  "localhost",
-  "127.0.0.1",
-  "[::1]",
-])
-
 /**
  * Checks everything a publish needs before anything is read or sent.
  *
@@ -312,32 +304,14 @@ function secretKeyOf(raw: string | undefined): SecretKey {
   return key as SecretKey
 }
 
+/**
+ * Held to `keyOriginOf`, the rule `/server`'s client holds its origin to as
+ * well, so neither sends the key where the other would not.
+ */
 function apiOriginOf(raw: string): string {
-  let url: URL
-  try {
-    url = new URL(raw)
-  } catch {
-    throw badOrigin(raw, "it is not a URL")
-  }
-  const secure =
-    url.protocol === "https:" ||
-    (url.protocol === "http:" && LOOPBACK_HOSTS.has(url.hostname))
-  if (!secure) {
-    throw badOrigin(
-      raw,
-      "the request carries the studio's secret key, so it must be https, or http to this machine",
-    )
-  }
-  if (
-    (url.pathname !== "/" && url.pathname !== "") ||
-    url.search !== "" ||
-    url.hash !== "" ||
-    url.username !== "" ||
-    url.password !== ""
-  ) {
-    throw badOrigin(raw, "give the origin alone, with no path, query or login")
-  }
-  return url.origin
+  const checked = keyOriginOf(raw)
+  if (!checked.ok) throw badOrigin(raw, checked.problem)
+  return checked.origin
 }
 
 function badOrigin(raw: string, why: string): PublishError {

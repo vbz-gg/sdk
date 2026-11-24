@@ -564,6 +564,7 @@ describe("signing a player in", () => {
     const { client: platform } = await signedIn()
     platform.signOut()
     expect(platform.player()).toBeNull()
+    expect(platform.playerToken()).toBeNull()
   })
 })
 
@@ -591,6 +592,31 @@ describe("runs", () => {
     page.answers.push({ status: 200, body: { sessionId: "s-1", replay: null } })
     await platform.result("s-1")
     expect(page.sent.at(-1)?.headers.authorization).toBe("Bearer t-2")
+  })
+
+  /**
+   * What a page hands the studio's own server is the token the client would
+   * send itself: the renewed one once a start has renewed it, since the one
+   * it replaced reads as nobody once it expires, and none once signed out.
+   */
+  test("the token a page hands its own server is the one kept, renewed by a start", async () => {
+    const { page, client: platform } = client()
+    expect(platform.playerToken()).toBeNull()
+    page.answers.push({
+      status: 200,
+      body: { token: "t-1", expiresIn: 7_776_000, player: PLAYER },
+    })
+    const signing = platform.signIn()
+    await settle()
+    signedInThroughBox(page)
+    await signing
+    expect(platform.playerToken()).toBe("t-1")
+    page.answers.push({
+      status: 201,
+      body: { sessionId: "s-1", token: "t-2", expiresIn: 7_776_000 },
+    })
+    await platform.startRun()
+    expect(platform.playerToken()).toBe("t-2")
   })
 
   test("a token that stopped working forgets the player, and says so", async () => {
