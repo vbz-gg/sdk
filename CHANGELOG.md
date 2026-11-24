@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [0.9.0](https://github.com/vbz-gg/sdk/compare/v0.8.0...v0.9.0) (2026-11-24)
+
+
+### Features
+
+* **game:** page module contract 3, one seat of a turn-based match per page ([#34](https://github.com/vbz-gg/sdk/issues/34)) ([7b4e8fd](https://github.com/vbz-gg/sdk/commit/7b4e8fdb3c8478d0ab8aa4d9ab53e12f63fd41e8))
+
+
+### Documentation
+
+* call @vbz-gg/sdk the SDK everywhere, never the kit ([#35](https://github.com/vbz-gg/sdk/issues/35)) ([b12869c](https://github.com/vbz-gg/sdk/commit/b12869c00002013aeadec8bb70d0636f038278d2))
+
 ## [0.8.0](https://github.com/vbz-gg/sdk/compare/v0.7.4...v0.8.0) (2026-11-24)
 
 
