@@ -102,14 +102,15 @@ function realGame(scheduler: ManualScheduler): {
 
 /** A loaded game that hands what it was mounted with to `seen`. */
 function recording(seen: (options: GameMountOptions) => void): LoadedGame {
-  const handle = { recorded: () => [], stop() {}, destroy() {} }
+  const handle = { remote: null, recorded: () => [], stop() {}, destroy() {} }
   return {
     presentUrl: WATCHED.presentUrl,
     manifestHash: HASH,
     filesUrl: WATCHED.filesUrl,
-    contract: 2,
+    contract: 3,
     needsMotion: false,
     tickHz: 60,
+    seats: 1,
     servedConfig: {},
     requestMotion: async () => ({ granted: true }),
     prepare: () => ({
@@ -180,7 +181,11 @@ describe("watching a run", () => {
             detail: "",
           })
           options.handlers.onError({ code: "E_UNEXPECTED", message: "x" })
-          options.handlers.onFrame({ tick: 1, counters: {} })
+          options.handlers.onFrame({
+            tick: 1,
+            counters: {},
+            waitingForSeat: null,
+          })
           options.handlers.onEnded({
             tick: 1,
             reason: "timeout",

@@ -354,12 +354,12 @@ const studioModules = {
   "contract-2": await frozen("contract-2"),
   // A release that has moved on to a contract this tree's pages do not
   // drive, which is the one thing a page must refuse rather than misread.
-  "contract-3": await held(
+  "contract-4": await held(
     "template",
-    await templateBuiltApart("contract-3", (text) =>
+    await templateBuiltApart("contract-4", (text) =>
       text.replace(
-        "export const PAGE_MODULE_CONTRACT = 2;",
         "export const PAGE_MODULE_CONTRACT = 3;",
+        "export const PAGE_MODULE_CONTRACT = 4;",
       ),
     ),
   ),

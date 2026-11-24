@@ -307,14 +307,20 @@ const EMPTY_BOARD: Board = {
 
 /** A module of `version`; one that reads tilt when `tilt` is its answer to asking. */
 function moduleAt(version: PageGameVersion, tilt?: MotionAccess): LoadedGame {
-  const handle = { recorded: () => [], stop: () => {}, destroy: () => {} }
+  const handle = {
+    remote: null,
+    recorded: () => [],
+    stop: () => {},
+    destroy: () => {},
+  }
   return {
     presentUrl: version.presentUrl,
     manifestHash: version.manifestHash,
     filesUrl: version.filesUrl,
-    contract: 2,
+    contract: 3,
     needsMotion: tilt !== undefined,
     tickHz: 60,
+    seats: 1,
     servedConfig: {},
     requestMotion: async () => tilt ?? { granted: true },
     prepare: () => ({

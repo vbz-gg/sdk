@@ -163,6 +163,63 @@ const policy = pageCsp({
 The policy admits `https://files.example.com/g/<game id>/` and nothing else
 on that origin, so another game served there stays out of the page.
 
+## Players taking turns
+
+A game whose players take turns in one run, such as two players at a pool
+table, declares how many in its manifest, `session: { seats: 2 }`, and its
+rules code answers `seat()`, the seat whose turn the next tick is.
+`clockwork2/references/seats.md` has the rules for the rules code. The
+loaded game says how many seats it has in `game.seats`, 1 for a game played
+alone.
+
+Each player's page plays its own seat of the match. Every page plays the
+same seed and config, which whatever pairs the players hands them, and runs
+the whole simulation:
+
+```ts
+const run = playLocal(stage, {
+  game,
+  seed: match.seed, // the same on every page of the match
+  scripted: "ignore",
+  seats: {
+    local: match.mySeat, // 0 or 1; null on a page that only follows
+    onLocalInputs: (events, throughTick) => socket.send({ events, throughTick }),
+  },
+  onEnded: (ended) => keep(ended.recording),
+})
+socket.onmessage = ({ events, throughTick }) => {
+  run.remote?.append(events)
+  run.remote?.confirm(throughTick)
+}
+```
+
+- On its own seat's turn a page records from its devices, as any run does.
+  On another seat's turn it records nothing, drops whatever a player
+  presses, and holds until `remote` has been confirmed through the next
+  tick. Each frame's `waitingForSeat` names the seat it is holding for, or
+  is null.
+- `onLocalInputs` is called after each frame that ran a tick, with this
+  seat's inputs since the last call and the last tick the page has run.
+  Send both; every other page appends the inputs and confirms the tick.
+- `remote.append` and `remote.confirm` answer null, or a `{ code, message }`
+  for what they refused, and a refused call keeps nothing. The engine's
+  rules decide: inputs sorted by tick, declared, in range, and never on a
+  tick already confirmed.
+- With three or more seats, `remote` carries every seat the page does not
+  play, merged in tick order: a server between the pages does that.
+- `local: null` follows the match: the page records nothing and reads every
+  tick from `remote`, which a server fills with every seat's inputs in tick
+  order.
+- `run.remote` is null for a run of one seat, and until the run is mounted,
+  which is at once unless the game asks for tilt first.
+- The recording is the merged log: every seat's inputs on the ticks they
+  played. It replays as any recording does, and a page watching it mounts
+  it in watch mode with no `seats`.
+- A game of more than one seat played with no `seats` fails with
+  `E_SEATS_REQUIRED`, and `seats` given to a game of one seat, or to a
+  watched run, with `E_SEATS_UNEXPECTED`, both at `onError` before anything
+  is built.
+
 ## If you use vbz.gg: the client
 
 For ranked and practice runs, once the game is published:
@@ -294,6 +351,11 @@ having sent nothing; call `playRun` again with `played.game` from the next
 tap and the same run carries on. It moves focus to `stage`, labelled with
 `title`, so a key the game maps reaches the game rather than the Play button.
 
+vbz.gg ranks one player's run, so `playRun` plays a game of one seat. Handed
+a game of more than one, it fails with `E_SEATED_RUN_UNSUPPORTED` having
+asked for nothing: no tilt, no lock and no run. Play a game of turns on its
+own page with `playLocal`, above.
+
 `stage` is the element the game fills. The widgets take their colours from
 `--gb-widget-*` custom properties.
 
@@ -385,6 +447,9 @@ page playing on vbz.gg meets, carries the platform's own code, from
 | `E_PAGE_ALTERS_BUILTINS` | A script on the page replaced a built-in the rules code calls, so the page would play a different game from the one the platform replays. The `detail` names it. |
 | `E_WRONG_GAME` | The page module is another version of the game than the one the run plays. |
 | `E_TICK_RATE_UNSUPPORTED` | The run's tick rate is not 30, 60 or 120. |
+| `E_SEATS_REQUIRED` | A game whose players take turns was played with no `seats`: say which seat the page plays, or `local: null` to follow the match. |
+| `E_SEATS_UNEXPECTED` | `seats` was given to a game of one seat, to a module built before seats, or to a watched run, which replays every seat's inputs from its log. Leave it out. |
+| `E_SEATED_RUN_UNSUPPORTED` | `playRun` was handed a game of more than one seat. vbz.gg ranks one player's run, so nothing was asked or started; play the game with `playLocal`. |
 | `E_MOTION_NEEDS_TAP` | The run's own module reads tilt and the click did not ask for it. Call `playRun` again with `played.game` from the next tap. |
 | `E_MOTION_DENIED` | The game reads tilt and the player did not allow it, or it was asked outside a tap. No run was started. iOS remembers the refusal and answers every later request with it without asking, until the site's data is cleared in the browser's settings, which the sentence tells the player. |
 | `E_MOTION_NO_SENSOR` | The game reads tilt and no reading arrived: a laptop or a desktop, or a device whose browser keeps its sensors from the site. No run was started. |

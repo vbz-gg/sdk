@@ -24,6 +24,8 @@ import {
   type Presentation,
   type PresentationContext,
   RecordedInputSource,
+  RemoteInputFeed,
+  seatsOf,
   servedConfig,
   type TerminalReason,
 } from "@clockwork2/engine"
@@ -41,6 +43,7 @@ import { TICK_RATES } from "@clockwork2/engine/manifest"
 import {
   MOUNT_ERROR,
   type MountError,
+  type MountedRemote,
   type MountHandle,
   type MountOptions,
   PAGE_MODULE_CONTRACT,
@@ -95,6 +98,7 @@ export function definePageModule<TView, TConfig>(
     manifestHash,
     needsMotion: parts.capture.tilt !== undefined,
     tickHz: manifest.session.tickHz,
+    seats: seatsOf(manifest),
     servedConfig: servedOrNull(manifest),
     check: () => problemsOf(parts, manifestHash),
     requestMotion: () => requestMotion(),
@@ -186,6 +190,7 @@ function contextFor(
 /** A handle on a run that never started: every call is safe and does nothing. */
 function inert(options: RunMount): MountHandle {
   return {
+    remote: null,
     // Read as it arrived: a refused watch may have come with no inputs.
     recorded: () => (options.mode === "watch" ? (options.inputs ?? []) : []),
     stop: () => {},
@@ -345,6 +350,8 @@ function refusalOf(
   // as it arrived rather than as its type says.
   const given = options as unknown as Readonly<Record<string, unknown>>
   if (options.mode === "play") {
+    const seated = seatsRefusal(seatsOf(manifest), given.seats)
+    if (seated !== null) return seated
     if (given.maxTicks !== undefined) {
       return argInvalid(
         "a played run has no step limit; maxTicks is where a watched run stops",
@@ -364,6 +371,13 @@ function refusalOf(
     return argInvalid(
       `mode must be "play" or "watch", not ${JSON.stringify(given.mode)}`,
     )
+  }
+  if (given.seats !== undefined) {
+    return {
+      code: MOUNT_ERROR.SEATS_UNEXPECTED,
+      message:
+        "a watched run replays its recording's merged log, every seat's inputs, and takes no seats",
+    }
   }
   if (!Array.isArray(given.inputs)) {
     return argInvalid("watching a run needs the run's inputs")
@@ -387,6 +401,72 @@ function refusalOf(
     )
   }
   return null
+}
+
+/**
+ * What a played run's `seats` may not be, for a game of `seats` seats: given
+ * for a game of one, missing for a game of more, or not a seat it has.
+ */
+function seatsRefusal(seats: number, given: unknown): MountError | null {
+  if (given === undefined) {
+    if (seats === 1) return null
+    return {
+      code: MOUNT_ERROR.SEATS_REQUIRED,
+      message: `this game has ${seats} seats, so a played run says which one this page plays in seats.local, or null to follow the match`,
+    }
+  }
+  if (seats === 1) {
+    return {
+      code: MOUNT_ERROR.SEATS_UNEXPECTED,
+      message: "this game has one seat, so a played run takes no seats",
+    }
+  }
+  if (typeof given !== "object" || given === null) {
+    return argInvalid(
+      `seats must be { local, onLocalInputs }, not ${JSON.stringify(given)}`,
+    )
+  }
+  const { local, onLocalInputs } = given as Readonly<Record<string, unknown>>
+  if (
+    local !== null &&
+    !(
+      Number.isInteger(local) &&
+      (local as number) >= 0 &&
+      (local as number) < seats
+    )
+  ) {
+    return argInvalid(
+      `seats.local must be null or a seat from 0 to ${seats - 1}, not ${JSON.stringify(local)}`,
+    )
+  }
+  if (onLocalInputs !== undefined && typeof onLocalInputs !== "function") {
+    return argInvalid("seats.onLocalInputs must be a function")
+  }
+  if (local === null && onLocalInputs !== undefined) {
+    return argInvalid(
+      "seats.onLocalInputs is for a page that plays a seat; a page that follows the match records nothing to send",
+    )
+  }
+  return null
+}
+
+/**
+ * Where a page hands the run the other seats' inputs: the engine's feed,
+ * with every refusal answered as plain data rather than thrown.
+ */
+function remoteOf(feed: RemoteInputFeed): MountedRemote {
+  const attempt = (call: () => void): MountError | null => {
+    try {
+      call()
+      return null
+    } catch (error) {
+      return mountErrorOf(error)
+    }
+  }
+  return {
+    append: (events) => attempt(() => feed.append(events)),
+    confirm: (throughTick) => attempt(() => feed.confirm(throughTick)),
+  }
 }
 
 /** `prepare` and the prepared game's `mount`, in one call. */
@@ -467,6 +547,11 @@ function runOnceReady<TView, TConfig>(
   let capture: InputCapture | null = null
   let stopping: TerminalReason | null = null
   let destroyed = false
+  // Made with the run rather than with its host, so the other seats' inputs
+  // that arrive while the game gets ready are kept for its first ticks.
+  const seated = options.mode === "play" ? options.seats : undefined
+  const feed =
+    seated === undefined ? null : new RemoteInputFeed(manifest.inputs)
 
   const release = (): void => {
     capture?.detach()
@@ -510,6 +595,17 @@ function runOnceReady<TView, TConfig>(
               maxTicks: options.maxTicks,
             }
           : {}),
+        ...(seated === undefined || feed === null
+          ? {}
+          : {
+              seats: {
+                local: seated.local,
+                remote: feed,
+                ...(seated.onLocalInputs === undefined
+                  ? {}
+                  : { onLocalInputs: seated.onLocalInputs }),
+              },
+            }),
         onCheckpoint: (checkpoint) =>
           handlers.onCheckpoint({
             tick: checkpoint.tick,
@@ -519,6 +615,7 @@ function runOnceReady<TView, TConfig>(
           handlers.onFrame({
             tick: frame.tick,
             counters: { ...built.counters() },
+            waitingForSeat: frame.waitingForSeat,
           }),
         onEnded: (result) => {
           release()
@@ -591,9 +688,16 @@ function runOnceReady<TView, TConfig>(
   })
 
   return {
-    recorded: () =>
-      host?.live?.recorded() ??
-      (options.mode === "watch" ? options.inputs : []),
+    remote: feed === null ? null : remoteOf(feed),
+    recorded: () => {
+      if (host === null) return options.mode === "watch" ? options.inputs : []
+      // A seated run's log is the merged one, which only the host keeps.
+      if (feed !== null) return host.recording().inputs
+      return (
+        host.live?.recorded() ??
+        (options.mode === "watch" ? options.inputs : [])
+      )
+    },
     stop: (reason = "abandoned") => {
       if (host !== null) host.stop(reason)
       else stopping ??= reason

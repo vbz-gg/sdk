@@ -17,7 +17,7 @@ export const MANIFEST: Manifest = {
   id: "folder",
   version: "1.0.0",
   name: "Folder",
-  kernel: { version: "0.10.0" },
+  kernel: { version: "0.11.0" },
   session: {
     tickHz: 60,
     hasEnding: true,

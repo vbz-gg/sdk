@@ -33,6 +33,7 @@ import {
   PackSet,
   RecordedInputSource,
   runSession,
+  seatsOf,
 } from "@clockwork2/engine"
 import { childEntry, runGameProcess } from "../build/game-process.js"
 
@@ -135,6 +136,9 @@ export function replayRecording<TView, TConfig>(
       maxTicks: Math.max(recording.endTick, 1),
       checkpointEvery: recording.tickHz,
       counters: manifest.counters,
+      // A game of turns answers seat() every tick, and a session of one
+      // seat refuses any answer but 0.
+      seats: seatsOf(manifest),
       assets: manifest.assets ?? [],
       // Checked as the run first reads each, as a server replay does.
       packs: PackSet.lazy(manifest.assets, packs),

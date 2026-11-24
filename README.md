@@ -48,6 +48,7 @@ docs/sdk.md                   how it works, from first principles
 docs/proposals/               designs not built yet, each with what it would need
 fixtures/paddle/              a small game steered by tilt
 fixtures/folder/              a game that loads from its files folder as an engine built into one does
+fixtures/turns/               a game of two players taking turns, one seat per page
 e2e/                          the browser suite, driving the harness and a studio's page for real
 scripts/                      this repository's own tooling
 ```

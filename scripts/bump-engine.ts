@@ -4,7 +4,7 @@
  *
  *   bun run scripts/bump-engine.ts 0.8.0
  *
- * The engine's version is written in seven places and they have to move
+ * The engine's version is written in eight places and they have to move
  * together: the root's exact pin, the package's peer range, the template's
  * own dependency, the kernel version each example manifest declares, and the
  * range `docs/sdk.md` quotes. Leaving one behind is not loud - a stale
@@ -93,6 +93,7 @@ function edits(from: EngineVersions, to: string): Edit[] {
       "packages/sdk/templates/game/src/sim/manifest.ts",
       "fixtures/paddle/src/sim/manifest.ts",
       "fixtures/folder/src/sim/manifest.ts",
+      "fixtures/turns/src/sim/manifest.ts",
     ].map((file) => ({
       file,
       find: `kernel: { version: "${from.pinned}" }`,
@@ -115,7 +116,7 @@ export interface Bumped {
  *
  * Throws when a file does not hold what was expected, which is the case worth
  * failing on: the substitutions are exact, so a miss means the literal moved
- * or a seventh place grew, and both want a person rather than a silent pass.
+ * or a ninth place grew, and both want a person rather than a silent pass.
  */
 export async function bumpEngine(to: string, root = ROOT): Promise<Bumped> {
   if (!VERSION.test(to)) {

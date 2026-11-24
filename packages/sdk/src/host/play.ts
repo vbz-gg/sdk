@@ -113,7 +113,9 @@ const LOCKED_PHASES: ReadonlySet<RunPhase> = new Set([
  * is granted, it gets the game ready in `element`, its presentation drawing
  * and its start packs fetched, and only then starts the run, so a device the
  * game cannot draw on spends no run. Every failure arrives as the run's
- * state, with the code that says why: tilt refused or missing
+ * state, with the code that says why: a game of more than one seat, which
+ * vbz.gg does not rank (`E_SEATED_RUN_UNSUPPORTED`, having asked for
+ * nothing), tilt refused or missing
  * (`E_MOTION_DENIED` and the engine's other refusals, each with the client's
  * sentence for the player), another tab playing the game in this mode, a
  * game that cannot draw here (`E_PRESENTATION_FAILED`) or whose packs did
@@ -125,22 +127,29 @@ const LOCKED_PHASES: ReadonlySet<RunPhase> = new Set([
  */
 export function playRun(element: HTMLElement, options: PlayOptions): PlayedRun {
   let game = options.game
+  // vbz.gg ranks one player's run: a game of turns asks for nothing, not
+  // tilt and not the lock, and starts nothing.
+  const seated = seatedRefusal(game)
   // A browser that cannot keep a run to one tab starts nothing: two of its
   // tabs on one run would post chunks that conflict, and the platform counts
   // that against the player.
   const locks = options.locks === undefined ? browserLocks() : options.locks
   // First, in the click's own turn, before anything is awaited.
   const motion =
-    locks !== null && game.needsMotion ? game.requestMotion() : null
+    seated === null && locks !== null && game.needsMotion
+      ? game.requestMotion()
+      : null
   // Read once the lock is held; a failure meanwhile is kept for then.
   motion?.catch(() => {})
   // Then the lock, and nothing is started until this tab holds it: a second
   // tab's start would close a run the first has committed to and answer a
   // new one, or hand it the same run to post conflicting chunks for.
   const holding =
-    locks === null
-      ? Promise.reject(new PlatformClientError("E_BROWSER_UNSUPPORTED"))
-      : holdLock(locks, runLockName(options.client.pageKey, options.mode))
+    seated !== null
+      ? Promise.reject(seated)
+      : locks === null
+        ? Promise.reject(new PlatformClientError("E_BROWSER_UNSUPPORTED"))
+        : holdLock(locks, runLockName(options.client.pageKey, options.mode))
 
   let release: (() => void) | null = null
   const unlock = () => {
@@ -211,6 +220,8 @@ export function playRun(element: HTMLElement, options: PlayOptions): PlayedRun {
         filesUrl: started.game.filesUrl,
       })
       if (left()) return
+      const unranked = seatedRefusal(game)
+      if (unranked !== null) throw unranked
       if (game.needsMotion && motion === null) {
         throw new PlatformClientError("E_MOTION_NEEDS_TAP")
       }
@@ -252,6 +263,17 @@ export function playRun(element: HTMLElement, options: PlayOptions): PlayedRun {
       unlock()
     },
   }
+}
+
+/**
+ * Why `game` plays no platform run: a game of more than one seat, which
+ * vbz.gg does not rank. Null for a game of one.
+ */
+function seatedRefusal(game: LoadedGame): PlatformClientError | null {
+  if (game.seats === 1) return null
+  return new PlatformClientError("E_SEATED_RUN_UNSUPPORTED", {
+    cause: { seats: game.seats },
+  })
 }
 
 /**

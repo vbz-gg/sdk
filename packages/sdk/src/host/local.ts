@@ -24,8 +24,10 @@ import type {
 import type {
   MountError,
   MountedEnd,
+  MountedRemote,
   MountHandle,
   MountHandlers,
+  SeatMount,
 } from "../game/contract.js"
 import {
   type ClientErrorCode,
@@ -84,6 +86,14 @@ export interface LocalPlayOptions {
    * run does; `"record"` lets a page drive its game from a script.
    */
   readonly scripted: ScriptedEvents
+  /**
+   * For a game of more than one seat, which every page of a match plays on
+   * the same seed and config: the seat this page plays, or null for a page
+   * that only follows the match, and where its own seat's inputs go. The
+   * other seats' inputs come in through the run's `remote`. Required for
+   * such a game, and refused for a game of one seat.
+   */
+  readonly seats?: SeatMount
   /** Once, when the run ends, with its recording. */
   readonly onEnded: (ended: LocalEnd) => void
   /**
@@ -117,7 +127,13 @@ export interface LocalRun {
    * made. Anything but a grant has already reached `onError`.
    */
   readonly motion: Promise<MotionAccess> | null
-  /** The inputs recorded so far. */
+  /**
+   * Where the other seats' inputs go in, for a run given `seats`; null for
+   * any other run, and until the run is mounted, which is at once unless the
+   * game asks for tilt first.
+   */
+  readonly remote: MountedRemote | null
+  /** The inputs recorded so far; a seated run's merged log. */
   recorded(): readonly InputEvent[]
   /**
    * The player leaving: the run ends where it stands, and `onEnded` follows.
@@ -272,6 +288,7 @@ export function playLocal(
       config,
       tickHz,
       scripted: options.scripted,
+      ...(options.seats === undefined ? {} : { seats: options.seats }),
       expect: { manifestHash: game.manifestHash },
       handlers: {
         onCheckpoint: (checkpoint) => options.onCheckpoint?.(checkpoint),
@@ -328,6 +345,9 @@ export function playLocal(
     seed,
     config,
     motion,
+    get remote() {
+      return handle?.remote ?? null
+    },
     recorded: () => handle?.recorded() ?? [],
     end: () => {
       if (stopped) return

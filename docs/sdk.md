@@ -163,7 +163,7 @@ export default definePageModule({ createGame, manifest: MANIFEST, createPresenta
 `definePageModule` returns a `PageModule`, which is all a page ever sees of
 the game:
 
-- `contract`, the version of this shape the module speaks, `2` today;
+- `contract`, the version of this shape the module speaks, `3` today;
 - `manifestHash`, the engine's canonical hash of the manifest;
 - `needsMotion`, true when the mapping reads tilt, so a page asks for motion
   in the click;
@@ -173,6 +173,9 @@ the game:
   manifest declares a required setting with no default, which only a page
   naming its own config can play. A page holds no engine, so the module says
   both;
+- `seats`, how many players take turns in one run of the game, the
+  engine's `seatsOf` its manifest: 1 for a game played alone, which is
+  every game that does not declare `session.seats`, and up to 8;
 - `check()`, which answers a list of problems and never throws: the manifest
   it was given is not the one its rules code carries (`E_GAME_MODULE_INVALID`),
   or the mapping names something the manifest does not declare
@@ -210,8 +213,10 @@ played run that does not say what to do with a scripted event, before
 anything is built. The clock starts only once the game is ready, so no tick
 runs and nothing is recorded before it can be drawn, and a failure to get
 ready arrives at `onError` before tick 0. It hands back `recorded()`,
-`stop(reason)` and `destroy()`; a run stopped while it gets ready ends at
-tick 0 once it is. The presentation fills the element it is mounted in,
+`stop(reason)`, `destroy()` and `remote`, which is null except for a seated
+run, below; a run stopped while it gets ready ends at tick 0 once it is.
+Each frame reports the tick, the counters and `waitingForSeat`, which is
+null except while a seated run holds for another seat. The presentation fills the element it is mounted in,
 stretched the same way on both axes, because the helpers measure a finger
 across that element.
 
@@ -235,7 +240,13 @@ speaks one it does not know with `E_GAME_CONTRACT_UNKNOWN`, naming both,
 rather than misreading it. A page on this release drives contract 1 as it was
 built: its module stops a run at its own manifest's step limit, whatever the
 page passes, knows no files folder and no word on scripted events, cannot be
-watched without drawing, and is ready at once. The browser suite holds the
+watched without drawing, and is ready at once. Contract 2 added the files
+folder, the tick rate, the served config, `prepare` and runs with no step
+limit. Contract 3 added `seats`, the seated run and its `remote`, and
+`waitingForSeat` on every frame. A page drives a module of contract 1 or 2
+as a game of one seat: a run given `seats` is refused with
+`E_SEATS_UNEXPECTED` before it reaches the module, the handle's `remote` is
+null and every frame's `waitingForSeat` is null. The browser suite holds the
 first half to a module the first release of contract 1 built, and a page to
 playing a module of contract 2 as the tree that introduced it built it, each
 committed under `e2e/frozen/` and never rebuilt once its contract is out.
@@ -244,6 +255,51 @@ committed under `e2e/frozen/` and never rebuilt once its contract is out.
 what a page module may do. It reads nothing from the browser when it loads,
 contains no dynamic `import(`, and imports nothing of `/host`, `/platform` or
 the CLI. A test holds all three.
+
+### Players taking turns
+
+A game whose players take turns in one run, such as two players at a pool
+table, declares its seats in the manifest, `session.seats`, from 2 to 8, and
+its rules code answers `seat()`, the seat whose inputs the next tick reads.
+The engine owns the rest: clockwork2's `docs/engine.md` under "Seats and
+turns". Every player's page runs the whole simulation on the same seed and
+config, and each plays its own seat.
+
+A played run of such a game takes `seats: { local, onLocalInputs }`.
+`local` is the seat this page plays, or null for a page that only follows
+the match: it hears no device and reads every tick from `remote`. After each
+frame that ran a tick, `onLocalInputs(events, throughTick)` hands the page
+its seat's inputs since the last call and the last tick it ran, and the page
+sends both to the other pages. Each of those hands them to its own run's
+`remote`: `append(events)`, then `confirm(throughTick)`. The module builds
+the engine's `RemoteInputFeed` when the run is mounted, so inputs that
+arrive while the game gets ready are kept for its first ticks, and the
+engine's `GameHost` takes the seat and the feed. On its own seat's turn the
+page records from its devices; on another seat's it records nothing, drops
+what the player presses, and holds until the feed is confirmed through the
+next tick, which each frame's `waitingForSeat` names. A page that fell
+behind runs the confirmed ticks faster than its clock until it is level.
+
+`remote` answers each call with null, or with a `{ code, message }` for what
+the engine's feed refused, and a refused call keeps nothing: inputs out of
+tick order (`E_INPUT_UNSORTED`), undeclared or out of range
+(`E_INPUT_UNDECLARED`), on a tick already confirmed (`E_INPUT_RANGE`), or a
+confirmation that goes back (`E_ARG_INVALID`). An input the other side sent
+for one of this page's own ticks ends the run at `onError` with
+`E_INPUT_SEAT` once the page reaches it. With three or more seats, `remote`
+carries every seat the page does not play, merged in tick order, which a
+server between the pages does.
+
+A seated run's `recorded()` and its recording are the merged log, every
+seat's inputs on the ticks they played. It replays like any log: watching
+it takes no `seats`, and the module hands the engine the manifest's seats,
+so `seat()` answers past 0 are accepted. `mount` refuses, before anything is
+built, a played run of a game of more than one seat with no `seats`
+(`E_SEATS_REQUIRED`), `seats` for a game of one seat or for a watched run
+(`E_SEATS_UNEXPECTED`), a `local` that is not null or a seat the game has,
+and `onLocalInputs` on a page that only follows (`E_ARG_INVALID`).
+`fixtures/turns` is a two-seat game, and `tests/game/seats.test.ts` plays a
+match of it on two pages wired to each other, with a third following.
 
 ## Choosing what to record
 
@@ -320,9 +376,10 @@ with:
 2. The default export is an object (`E_GAME_MODULE_INVALID`).
 3. Its `contract` is one this release drives (`E_GAME_CONTRACT_UNKNOWN`).
 4. `mount`, `check` and `requestMotion` are functions, `manifestHash` a
-   string and `needsMotion` a boolean, and for contract 2 `prepare` a
-   function, `tickHz` a number and `servedConfig` an object or null
-   (`E_GAME_MODULE_INVALID`, naming the field).
+   string and `needsMotion` a boolean, from contract 2 `prepare` a
+   function, `tickHz` a number and `servedConfig` an object or null, and
+   from contract 3 `seats` a number (`E_GAME_MODULE_INVALID`, naming the
+   field).
 5. Its manifest hash is the version's (`E_WRONG_GAME`).
 6. Its own `check()` finds nothing (the problem's own code; one this release
    does not know is `E_GAME_MODULE_INVALID` in the module's words).
@@ -366,6 +423,13 @@ before any run started: `onEnded` follows at once with an empty run, tick 0,
 no counters and a null recording, and whatever the prompt answers
 afterwards, nothing is mounted, nothing takes focus and nothing more is
 reported, so the element is the page's again at once, for the next run.
+
+A game whose players take turns is played one seat per page with
+`playLocal` and its `seats`, every page on the same seed and config, as
+"Players taking turns" above describes. The run's `remote` is where the
+other seats' inputs go in; it is null until the run is mounted, which is at
+once unless the game asks for tilt first. The recording `onEnded` gets is
+the merged log.
 
 Any answer to the tilt request but a grant fails the run before it starts,
 and on vbz.gg before the platform is asked for one and with the lock let go,
@@ -423,6 +487,12 @@ the run's own module reads tilt the click did not ask for, the run stops with
 to `element`, labelled with `title`, so a key reaches the game rather than
 the button a player just pressed, and `played.end()` submits the player
 leaving as an abandoned run.
+
+vbz.gg ranks one player's run. A game whose players take turns, a loaded
+game whose `seats` is above 1, is played on its own page with `playLocal`,
+and `playRun` handed one fails with `E_SEATED_RUN_UNSUPPORTED` before it asks
+for tilt, the lock or a run. A resumed run whose own module turns out to
+have seats fails the same way, and the lock is let go.
 
 The platform keeps one open run per player, game and mode, and a second tab
 of the same browser is the same player. Started while the first tab's run has
@@ -1661,7 +1731,7 @@ driving one engine's host while the rules code carries another's manifest
 types. A page needs no engine at all: `/host` and `/platform` import its
 types only, which leave nothing in a bundle.
 
-The range is `>=0.10.0 <0.11.0` rather than open-ended. clockwork2 is 0.x and
+The range is `>=0.11.0 <0.12.0` rather than open-ended. clockwork2 is 0.x and
 maps a breaking change to a minor, so an engine minor may move the very
 things this package is about, such as what a recorded input carries or what
 the host's options are. Each engine minor is a deliberate bump here.

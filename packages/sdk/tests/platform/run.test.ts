@@ -128,6 +128,7 @@ function fakeClient(script: {
  * is recording, and a `stop` that ends the run as a real one does, at once.
  */
 class FakeGame implements MountHandle {
+  readonly remote = null
   options: PlayMount | null = null
   readonly log: InputEvent[] = []
   readonly calls: string[] = []
@@ -164,7 +165,7 @@ class FakeGame implements MountHandle {
   /** The game reaching `tick`, with what it recorded on the way. */
   frame(tick: number, counters: Record<string, number> = {}): void {
     this.tick = tick
-    this.handlers.onFrame({ tick, counters })
+    this.handlers.onFrame({ tick, counters, waitingForSeat: null })
   }
 
   press(tick: number): void {
@@ -247,7 +248,7 @@ describe("before a tick runs", () => {
         code: "E_WRONG_GAME",
         message: "this page module is manifest mh-2",
       })
-      return { recorded: () => [], stop() {}, destroy() {} }
+      return { remote: null, recorded: () => [], stop() {}, destroy() {} }
     })
     expect(states.at(-1)).toMatchObject({
       phase: RUN_PHASE.FAILED,

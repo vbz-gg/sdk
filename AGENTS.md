@@ -807,7 +807,7 @@ dispatch arrives immediately. A claim npm never confirms falls back to
 whatever npm does say is latest, so a wrong one costs two minutes and changes
 nothing.
 
-The bump itself is `scripts/bump-engine.ts`, which moves the version in all seven
+The bump itself is `scripts/bump-engine.ts`, which moves the version in all eight
 places it is written - the root's pin, the peer range, the template's own
 dependency, the kernel version each example manifest declares, and the range
 `docs/sdk.md` quotes - and throws rather than skipping a file that does not

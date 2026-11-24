@@ -35,7 +35,7 @@ import type {
 } from "@clockwork2/engine/host"
 
 /** The contract version a page module built with this release speaks. */
-export const PAGE_MODULE_CONTRACT = 2
+export const PAGE_MODULE_CONTRACT = 3
 
 /**
  * Every contract version a page on this release can drive, oldest first. A
@@ -46,9 +46,12 @@ export const PAGE_MODULE_CONTRACT = 2
  * no word on scripted events, and cannot be prepared before a run starts.
  * Contract 2 has no step limit, says its tick rate and its served config,
  * fetches its data packs from its files folder, and can be prepared, so a
- * device that cannot draw it spends no run.
+ * device that cannot draw it spends no run. Contract 3 says how many seats
+ * its game has and plays one seat of a match, or follows one, through
+ * `seats` and the handle's `remote`; a page drives a module of contract 1
+ * or 2 as a game of one seat, whose frames wait for nobody.
  */
-export const DRIVEN_CONTRACTS: readonly number[] = [1, 2]
+export const DRIVEN_CONTRACTS: readonly number[] = [1, 2, 3]
 
 /** Why a page module's own check found it unfit to play, by kind. */
 export const PAGE_MODULE_PROBLEM = {
@@ -76,6 +79,16 @@ export const MOUNT_ERROR = {
   WRONG_GAME: "E_WRONG_GAME",
   /** The run's tick rate is not 30, 60 or 120. */
   TICK_RATE_UNSUPPORTED: "E_TICK_RATE_UNSUPPORTED",
+  /**
+   * A played run of a game with more than one seat says which seat the page
+   * plays, or null for a page that only follows the match.
+   */
+  SEATS_REQUIRED: "E_SEATS_REQUIRED",
+  /**
+   * `seats` was given where a run takes none: a game with one seat, a
+   * module from before seats, or a watched run, which replays its merged log.
+   */
+  SEATS_UNEXPECTED: "E_SEATS_UNEXPECTED",
   /** Something with no code failed: a bug in the game, with its message. */
   UNEXPECTED: "E_UNEXPECTED",
 } as const
@@ -101,6 +114,12 @@ export interface MountedFrame {
   readonly tick: number
   /** What the game's counters read, as evidence for a chunk. Never ranked. */
   readonly counters: Readonly<Record<string, number>>
+  /**
+   * The seat the run is holding for: its turn has come and its inputs for
+   * the next tick have not been confirmed through `remote`. Null while the
+   * run goes on, and always null for a game of one seat.
+   */
+  readonly waitingForSeat: number | null
 }
 
 export interface MountedEnd {
@@ -145,6 +164,31 @@ interface RunMountBase {
 }
 
 /**
+ * Which seat of a match a played run is, for a game whose manifest declares
+ * more than one, the engine's `session.seats`. Every page of a match plays
+ * the same seed and config, and each runs the whole simulation.
+ */
+export interface SeatMount {
+  /**
+   * The seat this page plays, from 0 to one below the module's `seats`, or
+   * null for a page that only follows the match: it hears no device and
+   * reads every tick from `remote`.
+   */
+  readonly local: number | null
+  /**
+   * For a page that plays a seat: after each frame that ran a tick, the
+   * local seat's inputs recorded since the last call, and the last tick
+   * this page has run, which is final for the local seat. The page sends
+   * both to the other pages of the match, each of which hands them to its
+   * own `remote`.
+   */
+  readonly onLocalInputs?: (
+    events: readonly InputEvent[],
+    throughTick: number,
+  ) => void
+}
+
+/**
  * A run the player plays. It has no step limit: it runs until the game ends
  * it or the page stops it.
  */
@@ -158,6 +202,11 @@ export interface PlayMount extends RunMountBase {
    * itself from a test or a tool.
    */
   readonly scripted: ScriptedEvents
+  /**
+   * Required for a game of more than one seat, and refused for a game of
+   * one: the seat this page plays, or null to follow the match.
+   */
+  readonly seats?: SeatMount
 }
 
 /** A recorded run played back. Nothing is recorded, and no device is heard. */
@@ -198,9 +247,38 @@ export interface PrepareOptions {
 /** What a page module's own `mount` takes: the run, and how to get ready for it. */
 export type MountOptions = RunMount & PrepareOptions
 
+/**
+ * Where the inputs of every seat a page does not play go in, as they arrive
+ * from the other pages of the match or from a server between them. Each
+ * answers null, or why it refused, as plain data; a refused call keeps
+ * nothing and the run goes on, holding for what it still lacks.
+ */
+export interface MountedRemote {
+  /**
+   * Inputs the other seats recorded, sorted by tick, within one call and
+   * across calls, each a declared input in its range, and none on a tick
+   * already confirmed: the engine's `RemoteInputFeed.append`.
+   */
+  append(events: readonly InputEvent[]): MountError | null
+  /**
+   * The other seats have sent every input through `throughTick`, which
+   * never goes back: the engine's `RemoteInputFeed.confirm`.
+   */
+  confirm(throughTick: number): MountError | null
+}
+
 /** What a mount hands back. Every method is safe to call after the run ends. */
 export interface MountHandle {
-  /** The inputs recorded so far, in order: the run's log. Read it, never write it. */
+  /**
+   * For a played run of a game with more than one seat: where the other
+   * seats' inputs go in. Null for any other run, a refused one included.
+   */
+  readonly remote: MountedRemote | null
+  /**
+   * The inputs recorded so far, in order: the run's log. A seated run's is
+   * the merged log, every seat's inputs every tick took, which replays as
+   * any log does. Read it, never write it.
+   */
   recorded(): readonly InputEvent[]
   /**
    * Ends the run where it stands: `abandoned` for a player who left. A run
@@ -242,6 +320,11 @@ export interface PageModule {
   /** The game's tick rate: a run must be played at this one. */
   readonly tickHz: number
   /**
+   * How many seats a run of the game has, the engine's `seatsOf` its
+   * manifest: 1 for a game played alone, up to 8 for players who take turns.
+   */
+  readonly seats: number
+  /**
    * The engine's `servedConfig`: every setting the manifest declares, at its
    * default. What a platform serves a ranked or practice run, and what a
    * local run plays unless its page says otherwise. Null when the manifest
@@ -267,6 +350,17 @@ export interface PageModule {
   mount(element: HTMLElement, options: MountOptions): MountHandle
 }
 
+/** A frame as a module of contract 1 or 2 reports it: its game has one seat. */
+export type SeatlessFrame = Omit<MountedFrame, "waitingForSeat">
+
+/** The handlers a page hands a module of contract 1 or 2. */
+export interface SeatlessHandlers extends Omit<MountHandlers, "onFrame"> {
+  onFrame(frame: SeatlessFrame): void
+}
+
+/** What a module of contract 1 or 2 hands back: a run of one seat, with no remote. */
+export type SeatlessMountHandle = Omit<MountHandle, "remote">
+
 /**
  * What a page passed a contract-1 module's `mount`. A page on this release
  * still drives one, and builds this for it.
@@ -280,7 +374,7 @@ export interface ContractOneMountOptions {
   readonly maxTicks: number
   readonly inputs?: readonly InputEvent[]
   readonly expect: { readonly manifestHash: string }
-  readonly handlers: MountHandlers
+  readonly handlers: SeatlessHandlers
   readonly presentationContext?: Partial<PresentationContext>
   readonly scheduler?: Scheduler
   readonly environment?: CaptureEnvironment
@@ -293,5 +387,8 @@ export interface ContractOnePageModule {
   readonly needsMotion: boolean
   check(): readonly PageModuleProblem[]
   requestMotion(): Promise<MotionAccess>
-  mount(element: HTMLElement, options: ContractOneMountOptions): MountHandle
+  mount(
+    element: HTMLElement,
+    options: ContractOneMountOptions,
+  ): SeatlessMountHandle
 }

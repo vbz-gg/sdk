@@ -23,14 +23,18 @@ import type { MotionAccess } from "@clockwork2/engine/host"
 import {
   type ContractOneMountOptions,
   DRIVEN_CONTRACTS,
+  MOUNT_ERROR,
   type MountError,
   type MountHandle,
+  type MountHandlers,
   type MountOptions,
   PAGE_MODULE_PROBLEM,
   type PageModuleProblem,
   type PreparedGame,
   type PrepareOptions,
   type RunMount,
+  type SeatlessHandlers,
+  type SeatlessMountHandle,
 } from "../game/contract.js"
 import {
   type ClientErrorCode,
@@ -58,9 +62,10 @@ export type GameMountOptions = RunMount & PagePrepareOptions
 
 /**
  * A page module that passed every check, ready for a click, whichever
- * contract it speaks. A page drives both the same way: a contract-1 module
- * is handed what it was built to take, and a run on it still stops at its
- * own manifest's step limit.
+ * contract it speaks. A page drives all three the same way: a contract-1
+ * module is handed what it was built to take, and a run on it still stops at
+ * its own manifest's step limit; a module of contract 1 or 2 is a game of
+ * one seat, whose handle has no remote and whose frames wait for nobody.
  */
 export interface LoadedGame {
   readonly presentUrl: string
@@ -72,6 +77,11 @@ export interface LoadedGame {
   readonly needsMotion: boolean
   /** The game's tick rate. Null for a contract-1 module, which does not say. */
   readonly tickHz: number | null
+  /**
+   * How many seats a run of the game has: 1 for a game played alone, and
+   * for a module of contract 1 or 2, from before seats.
+   */
+  readonly seats: number
   /**
    * Every declared setting at its default, what a platform serves a run.
    * Null for a contract-1 module, which does not say, and for a game with a
@@ -261,6 +271,17 @@ const CONTRACT_MEMBERS: Readonly<
     ["tickHz", "number"],
     ["servedConfig", "plain or null"],
   ],
+  3: [
+    ["mount", "function"],
+    ["prepare", "function"],
+    ["check", "function"],
+    ["requestMotion", "function"],
+    ["manifestHash", "string"],
+    ["needsMotion", "boolean"],
+    ["tickHz", "number"],
+    ["seats", "number"],
+    ["servedConfig", "plain or null"],
+  ],
 }
 
 function isKind(value: unknown, kind: MemberKind): boolean {
@@ -338,6 +359,7 @@ export async function loadGame(
     readonly manifestHash: string
     readonly needsMotion: boolean
     readonly tickHz?: number
+    readonly seats?: number
     readonly servedConfig?: PlainValue | null
     check(): unknown
     requestMotion(): Promise<MotionAccess>
@@ -361,7 +383,9 @@ export async function loadGame(
   const driven =
     contract === 1
       ? contractOne(game as unknown as ContractOneModule)
-      : contractTwo(game as unknown as ContractTwoModule, filesUrl)
+      : contract === 2
+        ? contractTwo(game as unknown as ContractTwoModule, filesUrl)
+        : contractThree(game as unknown as ContractThreeModule, filesUrl)
   return {
     presentUrl: url,
     manifestHash: parts.manifestHash,
@@ -369,6 +393,7 @@ export async function loadGame(
     contract,
     needsMotion: parts.needsMotion,
     tickHz: parts.tickHz ?? null,
+    seats: parts.seats ?? 1,
     servedConfig: parts.servedConfig ?? null,
     requestMotion: () => parts.requestMotion(),
     ...driven,
@@ -376,10 +401,37 @@ export async function loadGame(
 }
 
 interface ContractOneModule {
-  mount(element: HTMLElement, options: ContractOneMountOptions): MountHandle
+  mount(
+    element: HTMLElement,
+    options: ContractOneMountOptions,
+  ): SeatlessMountHandle
 }
 
+/** What a contract-2 module's mount takes: a run with no seats, and its folder. */
+type ContractTwoMountOptions = (
+  | Omit<Extract<RunMount, { mode: "play" }>, "seats" | "handlers">
+  | Omit<Extract<RunMount, { mode: "watch" }>, "handlers">
+) &
+  PrepareOptions & { readonly handlers: SeatlessHandlers }
+
 interface ContractTwoModule {
+  prepare(
+    element: HTMLElement,
+    options: PrepareOptions,
+  ): {
+    readonly ready: Promise<MountError | null>
+    mount(
+      options: Omit<ContractTwoMountOptions, keyof PrepareOptions>,
+    ): SeatlessMountHandle
+    release(): void
+  }
+  mount(
+    element: HTMLElement,
+    options: ContractTwoMountOptions,
+  ): SeatlessMountHandle
+}
+
+interface ContractThreeModule {
   prepare(element: HTMLElement, options: PrepareOptions): PreparedGame
   mount(element: HTMLElement, options: MountOptions): MountHandle
 }
@@ -390,6 +442,7 @@ type Driven = Pick<LoadedGame, "prepare" | "mount">
 function refused(options: RunMount, error: MountError): MountHandle {
   options.handlers.onError(error)
   return {
+    remote: null,
     recorded: () => (options.mode === "watch" ? (options.inputs ?? []) : []),
     stop: () => {},
     destroy: () => {},
@@ -415,26 +468,30 @@ function contractOne(module: ContractOneModule): Driven {
           "this page module speaks contract 1, which cannot be watched without drawing",
       })
     }
-    return module.mount(element, {
-      mode: options.mode,
-      seed: options.seed,
-      config: options.config,
-      tickHz: options.tickHz,
-      maxTicks:
-        options.mode === "watch" ? options.maxTicks : Number.MAX_SAFE_INTEGER,
-      ...(options.mode === "watch" ? { inputs: options.inputs } : {}),
-      expect: options.expect,
-      handlers: options.handlers,
-      ...(options.presentationContext === undefined
-        ? {}
-        : { presentationContext: options.presentationContext }),
-      ...(options.scheduler === undefined
-        ? {}
-        : { scheduler: options.scheduler }),
-      ...(options.environment === undefined
-        ? {}
-        : { environment: options.environment }),
-    })
+    const seatless = seatlessRefusal(options, 1)
+    if (seatless !== null) return refused(options, seatless)
+    return oneSeat(
+      module.mount(element, {
+        mode: options.mode,
+        seed: options.seed,
+        config: options.config,
+        tickHz: options.tickHz,
+        maxTicks:
+          options.mode === "watch" ? options.maxTicks : Number.MAX_SAFE_INTEGER,
+        ...(options.mode === "watch" ? { inputs: options.inputs } : {}),
+        expect: options.expect,
+        handlers: seatlessHandlers(options.handlers),
+        ...(options.presentationContext === undefined
+          ? {}
+          : { presentationContext: options.presentationContext }),
+        ...(options.scheduler === undefined
+          ? {}
+          : { scheduler: options.scheduler }),
+        ...(options.environment === undefined
+          ? {}
+          : { environment: options.environment }),
+      }),
+    )
   }
   return {
     prepare: (element, prepareOptions = {}) => {
@@ -452,12 +509,78 @@ function contractOne(module: ContractOneModule): Driven {
   }
 }
 
-/** A contract-2 module, handed its own version's files folder with every run. */
+/**
+ * A contract-2 module, handed its own version's files folder with every run.
+ * Its game has one seat: a run asking for seats is refused here, its frames
+ * wait for nobody and its handle has no remote.
+ */
 function contractTwo(module: ContractTwoModule, files: string): Driven {
+  const seatless = <T extends RunMount>(run: T) => ({
+    ...run,
+    handlers: seatlessHandlers(run.handlers),
+  })
+  return {
+    prepare: (element, options = {}) => {
+      const prepared = module.prepare(element, { ...options, files })
+      return {
+        ready: prepared.ready,
+        mount: (run) => {
+          const refusal = seatlessRefusal(run, 2)
+          if (refusal !== null) return refused(run, refusal)
+          return oneSeat(prepared.mount(seatless(run)))
+        },
+        release: () => prepared.release(),
+      }
+    },
+    mount: (element, options) => {
+      const refusal = seatlessRefusal(options, 2)
+      if (refusal !== null) return refused(options, refusal)
+      return oneSeat(module.mount(element, { ...seatless(options), files }))
+    },
+  }
+}
+
+/** A contract-3 module, handed its own version's files folder with every run. */
+function contractThree(module: ContractThreeModule, files: string): Driven {
   return {
     prepare: (element, options = {}) =>
       module.prepare(element, { ...options, files }),
     mount: (element, options) => module.mount(element, { ...options, files }),
+  }
+}
+
+/**
+ * Why a module of a contract from before seats cannot play `run`: it asks
+ * for seats, which its game does not have. Null when it does not.
+ */
+function seatlessRefusal(run: RunMount, contract: number): MountError | null {
+  if (run.mode !== "play" || run.seats === undefined) return null
+  return {
+    code: MOUNT_ERROR.SEATS_UNEXPECTED,
+    message: `this page module speaks contract ${contract}, from before seats, so its game has one seat and a played run takes no seats`,
+  }
+}
+
+/** A page's handlers, as a module from before seats calls them. */
+function seatlessHandlers(handlers: MountHandlers): SeatlessHandlers {
+  return {
+    onCheckpoint: (checkpoint) => handlers.onCheckpoint(checkpoint),
+    onFrame: (frame) => handlers.onFrame({ ...frame, waitingForSeat: null }),
+    onEnded: (ended) => handlers.onEnded(ended),
+    onError: (error) => handlers.onError(error),
+    ...(handlers.onNotice === undefined
+      ? {}
+      : { onNotice: (notice) => handlers.onNotice?.(notice) }),
+  }
+}
+
+/** A handle from a module from before seats, as a page on this release reads one. */
+function oneSeat(handle: SeatlessMountHandle): MountHandle {
+  return {
+    remote: null,
+    recorded: () => handle.recorded(),
+    stop: (reason) => handle.stop(reason),
+    destroy: () => handle.destroy(),
   }
 }
 

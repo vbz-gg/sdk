@@ -143,7 +143,7 @@ describe("what a page module says about itself", () => {
   test("its contract, its manifest's hash, and whether it reads tilt", () => {
     const { game } = moduleOf()
     expect(game.contract).toBe(PAGE_MODULE_CONTRACT)
-    expect(game.contract).toBe(2)
+    expect(game.contract).toBe(3)
     expect(game.manifestHash).toBe(HASH)
     expect(game.needsMotion).toBe(false)
     const tilting = moduleOf({
@@ -277,7 +277,11 @@ describe("playing a run", () => {
     keys.press("ArrowLeft", false)
     scheduler.run(100, FRAME_MS)
 
-    expect(seen.frames.at(0)).toEqual({ tick: 1, counters: { presses: 0 } })
+    expect(seen.frames.at(0)).toEqual({
+      tick: 1,
+      counters: { presses: 0 },
+      waitingForSeat: null,
+    })
     expect(seen.frames.at(-1)?.counters).toEqual({ presses: 1 })
     expect(handle.recorded()).toEqual([
       { tick: 30, code: "left", value: 1 },

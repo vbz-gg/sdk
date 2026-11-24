@@ -47,6 +47,7 @@ import {
   CLIENT_ERROR,
   type PlatformClientError,
 } from "../../src/platform/errors"
+import { turnsModule } from "../game/match"
 import {
   type Config,
   Drawn,
@@ -273,6 +274,84 @@ describe("playing a local run", () => {
     run.destroy()
     scheduler.run(400, FRAME_MS)
     expect(seen).toMatchObject({ ended: [], errors: [] })
+  })
+})
+
+describe("a local match of a game of turns", () => {
+  /**
+   * Two pages, each playing its own seat of one match on the same seed,
+   * each handing the other what its seat recorded through `remote`.
+   */
+  test("two pages playing a seat each reach the same recording", async () => {
+    const clocks = [new ManualScheduler(), new ManualScheduler()]
+    const keys = [devices(), devices()]
+    const module = turnsModule()
+    const games = [
+      await loaded(module, clocks[0] as ManualScheduler, keys[0] as never),
+      await loaded(module, clocks[1] as ManualScheduler, keys[1] as never),
+    ]
+    expect(games.map((game) => game.seats)).toEqual([2, 2])
+    const seen = [listener(), listener()]
+    const runs: ReturnType<typeof playLocal>[] = []
+    for (const seat of [0, 1]) {
+      runs.push(
+        playLocal(stage, {
+          game: games[seat] as LoadedGame,
+          seed: "match-1",
+          scripted: "ignore",
+          seats: {
+            local: seat,
+            onLocalInputs: (events, through) => {
+              const other = runs[1 - seat]?.remote
+              other?.append(events)
+              other?.confirm(through)
+            },
+          },
+          ...(seen[seat]?.handlers as ReturnType<typeof listener>["handlers"]),
+        }),
+      )
+    }
+    expect(runs.every((run) => run.remote !== null)).toBe(true)
+    await settle()
+    for (let frame = 0; frame < 3_000; frame += 1) {
+      if (seen.every((one) => one.seen.ended.length > 0)) break
+      for (const seat of [0, 1]) {
+        const press = frame % 20 === seat * 7
+        if (press) keys[seat]?.press("Space", true)
+        clocks[seat]?.advance(FRAME_MS)
+        if (press) keys[seat]?.press("Space", false)
+      }
+    }
+    const [first, second] = seen.map((one) => one.seen)
+    expect(first?.errors).toEqual([])
+    expect(second?.errors).toEqual([])
+    const recording = first?.ended[0]?.recording
+    expect(recording?.seed).toBe("local:match-1")
+    expect(recording?.counters.shots).toBe(6)
+    expect(recording?.inputs.length).toBeGreaterThan(4)
+    expect(second?.ended[0]?.recording).toMatchObject({
+      inputs: recording?.inputs,
+      checkpoints: recording?.checkpoints,
+      endTick: recording?.endTick,
+    })
+    expect(runs[0]?.recorded()).toEqual(recording?.inputs)
+  })
+
+  test("a game of turns played with no seats is refused, and a game of one seat has no remote", async () => {
+    const turns = await loaded(turnsModule(), new ManualScheduler(), devices())
+    const { seen, handlers } = listener()
+    const refused = playLocal(stage, {
+      game: turns,
+      scripted: "ignore",
+      ...handlers,
+    })
+    expect(seen.errors.map((error) => error.code)).toEqual(["E_SEATS_REQUIRED"])
+    expect(refused.remote).toBeNull()
+    const alone = await loaded(moduleOf(), new ManualScheduler(), devices())
+    expect(
+      playLocal(stage, { game: alone, scripted: "ignore", onEnded() {} })
+        .remote,
+    ).toBeNull()
   })
 })
 
