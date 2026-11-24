@@ -372,6 +372,31 @@ template's `site/` is a whole page built this way, which `vbz dev --site`
 runs on your laptop against a stand-in for the platform once its
 `site/config.json` names the ranked mode, and plays locally until then.
 
+## If you use vbz.gg: your game's own server
+
+A studio that runs a server beside its game, for matches or anything else
+the platform does not hold, lets the platform sign players in. The page
+sends the server `platform.playerToken()`, and the server asks the
+platform who that token names with `@vbz-gg/sdk/server` and one of the
+studio's secret keys:
+
+```ts
+import { createServerClient } from "@vbz-gg/sdk/server"
+
+const vbz = createServerClient({
+  apiOrigin: "https://api.vbz.gg",
+  secretKey: secrets.VBZ_STUDIO_KEY, // vbz_sk_..., never in a page
+})
+const { player, expiresAt } = await vbz.verifyPlayer(tokenFromThePage)
+```
+
+`player.id` is the player ID your studio sees and `player.displayName` the
+player's name; no address. A token that is not good at your studio, for
+any reason (expired, signed out, another studio's), is one refusal,
+`E_PLAYER_TOKEN_INVALID`. The client takes the key only from what you pass,
+sends it over https, or http to this machine, with no `Origin` header, and
+refuses to be made on a page.
+
 ## If you use vbz.gg: typing your calls to the platform
 
 `@vbz-gg/sdk/api` holds the shapes of every route a game's page or a build

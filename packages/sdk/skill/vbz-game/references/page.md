@@ -215,6 +215,27 @@ signInButton.onclick = () => platform.signIn() // from the click, nothing awaite
 - `signOut()` forgets the player on this page. No route signs a player out;
   the sign-in's own page does that.
 
+## If you use vbz.gg: the studio's own server
+
+A studio's server beside the game, such as one that runs matches, signs
+nobody in: the page sends it `platform.playerToken()`, the kept player's
+token or null, read each time because every run start renews it, and the
+server asks the platform who the token names with `@vbz-gg/sdk/server`:
+
+```ts
+import { createServerClient } from "@vbz-gg/sdk/server"
+
+const vbz = createServerClient({ apiOrigin: "https://api.vbz.gg", secretKey })
+const { player } = await vbz.verifyPlayer(token) // this studio's player ID and name
+```
+
+- The secret key stays on the server. The client refuses to be made where
+  a page's `document` is, and sends the key with no `Origin` header, only
+  over https or to this machine.
+- Every way a token fails, expired, signed out, another studio's, a
+  disabled player or studio, is one refusal, `E_PLAYER_TOKEN_INVALID`: the
+  page signs the player in again.
+
 ## If you use vbz.gg: a run
 
 ```ts

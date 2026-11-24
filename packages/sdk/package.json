@@ -55,6 +55,11 @@
       "development": "./src/serve/index.ts",
       "types": "./dist/serve/index.d.ts",
       "default": "./dist/serve/index.js"
+    },
+    "./server": {
+      "development": "./src/server/index.ts",
+      "types": "./dist/server/index.d.ts",
+      "default": "./dist/server/index.js"
     }
   },
   "peerDependencies": {
